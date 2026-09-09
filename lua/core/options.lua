@@ -62,7 +62,7 @@ local function load_options()
 		smoothscroll = true,
 		spellfile = global.vim_path .. "/spell/en.utf-8.add",
 		splitbelow = true,
-		splitkeep = "screen",
+		splitkeep = "cursor",
 		splitright = true,
 		startofline = false,
 		swapfile = false,

@@ -9,7 +9,7 @@ return function()
 			local status_color = modified and "#af3a3a" or nil
 
 			return {
-				{ " " .. filename .. " ", guifg = "#aaaaaa" },
+				{ " " .. filename .. " ", guifg = "#888888" },
 				{ status .. " ", guifg = status_color },
 				{ " " .. win_num .. " ", guifg = "#000000", guibg = "#974b46" },
 			}
