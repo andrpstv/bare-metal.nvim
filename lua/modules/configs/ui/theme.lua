@@ -1,6 +1,5 @@
 return function()
 	local settings = require("core.settings")
-	vim.cmd.colorscheme(settings.colorscheme)
 
 	if settings.transparent_background then
 		local ok, transparent = pcall(require, "transparent")

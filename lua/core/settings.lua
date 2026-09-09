@@ -97,7 +97,7 @@ settings["palette_overwrite"] = {
 
 -- Set the colorscheme here.
 ---@type string
-settings["colorscheme"] = "metal"
+settings["colorscheme"] = "khold"
 
 -- Set to true if your terminal supports a transparent background.
 ---@type boolean
