@@ -8,6 +8,13 @@ local mappings = {
 	builtins = {
 		-- Builtins: Buffer
 		["n|<leader>bn"] = map_cu("enew"):with_noremap():with_silent():with_desc("buffer: New"),
+		["n|[b"] = map_cr("bprevious"):with_noremap():with_silent():with_desc("buffer: Previous"),
+		["n|]b"] = map_cr("bnext"):with_noremap():with_silent():with_desc("buffer: Next"),
+
+		-- Builtins: Split
+		["n|<leader>sv"] = map_cr("vsplit"):with_noremap():with_silent():with_desc("split: Vertical"),
+		["n|<leader>sh"] = map_cr("split"):with_noremap():with_silent():with_desc("split: Horizontal"),
+		["n|<leader>sc"] = map_cr("close"):with_noremap():with_silent():with_desc("split: Close"),
 
 		-- Builtins: Terminal
 		["t|<C-w>h"] = map_cmd("<Cmd>wincmd h<CR>"):with_silent():with_noremap():with_desc("window: Focus left"),

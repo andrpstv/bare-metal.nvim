@@ -181,3 +181,30 @@ vim.api.nvim_create_autocmd("BufWritePre", {
 		vim.lsp.buf.format({ async = false })
 	end,
 })
+
+-- Make Go module/stdlib files readonly (prevent accidental edits)
+local function is_go_lib(file)
+	return file:match("/go/pkg/mod/") or file:match("/opt/homebrew/Cellar/go/") or file:match("/opt/homebrew/opt/go/")
+end
+
+vim.api.nvim_create_autocmd({ "BufReadPost", "BufEnter" }, {
+	callback = function()
+		local file = vim.api.nvim_buf_get_name(0)
+		if is_go_lib(file) then
+			vim.bo.modifiable = false
+			vim.bo.readonly = true
+			vim.bo.buftype = "nofile"
+		end
+	end,
+})
+
+-- Block saving Go module/stdlib files
+vim.api.nvim_create_autocmd("BufWritePre", {
+	callback = function()
+		local file = vim.api.nvim_buf_get_name(0)
+		if is_go_lib(file) then
+			vim.notify("Cannot save Go library files", vim.log.levels.ERROR)
+			return false
+		end
+	end,
+})

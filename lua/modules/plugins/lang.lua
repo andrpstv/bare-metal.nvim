@@ -57,7 +57,7 @@ lang["uga-rosa/translate.nvim"] = {
 	lazy = true,
 	cmd = { "Translate" },
 	keys = {
-		{ "<leader>tr", ":Translate ru<CR>", mode = "n", desc = "Translate word to Russian" },
+		{ "<leader>tr", "<cmd>Translate ru<CR>", mode = "n", desc = "Translate word to Russian" },
 		{ "<leader>tr", ":Translate ru<CR>", mode = "v", desc = "Translate selection to Russian" },
 	},
 	config = function()
