@@ -47,11 +47,11 @@ return function()
 			},
 		},
 		colors = {
-			error = { "DiagnosticError", "ErrorMsg", "#DC2626" },
-			warning = { "DiagnosticWarn", "WarningMsg", "#FBBF24" },
-			info = { "DiagnosticInfo", "#2563EB" },
-			hint = { "DiagnosticHint", "#F5C2E7" },
-			default = { "Conditional", "#7C3AED" },
+			error = { "DiagnosticError", "ErrorMsg", "#af3a3a" },
+			warning = { "DiagnosticWarn", "WarningMsg", "#aaaaaa" },
+			info = { "DiagnosticInfo", "#999999" },
+			hint = { "DiagnosticHint", "#888888" },
+			default = { "Conditional", "#888888" },
 		},
 	})
 end

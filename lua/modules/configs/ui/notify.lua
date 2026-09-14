@@ -13,7 +13,7 @@ return function()
 		timeout = 2000,
 		minimum_width = 50,
 		-- если включена прозрачность, делаем фон полностью прозрачным, иначе ставим мягкий цвет
-		background_colour = settings.transparent_background and "#00000000" or "#1a1b26",
+		background_colour = settings.transparent_background and "#00000000" or "#0a0a0a",
 		icons = {
 			ERROR = icons.diagnostics.Error,
 			WARN = icons.diagnostics.Warning,

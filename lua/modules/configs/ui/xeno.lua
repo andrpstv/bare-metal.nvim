@@ -1,4 +1,5 @@
 return function()
+if (vim.g.colors_name or ""):find("khold") then return end
 local xeno = require("xeno")
 
 xeno.color("rust", "#b5622f")

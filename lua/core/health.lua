@@ -76,6 +76,43 @@ local function check_system()
     end
 end
 
+local function check_go_env()
+    vim.health.start("Go Environment")
+    if vim.fn.executable("go") ~= 1 then
+        vim.health.info("go not installed, skipping")
+        return
+    end
+
+    -- GOPATH
+    local gopath = vim.fn.system("go env GOPATH 2>&1"):match("^/.*%S")
+    if gopath and gopath ~= "" then
+        vim.health.ok("GOPATH: " .. gopath)
+    else
+        vim.health.warn("GOPATH not set or invalid")
+        add("warn", "go: GOPATH not set")
+    end
+
+    -- GOROOT
+    local goroot = vim.fn.system("go env GOROOT 2>&1"):match("^/.*%S")
+    if goroot and goroot ~= "" then
+        vim.health.ok("GOROOT: " .. goroot)
+    else
+        vim.health.warn("GOROOT not set")
+    end
+
+    -- Go version
+    local goversion = vim.fn.system("go version 2>&1"):match("go(%S+)")
+    if goversion then
+        vim.health.ok("version: " .. goversion)
+    end
+
+    -- GOPROXY (important for China/behind firewall)
+    local goproxy = vim.fn.system("go env GOPROXY 2>&1"):match("^%S+")
+    if goproxy and goproxy ~= "https://proxy.golang.org,direct" then
+        vim.health.info("GOPROXY: " .. goproxy)
+    end
+end
+
 local function check_mason()
     vim.health.start("Mason")
     local ok, registry = pcall(require, "mason-registry")
@@ -120,32 +157,35 @@ local function check_mason_binaries()
     end
 
     local settings = require("core.settings")
-    local critical = {}
+    local all = {}
     for _, list in ipairs({ settings.lsp_deps, settings.none_ls_deps, settings.dap_deps }) do
         for _, name in ipairs(list) do
-            table.insert(critical, name)
+            table.insert(all, name)
         end
     end
 
     local broken = {}
-    for _, name in ipairs(critical) do
+    for _, name in ipairs(all) do
         local pkg_ok, pkg = pcall(registry.get_package, name)
         if pkg_ok and pkg:is_installed() then
-            local bin_ok, path = pcall(function() return pkg:get_install_path() end)
-            if bin_ok and path then
-                -- try to find actual binary name
-                local bin_name = name
-                local actual = vim.fn.executable(bin_name)
-                if actual ~= 1 then
-                    table.insert(broken, name)
+            -- Try common binary names
+            local bin_names = { name, name .. ".exe" }
+            local found = false
+            for _, bin in ipairs(bin_names) do
+                if vim.fn.executable(bin) == 1 then
+                    found = true
+                    break
                 end
+            end
+            if not found then
+                table.insert(broken, name)
             end
         end
     end
 
     if #broken > 0 then
         vim.health.warn("installed but binary not in PATH: " .. table.concat(broken, ", "))
-        add("warn", "broken mason binaries: " .. table.concat(broken, ", "))
+        add("warn", "mason binaries broken: " .. table.concat(broken, ", "))
     else
         vim.health.ok("all installed binaries accessible")
     end
@@ -250,6 +290,88 @@ local function check_plugins()
     end
 end
 
+local function check_providers()
+    vim.health.start("Providers")
+
+    -- Python
+    if has("python3") then
+        local out = vim.fn.system("python3 -c 'import pynvim' 2>&1")
+        if not out:match("No module") and not out:match("ModuleNotFoundError") then
+            vim.health.ok("python3 + pynvim")
+        else
+            vim.health.warn("python3 found but pynvim missing")
+            add("warn", "python: pynvim not installed")
+        end
+    else
+        vim.health.info("python3 not found (optional)")
+    end
+
+    -- Node
+    if has("node") then
+        vim.health.ok("node.js")
+    else
+        vim.health.info("node.js not found (optional)")
+    end
+
+    -- Clipboard
+    if vim.fn.has("clipboard") == 1 then
+        vim.health.ok("clipboard")
+    else
+        vim.health.warn("clipboard not available")
+        add("warn", "clipboard not available")
+    end
+end
+
+local function check_shell()
+    vim.health.start("Shell")
+    local is_windows = vim.fn.has("win32") == 1
+
+    if is_windows then
+        local shell = vim.o.shell
+        if shell:match("powershell") or shell:match("pwsh") then
+            vim.health.ok("shell: " .. shell)
+        else
+            vim.health.warn("shell: " .. shell .. " (powershell recommended)")
+            add("warn", "shell: not using powershell")
+        end
+    else
+        vim.health.ok("shell: " .. vim.o.shell)
+    end
+end
+
+local function check_git_config()
+    vim.health.start("Git Config")
+    if vim.fn.executable("git") ~= 1 then
+        vim.health.info("git not installed, skipping")
+        return
+    end
+
+    local diff_old = vim.fn.system("git config --global color.diff.old 2>/dev/null"):match("^%S+")
+    local diff_new = vim.fn.system("git config --global color.diff.new 2>/dev/null"):match("^%S+")
+
+    if diff_old and diff_new then
+        vim.health.ok("diff colors: " .. diff_new .. " / " .. diff_old)
+    else
+        vim.health.warn("git diff colors not set (lazygit will use defaults)")
+        add("warn", "git: diff colors not configured")
+    end
+end
+
+local function check_lazygit_config()
+    vim.health.start("Lazygit Config")
+    if has("lazygit") then
+        local config_path = vim.fn.expand("~/.config/lazygit/config.yml")
+        if vim.fn.filereadable(config_path) == 1 then
+            vim.health.ok("config found: " .. config_path)
+        else
+            vim.health.warn("config not found at " .. config_path)
+            add("warn", "lazygit: no config file")
+        end
+    else
+        vim.health.info("lazygit not installed")
+    end
+end
+
 local function check_startup()
     vim.health.start("Startup")
     local t = vim.g.start_time
@@ -272,12 +394,17 @@ M.check = function()
     vim.health.start("=== MyConfig ===")
 
     check_system()
+    check_go_env()
     check_mason()
     check_mason_binaries()
     check_lsp()
     check_theme()
     check_keymaps()
     check_plugins()
+    check_providers()
+    check_shell()
+    check_git_config()
+    check_lazygit_config()
     check_startup()
 
     print_summary()

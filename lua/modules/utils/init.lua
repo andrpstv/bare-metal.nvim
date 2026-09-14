@@ -57,8 +57,42 @@ local function init_palette()
 	end
 
 	if not palette then
-		palette = (vim.g.colors_name or ""):find("catppuccin") and require("catppuccin.palettes").get_palette()
-			or {
+		local colors_name = vim.g.colors_name or ""
+		if colors_name:find("catppuccin") then
+			palette = require("catppuccin.palettes").get_palette()
+		elseif colors_name:find("khold") or colors_name:find("black%-metal") then
+			palette = {
+				rosewater = "#aaaaaa",
+				flamingo = "#974b46",
+				mauve = "#888888",
+				pink = "#974b46",
+				red = "#af3a3a",
+				maroon = "#974b46",
+				peach = "#888888",
+				yellow = "#888888",
+				green = "#5f8787",
+				sapphire = "#888888",
+				blue = "#888888",
+				sky = "#5f8787",
+				teal = "#5f8787",
+				lavender = "#888888",
+
+				text = "#aaaaaa",
+				subtext1 = "#999999",
+				subtext0 = "#888888",
+				overlay2 = "#777777",
+				overlay1 = "#666666",
+				overlay0 = "#555555",
+				surface2 = "#444444",
+				surface1 = "#333333",
+				surface0 = "#222222",
+
+				base = "#0a0a0a",
+				mantle = "#080808",
+				crust = "#050505",
+			}
+		else
+			palette = {
 				rosewater = "#DC8A78",
 				flamingo = "#DD7878",
 				mauve = "#CBA6F7",
@@ -88,6 +122,7 @@ local function init_palette()
 				mantle = "#1C1C19",
 				crust = "#161320",
 			}
+		end
 
 		palette = vim.tbl_extend("force", { none = "NONE" }, palette, require("core.settings").palette_overwrite)
 	end

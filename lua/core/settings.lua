@@ -130,7 +130,6 @@ settings["lsp_inlayhints"] = true
 ---@type string[]
 settings["lsp_deps"] = {
 	"bashls",
-	"jsonls",
 	"lua_ls",
 	"gopls",
 }
@@ -171,7 +170,6 @@ settings["treesitter_deps"] = {
 	"make",
 	"markdown",
 	"markdown_inline",
-	"python",
 	"rust",
 	"typescript",
 	"vimdoc",

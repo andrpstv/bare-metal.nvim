@@ -106,9 +106,16 @@ local git_sync_colors = function()
 
 	local green = settings.palette_overwrite.green or "#5f8787"
 	local red = settings.palette_overwrite.red or "#974b46"
+	local is_windows = vim.fn.has("win32") == 1
 
-	-- git diff colors
-	local gitconfig = vim.fn.expand("~/.gitconfig")
+	-- git config path
+	local gitconfig
+	if is_windows then
+		gitconfig = vim.fn.expand("$USERPROFILE") .. "/.gitconfig"
+	else
+		gitconfig = vim.fn.expand("~/.gitconfig")
+	end
+
 	local content = ""
 	if vim.fn.filereadable(gitconfig) == 1 then
 		content = vim.fn.readfile(gitconfig, "\n")
@@ -129,8 +136,14 @@ local git_sync_colors = function()
 		end
 	end
 
-	-- lazygit config
-	local lg_dir = vim.fn.expand("~/.config/lazygit")
+	-- lazygit config path
+	local lg_dir
+	if is_windows then
+		lg_dir = vim.fn.expand("$APPDATA") .. "/lazygit"
+	else
+		lg_dir = vim.fn.expand("~/.config/lazygit")
+	end
+
 	if vim.fn.isdirectory(lg_dir) == 0 then
 		vim.fn.mkdir(lg_dir, "p")
 	end

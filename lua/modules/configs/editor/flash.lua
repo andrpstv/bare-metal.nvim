@@ -2,7 +2,7 @@ return function()
 	vim.api.nvim_set_hl(
 		0,
 		"FlashLabel",
-		{ underline = true, bold = true, fg = "Orange", bg = "NONE", ctermfg = "Red", ctermbg = "NONE" }
+		{ underline = true, bold = true, fg = "#af3a3a", bg = "NONE", ctermfg = "Red", ctermbg = "NONE" }
 	)
 
 	require("modules.utils").load_plugin("flash", {
