@@ -99,6 +99,74 @@ You're recommended to install PowerShell for better experience.]],
 	end
 end
 
+local git_sync_colors = function()
+	if vim.fn.executable("git") ~= 1 then
+		return
+	end
+
+	local green = settings.palette_overwrite.green or "#5f8787"
+	local red = settings.palette_overwrite.red or "#974b46"
+
+	-- git diff colors
+	local gitconfig = vim.fn.expand("~/.gitconfig")
+	local content = ""
+	if vim.fn.filereadable(gitconfig) == 1 then
+		content = vim.fn.readfile(gitconfig, "\n")
+		if type(content) == "table" then
+			content = table.concat(content, "\n")
+		end
+	end
+
+	if not content:match("%[color \"diff\"%]") then
+		local snippet = string.format(
+			'\n[color "diff"]\n\told = %s\n\tnew = %s\n\tfuncold = %s\n\tfuncnew = %s',
+			red, green, red, green
+		)
+		local f = io.open(gitconfig, "a")
+		if f then
+			f:write(snippet)
+			f:close()
+		end
+	end
+
+	-- lazygit config
+	local lg_dir = vim.fn.expand("~/.config/lazygit")
+	if vim.fn.isdirectory(lg_dir) == 0 then
+		vim.fn.mkdir(lg_dir, "p")
+	end
+	local lg_config = lg_dir .. "/config.yml"
+	if vim.fn.filereadable(lg_config) == 0 then
+		local yaml = string.format(
+			[[os:
+  editPreset: "nvim-remote"
+gui:
+  theme:
+    activeBorderColor:
+      - "%s"
+      - "bold"
+    inactiveBorderColor:
+      - "#589ed7"
+    selectedLineBgColor:
+      - "#2d3f76"
+    unstagedChangesColor:
+      - "%s"
+  nerdFontsVersion: "3"
+git:
+  diff:
+    colorAdded: "%s"
+    colorModified: "#888888"
+    colorRemoved: "%s"
+]],
+			green, red, green, red
+		)
+		local f = io.open(lg_config, "w")
+		if f then
+			f:write(yaml)
+			f:close()
+		end
+	end
+end
+
 local load_core = function()
 	createdir()
 	leader_map()
@@ -107,6 +175,7 @@ local load_core = function()
 	neovide_config()
 	clipboard_config()
 	shell_config()
+	git_sync_colors()
 
 	require("core.options")
 	require("core.event")
