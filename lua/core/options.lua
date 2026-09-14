@@ -118,12 +118,15 @@ local function load_options()
 
 	-- Custom python provider
 	local conda_prefix = vim.env.CONDA_PREFIX
+	local is_win = vim.fn.has("win32") == 1
+	local python_bin = is_win and "/python.exe" or "/bin/python"
+	local python3_bin = is_win and "/python.exe" or "/bin/python"
 	if not isempty(conda_prefix) then
-		vim.g.python_host_prog = use_if_defined(vim.g.python_host_prog, conda_prefix .. "/bin/python")
-		vim.g.python3_host_prog = use_if_defined(vim.g.python3_host_prog, conda_prefix .. "/bin/python")
+		vim.g.python_host_prog = use_if_defined(vim.g.python_host_prog, conda_prefix .. python_bin)
+		vim.g.python3_host_prog = use_if_defined(vim.g.python3_host_prog, conda_prefix .. python3_bin)
 	else
 		vim.g.python_host_prog = use_if_defined(vim.g.python_host_prog, "python")
-		vim.g.python3_host_prog = use_if_defined(vim.g.python3_host_prog, "python3")
+		vim.g.python3_host_prog = use_if_defined(vim.g.python3_host_prog, is_win and "python" or "python3")
 	end
 
 	for name, value in pairs(require("modules.utils").extend_config(options, "user.options")) do

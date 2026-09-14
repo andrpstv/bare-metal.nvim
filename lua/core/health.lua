@@ -1,5 +1,7 @@
 local M = {}
 
+local is_windows = vim.fn.has("win32") == 1
+
 local results = { errors = {}, warnings = {}, infos = {} }
 
 local function has(cmd)
@@ -45,7 +47,7 @@ end
 local function check_system()
     vim.health.start("System")
     local required = { "git", "curl", "unzip" }
-    local optional = { "go", "cargo", "python3", "node", "lazygit" }
+    local optional = { "go", "cargo", "python3", "python", "node", "lazygit" }
 
     local missing_req = {}
     for _, cmd in ipairs(required) do
@@ -84,7 +86,7 @@ local function check_go_env()
     end
 
     -- GOPATH
-    local gopath = vim.fn.system("go env GOPATH 2>&1"):match("^/.*%S")
+    local gopath = vim.fn.system("go env GOPATH 2>&1"):match("^%S+")
     if gopath and gopath ~= "" then
         vim.health.ok("GOPATH: " .. gopath)
     else
@@ -93,7 +95,7 @@ local function check_go_env()
     end
 
     -- GOROOT
-    local goroot = vim.fn.system("go env GOROOT 2>&1"):match("^/.*%S")
+    local goroot = vim.fn.system("go env GOROOT 2>&1"):match("^%S+")
     if goroot and goroot ~= "" then
         vim.health.ok("GOROOT: " .. goroot)
     else
@@ -294,16 +296,18 @@ local function check_providers()
     vim.health.start("Providers")
 
     -- Python
-    if has("python3") then
-        local out = vim.fn.system("python3 -c 'import pynvim' 2>&1")
+    local python_cmd = has("python3") and "python3" or (has("python") and "python" or nil)
+    if python_cmd then
+        local redirect = is_windows and "2>NUL" or "2>&1"
+        local out = vim.fn.system(python_cmd .. " -c 'import pynvim' " .. redirect)
         if not out:match("No module") and not out:match("ModuleNotFoundError") then
-            vim.health.ok("python3 + pynvim")
+            vim.health.ok(python_cmd .. " + pynvim")
         else
-            vim.health.warn("python3 found but pynvim missing")
+            vim.health.warn(python_cmd .. " found but pynvim missing")
             add("warn", "python: pynvim not installed")
         end
     else
-        vim.health.info("python3 not found (optional)")
+        vim.health.info("python not found (optional)")
     end
 
     -- Node
@@ -346,8 +350,9 @@ local function check_git_config()
         return
     end
 
-    local diff_old = vim.fn.system("git config --global color.diff.old 2>/dev/null"):match("^%S+")
-    local diff_new = vim.fn.system("git config --global color.diff.new 2>/dev/null"):match("^%S+")
+    local redirect = is_windows and "2>NUL" or "2>/dev/null"
+    local diff_old = vim.fn.system("git config --global color.diff.old " .. redirect):match("^%S+")
+    local diff_new = vim.fn.system("git config --global color.diff.new " .. redirect):match("^%S+")
 
     if diff_old and diff_new then
         vim.health.ok("diff colors: " .. diff_new .. " / " .. diff_old)
@@ -360,7 +365,12 @@ end
 local function check_lazygit_config()
     vim.health.start("Lazygit Config")
     if has("lazygit") then
-        local config_path = vim.fn.expand("~/.config/lazygit/config.yml")
+        local config_path
+        if is_windows then
+            config_path = vim.fn.expand("$APPDATA") .. "/lazygit/config.yml"
+        else
+            config_path = vim.fn.expand("~/.config/lazygit/config.yml")
+        end
         if vim.fn.filereadable(config_path) == 1 then
             vim.health.ok("config found: " .. config_path)
         else

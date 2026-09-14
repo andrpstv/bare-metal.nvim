@@ -184,7 +184,11 @@ vim.api.nvim_create_autocmd("BufWritePre", {
 
 -- Make Go module/stdlib files readonly (prevent accidental edits)
 local function is_go_lib(file)
-	return file:match("/go/pkg/mod/") or file:match("/opt/homebrew/Cellar/go/") or file:match("/opt/homebrew/opt/go/")
+	return file:match("/go/pkg/mod/")
+		or file:match("/opt/homebrew/Cellar/go/")
+		or file:match("/opt/homebrew/opt/go/")
+		or file:match("\\go\\pkg\\mod\\")
+		or file:match("Program Files\\Go\\")
 end
 
 vim.api.nvim_create_autocmd({ "BufReadPost", "BufEnter" }, {
