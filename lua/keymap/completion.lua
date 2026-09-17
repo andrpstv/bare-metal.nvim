@@ -19,7 +19,8 @@ local M = {}
 function M.lsp(buf)
 	local map = {
 		-- LSP-related keymaps, ONLY effective in buffers with LSP(s) attached.
-		-- Пикер — fzf-lua, действия — builtin vim.lsp / trouble.
+		-- Списки результатов — встроенка + quickfix (дефолты grr/gri/gra тоже работают).
+		-- Пикер fzf — только там, где нужен выбор с превью (definitions, symbols).
 		["n|<leader>li"] = map_cr("LspInfo"):with_silent():with_buffer(buf):with_desc("lsp: Info"),
 		["n|<leader>lr"] = map_cr("LspRestart"):with_silent():with_buffer(buf):with_nowait():with_desc("lsp: Restart"),
 		["n|go"] = map_cr("Trouble symbols toggle win.position=right")
@@ -67,11 +68,11 @@ function M.lsp(buf)
 			:with_buffer(buf)
 			:with_desc("lsp: Show doc"),
 		["nv|ga"] = map_callback(function()
-				_fzf("lsp_code_actions")
+				vim.lsp.buf.code_action()
 			end)
 			:with_silent()
 			:with_buffer(buf)
-			:with_desc("lsp: Code action for cursor"),
+			:with_desc("lsp: Code action (vim.ui.select)"),
 		["n|gd"] = map_callback(function()
 				_fzf("lsp_definitions", { jump1 = true })
 			end)
@@ -85,17 +86,17 @@ function M.lsp(buf)
 			:with_buffer(buf)
 			:with_desc("lsp: Goto declaration"),
 		["n|gh"] = map_callback(function()
-				_fzf("lsp_references")
+				vim.lsp.buf.references()
 			end)
 			:with_silent()
 			:with_buffer(buf)
-			:with_desc("lsp: Show references"),
+			:with_desc("lsp: References to quickfix"),
 		["n|gm"] = map_callback(function()
-				_fzf("lsp_implementations")
+				vim.lsp.buf.implementation()
 			end)
 			:with_silent()
 			:with_buffer(buf)
-			:with_desc("lsp: Show implementations"),
+			:with_desc("lsp: Implementations to quickfix"),
 		["n|gci"] = map_callback(function()
 				_fzf("lsp_incoming_calls")
 			end)
