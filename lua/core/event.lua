@@ -47,9 +47,15 @@ vim.api.nvim_create_autocmd("LspAttach", {
 			-- LSP Keymaps
 			mapping.lsp(event.buf)
 
+			local client = vim.lsp.get_client_by_id(event.data.client_id)
+
+			-- Встроенное автодополнение вместо nvim-cmp
+			if client and client:supports_method("textDocument/completion") then
+				vim.lsp.completion.enable(true, event.data.client_id, event.buf, { autotrigger = true })
+			end
+
 			-- LSP Inlay Hints
 			local inlayhints_enabled = require("core.settings").lsp_inlayhints
-			local client = vim.lsp.get_client_by_id(event.data.client_id)
 			if client and client.server_capabilities.inlayHintProvider ~= nil then
 				vim.lsp.inlay_hint.enable(inlayhints_enabled == true, { bufnr = event.buf })
 			end

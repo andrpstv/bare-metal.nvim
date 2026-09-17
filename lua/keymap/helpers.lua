@@ -1,9 +1,24 @@
 _G._command_panel = function()
-	require("telescope.builtin").keymaps({
-		lhs_filter = function(lhs)
-			return not string.find(lhs, "Þ")
-		end,
-	})
+	_G._fzf("commands")
+end
+
+-- Безопасный вызов fzf-lua: догружает плагин через lazy, если он ещё спит.
+-- Без этого require("fzf-lua") падает с "module not found" до первой загрузки.
+---@param fn string @имя пикера, например "files"
+---@param opts table|fun(fzf: table):table|nil
+_G._fzf = function(fn, opts)
+	pcall(function()
+		require("lazy").load({ plugins = { "fzf-lua" } })
+	end)
+	local ok, fzf = pcall(require, "fzf-lua")
+	if not ok or type(fzf[fn]) ~= "function" then
+		vim.notify("[fzf] picker unavailable: " .. fn, vim.log.levels.ERROR, { title = "fzf" })
+		return
+	end
+	if type(opts) == "function" then
+		opts = opts(fzf)
+	end
+	fzf[fn](opts)
 end
 
 _G._flash_esc_or_noh = function()
@@ -15,34 +30,6 @@ _G._flash_esc_or_noh = function()
 	else
 		pcall(vim.cmd.noh)
 	end
-end
-
-_G._telescope_collections = function(opts)
-	local tabs = require("search.tabs")
-	local actions = require("telescope.actions")
-	local state = require("telescope.actions.state")
-	local pickers = require("telescope.pickers")
-	local finders = require("telescope.finders")
-	local conf = require("telescope.config").values
-	local collections = vim.tbl_keys(tabs.collections)
-
-	-- build and launch picker
-	opts = opts or {}
-	pickers
-		.new(opts, {
-			prompt_title = "Telescope Collections",
-			finder = finders.new_table({ results = collections }),
-			sorter = conf.generic_sorter(opts),
-			attach_mappings = function(bufnr)
-				actions.select_default:replace(function()
-					actions.close(bufnr)
-					local selection = state.get_selected_entry()
-					require("search").open({ collection = selection[1] })
-				end)
-				return true
-			end,
-		})
-		:find()
 end
 
 _G._toggle_inlayhint = function()
@@ -63,50 +50,4 @@ _G._toggle_virtuallines = function()
 		vim.log.levels.INFO,
 		{ title = "LSP Diagnostic" }
 	)
-end
-
-local _lazygit = nil
-_G._toggle_lazygit = function()
-	if vim.fn.executable("lazygit") == 1 then
-		if not _lazygit then
-			_lazygit = require("toggleterm.terminal").Terminal:new({
-				cmd = "lazygit",
-				direction = "float",
-				close_on_exit = true,
-				hidden = true,
-			})
-		end
-		_lazygit:toggle()
-	else
-		vim.notify("Command [lazygit] not found!", vim.log.levels.ERROR, { title = "toggleterm.nvim" })
-	end
-end
-
-_G._select_chat_model = function()
-	local actions = require("telescope.actions")
-	local action_state = require("telescope.actions.state")
-	local finder = require("telescope.finders")
-	local pickers = require("telescope.pickers")
-	local type = require("telescope.themes").get_dropdown()
-	local conf = require("telescope.config").values
-	local models = require("core.settings").chat_models
-	local current_model = models[1]
-
-	pickers
-		.new(type, {
-			prompt_title = "(CodeCompanion) Select Model",
-			finder = finder.new_table({ results = models }),
-			sorter = conf.generic_sorter(type),
-			attach_mappings = function(bufnr)
-				actions.select_default:replace(function()
-					actions.close(bufnr)
-					current_model = action_state.get_selected_entry()[1]
-					vim.g.current_chat_model = current_model
-					vim.notify("Model selected: " .. current_model, vim.log.levels.INFO, { title = "CodeCompanion" })
-				end)
-
-				return true
-			end,
-		})
-		:find()
 end

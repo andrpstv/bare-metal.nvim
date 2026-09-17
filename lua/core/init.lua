@@ -216,6 +216,5 @@ local load_core = function()
 	vim.api.nvim_set_option_value("background", settings.background, {})
 end
 
-vim.g.loaded_netrw = 1
-vim.g.loaded_netrwPlugin = 1
+-- netrw НЕ отключаем: встроенный проводник доступен через :Ex / :Vex.
 load_core()

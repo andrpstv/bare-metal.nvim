@@ -60,87 +60,9 @@ local mappings = {
 		["n|<leader>o"] = map_cr("setlocal spell! spelllang=en_us"):with_desc("edit: Toggle spell check"),
 	},
 	plugins = {
-		-- Plugin: persisted.nvim
-		["n|<leader>ss"] = map_cu("SessionSave"):with_noremap():with_silent():with_desc("session: Save"),
-		["n|<leader>sl"] = map_cu("SessionLoad"):with_noremap():with_silent():with_desc("session: Load current"),
-		["n|<leader>sd"] = map_cu("SessionDelete"):with_noremap():with_silent():with_desc("session: Delete"),
-
-		-- Plugin: comment.nvim
-		["n|gcc"] = map_callback(function()
-				return vim.v.count == 0 and et("<Plug>(comment_toggle_linewise_current)")
-					or et("<Plug>(comment_toggle_linewise_count)")
-			end)
-			:with_silent()
-			:with_noremap()
-			:with_expr()
-			:with_desc("edit: Toggle comment for line"),
-		["n|gbc"] = map_callback(function()
-				return vim.v.count == 0 and et("<Plug>(comment_toggle_blockwise_current)")
-					or et("<Plug>(comment_toggle_blockwise_count)")
-			end)
-			:with_silent()
-			:with_noremap()
-			:with_expr()
-			:with_desc("edit: Toggle comment for block"),
-		["n|gc"] = map_cmd("<Plug>(comment_toggle_linewise)")
-			:with_silent()
-			:with_noremap()
-			:with_desc("edit: Toggle comment for line with operator"),
-		["n|gb"] = map_cmd("<Plug>(comment_toggle_blockwise)")
-			:with_silent()
-			:with_noremap()
-			:with_desc("edit: Toggle comment for block with operator"),
-		["x|gc"] = map_cmd("<Plug>(comment_toggle_linewise_visual)")
-			:with_silent()
-			:with_noremap()
-			:with_desc("edit: Toggle comment for line with selection"),
-		["x|gb"] = map_cmd("<Plug>(comment_toggle_blockwise_visual)")
-			:with_silent()
-			:with_noremap()
-			:with_desc("edit: Toggle comment for block with selection"),
-
-		-- Plugin: diffview.nvim
-		["n|<leader>gd"] = map_cr("DiffviewOpen"):with_silent():with_noremap():with_desc("git: Show diff"),
-		["n|<leader>gD"] = map_cr("DiffviewClose"):with_silent():with_noremap():with_desc("git: Close diff"),
-
-		-- Plugin: hop.nvim
-		["nv|<leader>w"] = map_cmd("<Cmd>HopWordMW<CR>"):with_noremap():with_desc("jump: Goto word"),
-		["nv|<leader>j"] = map_cmd("<Cmd>HopLineMW<CR>"):with_noremap():with_desc("jump: Goto line"),
-		["nv|<leader>k"] = map_cmd("<Cmd>HopLineMW<CR>"):with_noremap():with_desc("jump: Goto line"),
-		["nv|<leader>c"] = map_cmd("<Cmd>HopChar1MW<CR>"):with_noremap():with_desc("jump: Goto one char"),
-		["nv|<leader>C"] = map_cmd("<Cmd>HopChar2MW<CR>"):with_noremap():with_desc("jump: Goto two chars"),
-
-		-- Plugin: grug-far
-		["n|<leader>Ss"] = map_callback(function()
-				require("grug-far").open()
-			end)
-			:with_silent()
-			:with_noremap()
-			:with_desc("editn: Toggle search & replace panel"),
-		["n|<leader>Sp"] = map_callback(function()
-				require("grug-far").open({ prefills = { search = vim.fn.expand("<cword>") } })
-			end)
-			:with_silent()
-			:with_noremap()
-			:with_desc("editn: search&replace current word (project)"),
-		["v|<leader>Sp"] = map_callback(function()
-				require("grug-far").with_visual_selection()
-			end)
-			:with_silent()
-			:with_noremap()
-			:with_desc("edit: search & replace current word (project)"),
-		["n|<leader>Sf"] = map_callback(function()
-				require("grug-far").open({ prefills = { paths = vim.fn.expand("%") } })
-			end)
-			:with_silent()
-			:with_noremap()
-			:with_desc("editn: search & replace current word (file)"),
-
-		-- Plugin: nvim-treehopper
-		["o|m"] = map_cu("lua require('tsht').nodes()"):with_silent():with_desc("jump: Operate across syntax tree"),
-
-		-- Plugin: suda.vim
-		["n|<A-s>"] = map_cu("SudaWrite"):with_silent():with_noremap():with_desc("editn: Save file using sudo"),
+		-- Сессии: встроенные :mksession / :source Session.vim
+		["n|<leader>ss"] = map_cu("mksession! Session.vim"):with_noremap():with_silent():with_desc("session: Save"),
+		["n|<leader>sl"] = map_cu("source Session.vim"):with_noremap():with_silent():with_desc("session: Load"),
 	},
 }
 

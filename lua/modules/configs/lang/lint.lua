@@ -5,21 +5,16 @@ return function()
 		go = { "golangcilint" },
 	}
 
-	local mason_registry = require("mason-registry")
-
-	local function ensure_golangci_lint()
-		if not mason_registry.is_installed("golangci-lint") then
-			vim.notify("Installing golangci-lint via Mason...", vim.log.levels.INFO, { title = "lint" })
-			local pkg = mason_registry.get_package("golangci-lint")
-			pkg:install():once("closed", vim.schedule_wrap(function()
-				if pkg:is_installed() then
-					vim.notify("golangci-lint installed", vim.log.levels.INFO, { title = "lint" })
-				end
-			end))
-		end
+	-- Без mason: golangci-lint ставится системно (go install / brew).
+	-- Нет бинарника — нет линта, молча.
+	if vim.fn.executable("golangci-lint") ~= 1 then
+		vim.notify(
+			"[lint] golangci-lint not found in $PATH, go lint disabled",
+			vim.log.levels.WARN,
+			{ title = "lint" }
+		)
+		return
 	end
-
-	ensure_golangci_lint()
 
 	lint.linters.golangcilint.ignore_exitcode = true
 

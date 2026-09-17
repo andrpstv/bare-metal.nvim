@@ -18,7 +18,8 @@ local M = {}
 ---@param buf integer
 function M.lsp(buf)
 	local map = {
-		-- LSP-related keymaps, ONLY effective in buffers with LSP(s) attached
+		-- LSP-related keymaps, ONLY effective in buffers with LSP(s) attached.
+		-- Пикер — fzf-lua, действия — builtin vim.lsp / trouble.
 		["n|<leader>li"] = map_cr("LspInfo"):with_silent():with_buffer(buf):with_desc("lsp: Info"),
 		["n|<leader>lr"] = map_cr("LspRestart"):with_silent():with_buffer(buf):with_nowait():with_desc("lsp: Restart"),
 		["n|go"] = map_cr("Trouble symbols toggle win.position=right")
@@ -26,59 +27,84 @@ function M.lsp(buf)
 			:with_buffer(buf)
 			:with_desc("lsp: Toggle outline"),
 		["n|gto"] = map_callback(function()
-				if require("core.settings").search_backend == "fzf" then
-					local prompt_position = require("telescope.config").values.layout_config.horizontal.prompt_position
-					require("fzf-lua").lsp_document_symbols({
-						fzf_opts = { ["--layout"] = prompt_position == "top" and "reverse" or "default" },
-					})
-				else
-					require("telescope.builtin").lsp_document_symbols()
-				end
+				_fzf("lsp_document_symbols")
 			end)
 			:with_silent()
 			:with_buffer(buf)
-			:with_desc("lsp: Toggle outline in Telescope"),
-		["n|g["] = map_cr("Lspsaga diagnostic_jump_prev")
+			:with_desc("lsp: Document symbols"),
+		["n|g["] = map_callback(function()
+				vim.diagnostic.jump({ count = -1, float = true })
+			end)
 			:with_silent()
 			:with_buffer(buf)
 			:with_desc("lsp: Prev diagnostic"),
-		["n|g]"] = map_cr("Lspsaga diagnostic_jump_next")
+		["n|g]"] = map_callback(function()
+				vim.diagnostic.jump({ count = 1, float = true })
+			end)
 			:with_silent()
 			:with_buffer(buf)
 			:with_desc("lsp: Next diagnostic"),
-		["n|<leader>lx"] = map_cr("Lspsaga show_line_diagnostics ++unfocus")
+		["n|<leader>lx"] = map_callback(function()
+				vim.diagnostic.open_float()
+			end)
 			:with_silent()
 			:with_buffer(buf)
 			:with_desc("lsp: Line diagnostic"),
 		["n|gs"] = map_callback(function()
 			vim.lsp.buf.signature_help()
 		end):with_desc("lsp: Signature help"),
-		["n|gr"] = map_cr("Lspsaga rename")
+		["n|gr"] = map_callback(function()
+				vim.lsp.buf.rename()
+			end)
 			:with_silent()
 			:with_nowait()
 			:with_buffer(buf)
-			:with_desc("lsp: Rename in file range"),
-		["n|gR"] = map_cr("Lspsaga rename ++project")
+			:with_desc("lsp: Rename"),
+		["n|K"] = map_callback(function()
+				vim.lsp.buf.hover()
+			end)
 			:with_silent()
 			:with_buffer(buf)
-			:with_desc("lsp: Rename in project range"),
-		["n|K"] = map_cr("Lspsaga hover_doc"):with_silent():with_buffer(buf):with_desc("lsp: Show doc"),
-		["nv|ga"] = map_cr("Lspsaga code_action")
+			:with_desc("lsp: Show doc"),
+		["nv|ga"] = map_callback(function()
+				_fzf("lsp_code_actions")
+			end)
 			:with_silent()
 			:with_buffer(buf)
 			:with_desc("lsp: Code action for cursor"),
-		["n|gd"] = map_cr("Glance definitions"):with_silent():with_buffer(buf):with_desc("lsp: Preview definition"),
-		["n|gD"] = map_cr("Lspsaga goto_definition"):with_silent():with_buffer(buf):with_desc("lsp: Goto definition"),
-		["n|gh"] = map_cr("Glance references"):with_silent():with_buffer(buf):with_desc("lsp: Show reference"),
-		["n|gm"] = map_cr("Glance implementations")
+		["n|gd"] = map_callback(function()
+				_fzf("lsp_definitions", { jump1 = true })
+			end)
 			:with_silent()
 			:with_buffer(buf)
-			:with_desc("lsp: Show implementation"),
-		["n|gci"] = map_cr("Lspsaga incoming_calls")
+			:with_desc("lsp: Goto definition"),
+		["n|gD"] = map_callback(function()
+				vim.lsp.buf.declaration()
+			end)
+			:with_silent()
+			:with_buffer(buf)
+			:with_desc("lsp: Goto declaration"),
+		["n|gh"] = map_callback(function()
+				_fzf("lsp_references")
+			end)
+			:with_silent()
+			:with_buffer(buf)
+			:with_desc("lsp: Show references"),
+		["n|gm"] = map_callback(function()
+				_fzf("lsp_implementations")
+			end)
+			:with_silent()
+			:with_buffer(buf)
+			:with_desc("lsp: Show implementations"),
+		["n|gci"] = map_callback(function()
+				_fzf("lsp_incoming_calls")
+			end)
 			:with_silent()
 			:with_buffer(buf)
 			:with_desc("lsp: Show incoming calls"),
-		["n|gco"] = map_cr("Lspsaga outgoing_calls")
+		["n|gco"] = map_callback(function()
+				_fzf("lsp_outgoing_calls")
+			end)
 			:with_silent()
 			:with_buffer(buf)
 			:with_desc("lsp: Show outgoing calls"),
