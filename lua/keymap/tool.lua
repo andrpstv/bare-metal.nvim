@@ -4,8 +4,16 @@ local map_callback = bind.map_callback
 
 local mappings = {
 	plugins = {
-		-- Проводник: встроенный netrw
-		["n|<leader>e"] = map_cr("Ex"):with_noremap():with_silent():with_desc("filebrowser: netrw (:Ex)"),
+		-- Проводник: встроенный netrw, всегда от ГЛОБАЛЬНОГО pwd.
+		-- getcwd(-1,-1) игнорирует window-local :lcd, которыми netrw
+		-- сорит (keepdir). После `cd` в netrw (DirChanged продвигает
+		-- его в глобальный) здесь всегда только новый проект.
+		["n|<leader>e"] = map_callback(function()
+				vim.cmd.edit(vim.fn.fnameescape(vim.fn.getcwd(-1, -1)))
+			end)
+			:with_noremap()
+			:with_silent()
+			:with_desc("filebrowser: netrw at pwd"),
 
 		-- Plugin: trouble
 		["n|gt"] = map_cr("Trouble diagnostics toggle")
