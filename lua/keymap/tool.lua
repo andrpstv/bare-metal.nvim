@@ -4,11 +4,13 @@ local map_callback = bind.map_callback
 
 local mappings = {
 	plugins = {
-		-- Проводник: встроенный netrw, всегда от ТЕКУЩЕГО pwd.
-		-- Путь подставляем абсолютным (а не ":e ."), чтобы не зависеть
-		-- от window-local quirks netrw; после `cd` видно только новый проект.
+		-- Проводник: встроенный netrw, всегда от ГЛОБАЛЬНОГО pwd.
+		-- getcwd(-1,-1) игнорирует window-local :lcd, которыми netrw
+		-- сорит (keepdir), — поэтому мусорных "~" больше нет.
+		-- После `cd` в netrw (DirChanged продвигает его в глобальный)
+		-- здесь всегда только новый проект.
 		["n|<leader>e"] = map_callback(function()
-				vim.cmd.edit(vim.fn.fnameescape(vim.fn.getcwd()))
+				vim.cmd.edit(vim.fn.fnameescape(vim.fn.getcwd(-1, -1)))
 			end)
 			:with_noremap()
 			:with_silent()
