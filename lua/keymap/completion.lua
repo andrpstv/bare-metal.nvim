@@ -91,12 +91,20 @@ function M.lsp(buf)
 			:with_silent()
 			:with_buffer(buf)
 			:with_desc("lsp: References to quickfix"),
+		["n|gH"] = map_cr("Trouble lsp_references toggle")
+			:with_silent()
+			:with_buffer(buf)
+			:with_desc("lsp: References in Trouble (preview, Enter jumps)"),
 		["n|gm"] = map_callback(function()
 				vim.lsp.buf.implementation()
 			end)
 			:with_silent()
 			:with_buffer(buf)
 			:with_desc("lsp: Implementations to quickfix"),
+		["n|gM"] = map_cr("Trouble lsp_implementations toggle")
+			:with_silent()
+			:with_buffer(buf)
+			:with_desc("lsp: Implementations in Trouble (preview, Enter jumps)"),
 		["n|gci"] = map_callback(function()
 				_fzf("lsp_incoming_calls")
 			end)
