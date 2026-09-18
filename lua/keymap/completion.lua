@@ -15,6 +15,37 @@ bind.nvim_load_mapping(mappings.fmt)
 
 local M = {}
 
+---Иерархия типов gopls (supertypes/subtypes) в quickfix.
+---supertypes структуры = интерфейсы, что она имплементит.
+---@param kind "supertypes"|"subtypes"
+local function type_hierarchy(kind)
+	local bufnr = vim.api.nvim_get_current_buf()
+	local params = vim.lsp.util.make_position_params(0, "utf-16")
+	local prepared = vim.lsp.buf_request_sync(bufnr, "textDocument/prepareTypeHierarchy", params, 2000)
+	if not prepared then
+		vim.notify("[lsp] no type hierarchy here", vim.log.levels.INFO, { title = "lsp" })
+		return
+	end
+	local items = {}
+	for _, res in pairs(prepared) do
+		for _, item in ipairs(res.result or {}) do
+			local resolved = vim.lsp.buf_request_sync(bufnr, "typeHierarchy/" .. kind, { item = item }, 2000)
+			for _, res2 in pairs(resolved or {}) do
+				for _, hi in ipairs(res2.result or {}) do
+					local loc = { uri = hi.uri, range = hi.selectionRange or hi.range }
+					vim.list_extend(items, vim.lsp.util.locations_to_items({ loc }, "utf-16"))
+				end
+			end
+		end
+	end
+	if #items == 0 then
+		vim.notify("[lsp] empty " .. kind, vim.log.levels.INFO, { title = "lsp" })
+		return
+	end
+	vim.fn.setqflist({}, " ", { title = "LSP " .. kind, items = items })
+	vim.cmd("copen")
+end
+
 ---@param buf integer
 function M.lsp(buf)
 	local map = {
@@ -107,6 +138,18 @@ function M.lsp(buf)
 			:with_silent()
 			:with_buffer(buf)
 			:with_desc("lsp: Type definition (e.g. return struct)"),
+		["n|gw"] = map_callback(function()
+				type_hierarchy("supertypes")
+			end)
+			:with_silent()
+			:with_buffer(buf)
+			:with_desc("lsp: Supertypes (interfaces it implements)"),
+		["n|gW"] = map_callback(function()
+				type_hierarchy("subtypes")
+			end)
+			:with_silent()
+			:with_buffer(buf)
+			:with_desc("lsp: Subtypes (implementors)"),
 		["n|gM"] = map_cr("Trouble lsp_implementations toggle")
 			:with_silent()
 			:with_buffer(buf)
@@ -135,8 +178,26 @@ function M.lsp(buf)
 			:with_noremap()
 			:with_silent()
 			:with_desc("lsp: Toggle inlay hints"),
+		["n|<leader>cl"] = map_callback(function()
+				vim.lsp.codelens.run()
+			end)
+			:with_noremap()
+			:with_silent()
+			:with_buffer(buf)
+			:with_desc("lsp: Run codelens at cursor (test/generate)"),
 	}
 	bind.nvim_load_mapping(map)
+
+	-- Codelens gopls (run test, generate, tidy...): обновляем тихо,
+	-- показываются виртуал-текстом над функциями.
+	local codelens_group = vim.api.nvim_create_augroup("LspCodelensRefresh", { clear = false })
+	vim.api.nvim_create_autocmd({ "BufEnter", "InsertLeave", "BufWritePost" }, {
+		group = codelens_group,
+		buffer = buf,
+		callback = function()
+			pcall(vim.lsp.codelens.refresh)
+		end,
+	})
 
 	local ok, user_mappings = pcall(require, "user.keymap.completion")
 	if ok and type(user_mappings.lsp) == "function" then

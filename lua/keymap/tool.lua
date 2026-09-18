@@ -110,6 +110,12 @@ local mappings = {
 			:with_noremap()
 			:with_silent()
 			:with_desc("tool: Git branches"),
+		["n|<leader>fw"] = map_callback(function()
+				_fzf("lsp_live_workspace_symbols")
+			end)
+			:with_noremap()
+			:with_silent()
+			:with_desc("tool: Workspace symbols (types/funcs repo-wide)"),
 		["n|<leader>fr"] = map_callback(function()
 				_fzf("resume")
 			end)
