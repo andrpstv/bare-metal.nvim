@@ -134,7 +134,8 @@ local function load_options()
 	end
 end
 
--- Newtrw liststyle: https://medium.com/usevim/the-netrw-style-options-3ebe91d42456
-vim.g.netrw_liststyle = 3
+-- Newtrw liststyle: 0 thin, 1 long, 2 wide, 3 tree
+-- https://medium.com/usevim/the-netrw-style-options-3ebe91d42456
+vim.g.netrw_liststyle = 1
 
 load_options()
