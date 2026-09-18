@@ -110,7 +110,14 @@ return function()
 			["<C-w>"] = cmp.mapping.abort(),
 			["<Tab>"] = cmp.mapping(function(fallback)
 				if cmp.visible() then
-					cmp.select_next_item({ behavior = cmp.SelectBehavior.Insert })
+					-- На сниппете Tab = сразу раскрыть (это и есть "применить"),
+					-- на обычном айтеме — скролл с живой вставкой.
+					local entry = cmp.get_active_entry()
+					if entry and entry.source.name == "luasnip" then
+						cmp.confirm({ behavior = cmp.ConfirmBehavior.Replace, select = true })
+					else
+						cmp.select_next_item({ behavior = cmp.SelectBehavior.Insert })
+					end
 				elseif require("luasnip").expand_or_locally_jumpable() then
 					require("luasnip").expand_or_jump()
 				elseif has_words_before() then
