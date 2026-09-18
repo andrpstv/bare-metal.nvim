@@ -74,8 +74,9 @@ return function()
 				luasnip = "[SNIP]",
 			}, { __index = function() return "[BTN]" end })[entry.source.name]
 
-			-- Превью сниппета прямо в menu-колонке: первая строка тела,
-			-- чтобы при скролле было видно ЧТО раскроется (раскрытие — на <C-y>).
+			-- Превью сниппета СЛЕВА, рядом с триггером: первая строка тела.
+			-- Правая колонка (menu) остаётся короткой: [SNIP]/[LSP]/[BUF].
+			-- Раскрытие — на <C-y>. (abbr только рисуется, на фильтр не влияет.)
 			if entry.source.name == "luasnip" then
 				local ok, first = pcall(function()
 					local data = entry.completion_item and entry.completion_item.data
@@ -100,7 +101,7 @@ return function()
 					return line
 				end)
 				if ok and first then
-					vim_item.menu = "[SNIP] " .. first
+					vim_item.abbr = vim_item.abbr .. "  " .. first
 				end
 			end
 
