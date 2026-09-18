@@ -195,18 +195,41 @@ autocmd.load_autocmds()
 vim.api.nvim_create_autocmd("BufWritePre", {
 	pattern = "*.go",
 	callback = function()
-		-- First organize imports
-		local clients = vim.lsp.get_clients({ bufnr = 0, method = "textDocument/codeAction" })
-		local client = clients[1]
-		local params = vim.lsp.util.make_range_params(0, client and client.offset_encoding or "utf-16")
+		local bufnr = vim.api.nvim_get_current_buf()
+		-- Берём именно gopls: порядок get_clients не гарантирован,
+		-- а ответ buf_request_sync индексируется ПО ID КЛИЕНТА,
+		-- а не по порядку (старый код брал result[1] и молча
+		-- пропускал всё при id ~= 1, напр. после LspRestart).
+		local clients = vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/codeAction" })
+		local client = nil
+		for _, c in ipairs(clients) do
+			if c.name == "gopls" then
+				client = c
+				break
+			end
+		end
+		client = client or clients[1]
+		if not client then
+			return
+		end
+		local enc = client.offset_encoding or "utf-16"
+		local params = vim.lsp.util.make_range_params(0, enc)
 		params.context = { only = { "source.organizeImports" } }
-		local result = vim.lsp.buf_request_sync(0, "textDocument/codeAction", params, 1000)
-		if result and result[1] then
-			for _, action in ipairs(result[1].result or {}) do
-				if action.edit then
-					vim.lsp.util.apply_workspace_edit(action.edit, "utf-16")
-				elseif action.command then
-					vim.lsp.buf.execute_command(action.command)
+		local result = vim.lsp.buf_request_sync(bufnr, "textDocument/codeAction", params, 2000)
+		if not result then
+			vim.notify(
+				"[go] organize imports timed out (cold gopls on big repo?)",
+				vim.log.levels.WARN,
+				{ title = "lsp" }
+			)
+		else
+			for _, res in pairs(result) do
+				for _, action in ipairs(res.result or {}) do
+					if action.edit then
+						vim.lsp.util.apply_workspace_edit(action.edit, enc)
+					elseif action.command then
+						vim.lsp.buf.execute_command(action.command)
+					end
 				end
 			end
 		end
