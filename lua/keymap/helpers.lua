@@ -68,3 +68,22 @@ end
 
 -- Дописываем сегмент к дефолтному статуслайну (ноль плагинов).
 vim.opt.statusline:append("%{%v:lua._lsp_status()%}")
+
+-- Сегмент режима (showmode выключен в options, т.к. раньше рисовал lualine).
+local mode_names = {
+	n = "NORMAL",
+	i = "INSERT",
+	v = "VISUAL",
+	V = "V-LINE",
+	["\22"] = "V-BLOCK",
+	s = "SELECT",
+	S = "S-LINE",
+	["\19"] = "S-BLOCK",
+	R = "REPLACE",
+	c = "COMMAND",
+	t = "TERMINAL",
+}
+_G._mode_status = function()
+	return "[" .. (mode_names[vim.api.nvim_get_mode().mode] or "??") .. "] "
+end
+vim.opt.statusline:prepend("%{%v:lua._mode_status()%}")
