@@ -26,10 +26,18 @@ local mappings = {
 					local tail = vim.fn.expand("%:t")
 					vim.cmd.edit(vim.fn.fnameescape(dir))
 					if tail ~= "" then
-						-- Экранируем ВСЕ спецсимволы имени, поиск не трогает регистр `/`
-						local keep = vim.fn.getreg("/")
-						pcall(vim.fn.search, tail:gsub("([^%w])", "%%%1") .. "$", "w")
-						vim.fn.setreg("/", keep)
+						-- Откладываем: netrw сам позиционирует курсор после
+						-- отрисовки (особенно в tree-виде), наш поиск должен
+						-- идти строго после него. Регистр `/` не трогаем.
+						local pat = tail:gsub("([^%w])", "%%%1") .. "$"
+						vim.schedule(function()
+							if vim.bo.filetype ~= "netrw" then
+								return
+							end
+							local keep = vim.fn.getreg("/")
+							pcall(vim.fn.search, pat, "w")
+							vim.fn.setreg("/", keep)
+						end)
 					end
 				end
 			end)
