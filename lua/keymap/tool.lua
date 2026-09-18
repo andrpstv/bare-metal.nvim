@@ -4,29 +4,15 @@ local map_callback = bind.map_callback
 
 local mappings = {
 	plugins = {
-		-- Проводник: встроенный netrw, всегда от ГЛОБАЛЬНОГО pwd.
-		-- getcwd(-1,-1) игнорирует window-local :lcd, которыми netrw
-		-- сорит (keepdir). После `cd` в netrw (DirChanged продвигает
-		-- его в глобальный) здесь всегда только новый проект.
+		-- Проводник: встроенный netrw от папки ТЕКУЩЕГО файла
+		-- (курсор встаёт на файл — удобно создавать соседей через `%`).
 		-- Тоггл: из netrw возвращает к файлу (через alternate-буфер).
+		-- К корню проекта (глобальный pwd) — на <leader>E.
 		["n|<leader>e"] = map_callback(function()
 				if vim.bo.filetype == "netrw" then
 					if not pcall(vim.cmd, "b#") then
 						vim.cmd("enew")
 					end
-				else
-					vim.cmd.edit(vim.fn.fnameescape(vim.fn.getcwd(-1, -1)))
-				end
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("filebrowser: netrw toggle at pwd"),
-		-- Как старый Telescope file_browser path=%:p:h select_buffer:
-		-- netrw в папке текущего файла + курсор на нём (создать соседа).
-		-- Внутри netrw — возврат к корню проекта (аналог fb-клавиши `w`).
-		["n|<leader>E"] = map_callback(function()
-				if vim.bo.filetype == "netrw" then
-					vim.cmd.edit(vim.fn.fnameescape(vim.fn.getcwd(-1, -1)))
 				else
 					local dir = vim.fn.expand("%:p:h")
 					if dir == "" then
@@ -41,7 +27,15 @@ local mappings = {
 			end)
 			:with_noremap()
 			:with_silent()
-			:with_desc("filebrowser: netrw at file / back to pwd"),
+			:with_desc("filebrowser: netrw toggle at file"),
+		-- К корню проекта: netrw от глобального pwd.
+		-- getcwd(-1,-1) игнорирует window-local :lcd, которыми netrw сорит.
+		["n|<leader>E"] = map_callback(function()
+				vim.cmd.edit(vim.fn.fnameescape(vim.fn.getcwd(-1, -1)))
+			end)
+			:with_noremap()
+			:with_silent()
+			:with_desc("filebrowser: netrw at pwd"),
 
 		-- Plugin: trouble
 		["n|gt"] = map_cr("Trouble diagnostics toggle")
