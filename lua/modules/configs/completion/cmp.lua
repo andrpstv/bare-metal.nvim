@@ -111,4 +111,14 @@ return function()
 		},
 		experimental = { ghost_text = false }, -- отключаем для быстрого скролла
 	})
+
+	-- Командная строка: / и : через cmp (нужен cmp-cmdline)
+	cmp.setup.cmdline({ "/", "?" }, {
+		mapping = cmp.mapping.preset.cmdline(),
+		sources = { { name = "buffer" } },
+	})
+	cmp.setup.cmdline(":", {
+		mapping = cmp.mapping.preset.cmdline(),
+		sources = cmp.config.sources({ { name = "path" } }, { { name = "cmdline" } }),
+	})
 end

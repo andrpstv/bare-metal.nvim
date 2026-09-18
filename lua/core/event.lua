@@ -49,9 +49,10 @@ vim.api.nvim_create_autocmd("LspAttach", {
 
 			local client = vim.lsp.get_client_by_id(event.data.client_id)
 
-			-- Встроенное автодополнение вместо nvim-cmp
-			if client and client:supports_method("textDocument/completion") then
-				vim.lsp.completion.enable(true, event.data.client_id, event.buf, { autotrigger = true })
+			-- Дополнение отдано nvim-cmp: встроенный autotrigger выключен,
+			-- иначе два попапа дерутся.
+			if client and vim.lsp.completion then
+				pcall(vim.lsp.completion.enable, false, event.data.client_id, event.buf)
 			end
 
 			-- LSP Inlay Hints

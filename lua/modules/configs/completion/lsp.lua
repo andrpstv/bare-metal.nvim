@@ -8,10 +8,25 @@ return function()
 		update_in_insert = false,
 	})
 
-	-- Базовые capabilities. Без nvim-cmp: встроенному
-	-- vim.lsp.completion этого достаточно.
+	-- Capabilities: база + расширение от cmp-nvim-lsp (snippetSupport и др.),
+	-- чтобы gopls присылал полные варианты.
+	-- cmp грузится лениво (InsertEnter), а LSP стартует раньше (BufReadPre),
+	-- поэтому тянем его явно: без этого require падает и LSP не встанет.
+	local cmp_caps = {}
+	if not pcall(function()
+		cmp_caps = require("cmp_nvim_lsp").default_capabilities()
+	end) then
+		pcall(function()
+			require("lazy").load({ plugins = { "nvim-cmp" } })
+			cmp_caps = require("cmp_nvim_lsp").default_capabilities()
+		end)
+	end
 	local opts = {
-		capabilities = vim.lsp.protocol.make_client_capabilities(),
+		capabilities = vim.tbl_deep_extend(
+			"force",
+			vim.lsp.protocol.make_client_capabilities(),
+			cmp_caps
+		),
 	}
 
 	-- Серверы из settings.lsp_deps. Бинарник должен быть в $PATH
