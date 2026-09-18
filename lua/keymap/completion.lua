@@ -55,12 +55,11 @@ function M.lsp(buf)
 			vim.lsp.buf.signature_help()
 		end):with_desc("lsp: Signature help"),
 		["n|gr"] = map_callback(function()
-				vim.lsp.buf.rename()
+				vim.lsp.buf.references()
 			end)
 			:with_silent()
-			:with_nowait()
 			:with_buffer(buf)
-			:with_desc("lsp: Rename"),
+			:with_desc("lsp: References to quickfix"),
 		["n|K"] = map_callback(function()
 				vim.lsp.buf.hover()
 			end)
@@ -85,17 +84,18 @@ function M.lsp(buf)
 			:with_silent()
 			:with_buffer(buf)
 			:with_desc("lsp: Goto declaration"),
-		["n|gh"] = map_callback(function()
-				vim.lsp.buf.references()
+		["n|grn"] = map_callback(function()
+				vim.lsp.buf.rename()
 			end)
 			:with_silent()
+			:with_nowait()
 			:with_buffer(buf)
-			:with_desc("lsp: References to quickfix"),
+			:with_desc("lsp: Rename"),
 		["n|gH"] = map_cr("Trouble lsp_references toggle")
 			:with_silent()
 			:with_buffer(buf)
 			:with_desc("lsp: References in Trouble (preview, Enter jumps)"),
-		["n|gm"] = map_callback(function()
+		["n|gi"] = map_callback(function()
 				vim.lsp.buf.implementation()
 			end)
 			:with_silent()
