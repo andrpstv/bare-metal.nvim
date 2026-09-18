@@ -64,6 +64,20 @@ vim.api.nvim_create_autocmd("LspAttach", {
 	end,
 })
 
+-- netrw меняет директорию через :lcd (только для окна),
+-- из-за чего `:e .` в новом сплите снова показывает старый путь.
+-- Продвигаем любую window-local смену в глобальную:
+-- ментальная модель "cd меняет pwd" работает везде.
+vim.api.nvim_create_autocmd("DirChanged", {
+	pattern = "*",
+	callback = function()
+		local ev = vim.v.event
+		if ev.scope == "window" then
+			vim.cmd.cd(vim.fn.fnameescape(ev.cwd))
+		end
+	end,
+})
+
 -- Autojump to last edit
 vim.api.nvim_create_autocmd("BufReadPost", {
 	callback = function()
