@@ -179,11 +179,8 @@ function M.lsp(buf)
 	}
 	bind.nvim_load_mapping(map)
 
-	-- Сносим встроенные дефолты 0.11 grr/gri/gra: они дублируют наши
-	-- gr/gi/ga И заставляют bare `gr` ждать timeoutlen. gO не трогаем.
-	for _, lhs in ipairs({ "grr", "gri", "gra" }) do
-		pcall(vim.keymap.del, "n", lhs, { buffer = buf })
-	end
+	-- NOTE: встроенные дефолты grr/gri/gra/grt сносятся глобально
+	-- в keymap/init.lua (там же grn). Здесь чистить нечего.
 
 	-- Codelens gopls (run test, generate, tidy...): обновляем тихо,
 	-- показываются виртуал-текстом над функциями.
