@@ -66,6 +66,17 @@ _G._lsp_status = function()
 	return " LSP:" .. table.concat(names, ",")
 end
 
+-- Тоггл quickfix одним хоткеем вместо пары открыть/закрыть.
+_G._toggle_qf = function()
+	for _, win in ipairs(vim.api.nvim_list_wins()) do
+		if vim.fn.getwininfo(win)[1].quickfix == 1 then
+			vim.cmd("cclose")
+			return
+		end
+	end
+	vim.cmd("copen")
+end
+
 -- Дописываем сегмент к дефолтному статуслайну (ноль плагинов).
 vim.opt.statusline:append("%{%v:lua._lsp_status()%}")
 

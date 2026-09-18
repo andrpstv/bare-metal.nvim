@@ -9,11 +9,15 @@ local mappings = {
 		-- Builtins: Buffer
 		["n|<leader>bn"] = map_cu("enew"):with_noremap():with_silent():with_desc("buffer: New"),
 
-		-- Builtins: Quickfix (пара к LSP-флоу на встроенке: grr/gri/gh/gm)
+		-- Builtins: Quickfix (пара к LSP-флоу на встроенке: gr/gi)
 		["n|]q"] = map_cr("cnext"):with_noremap():with_silent():with_desc("quickfix: Next"),
 		["n|[q"] = map_cr("cprev"):with_noremap():with_silent():with_desc("quickfix: Previous"),
-		["n|<leader>qq"] = map_cr("copen"):with_noremap():with_silent():with_desc("quickfix: Open"),
-		["n|<leader>qc"] = map_cr("cclose"):with_noremap():with_silent():with_desc("quickfix: Close"),
+		["n|<leader>q"] = map_callback(function()
+				_toggle_qf()
+			end)
+			:with_noremap()
+			:with_silent()
+			:with_desc("quickfix: Toggle"),
 		["n|[b"] = map_cr("bprevious"):with_noremap():with_silent():with_desc("buffer: Previous"),
 		["n|]b"] = map_cr("bnext"):with_noremap():with_silent():with_desc("buffer: Next"),
 

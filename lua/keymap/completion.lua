@@ -4,8 +4,8 @@ local map_callback = bind.map_callback
 
 local mappings = {
 	fmt = {
-		["n|<A-f>"] = map_cr("FormatToggle"):with_noremap():with_silent():with_desc("formatter: Toggle format on save"),
-		["n|<A-S-f>"] = map_cr("Format"):with_noremap():with_silent():with_desc("formatter: Format buffer manually"),
+		["n|<leader>fm"] = map_cr("Format"):with_noremap():with_silent():with_desc("formatter: Format buffer"),
+		["n|<leader>ft"] = map_cr("FormatToggle"):with_noremap():with_silent():with_desc("formatter: Toggle format on save"),
 	},
 }
 bind.nvim_load_mapping(mappings.fmt)
@@ -50,11 +50,12 @@ end
 function M.lsp(buf)
 	local map = {
 		-- LSP-related keymaps, ONLY effective in buffers with LSP(s) attached.
-		-- Списки результатов — встроенка + quickfix (дефолты grr/gri/gra тоже работают).
-		-- Пикер fzf — только там, где нужен выбор с превью (definitions, symbols).
+		-- Без префикс-конфликтов: ни один маппинг не является началом другого,
+		-- поэтому всё срабатывает мгновенно, без ожидания timeoutlen.
+		-- Встроенные дефолты grr/gri/gra удаляем ниже (дублируют gr/gi/ga).
 		["n|<leader>li"] = map_cr("LspInfo"):with_silent():with_buffer(buf):with_desc("lsp: Info"),
 		["n|<leader>lr"] = map_cr("LspRestart"):with_silent():with_buffer(buf):with_nowait():with_desc("lsp: Restart"),
-		["n|gto"] = map_callback(function()
+		["n|gO"] = map_callback(function()
 				_fzf("lsp_document_symbols")
 			end)
 			:with_silent()
@@ -111,13 +112,7 @@ function M.lsp(buf)
 			:with_silent()
 			:with_buffer(buf)
 			:with_desc("lsp: Goto definition"),
-		["n|gD"] = map_callback(function()
-				vim.lsp.buf.declaration()
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Goto declaration"),
-		["n|grn"] = map_callback(function()
+		["n|<leader>rn"] = map_callback(function()
 				vim.lsp.buf.rename()
 			end)
 			:with_silent()
@@ -148,24 +143,6 @@ function M.lsp(buf)
 			:with_silent()
 			:with_buffer(buf)
 			:with_desc("lsp: Supertypes (interfaces it implements)"),
-		["n|gW"] = map_callback(function()
-				type_hierarchy("subtypes")
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Subtypes (implementors)"),
-		["n|gci"] = map_callback(function()
-				_fzf("lsp_incoming_calls")
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Show incoming calls"),
-		["n|gco"] = map_callback(function()
-				_fzf("lsp_outgoing_calls")
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Show outgoing calls"),
 		["n|<leader>lv"] = map_callback(function()
 				_toggle_virtuallines()
 			end)
@@ -201,6 +178,12 @@ function M.lsp(buf)
 			:with_desc("lsp: Run codelens at cursor (test/generate)"),
 	}
 	bind.nvim_load_mapping(map)
+
+	-- Сносим встроенные дефолты 0.11 grr/gri/gra: они дублируют наши
+	-- gr/gi/ga И заставляют bare `gr` ждать timeoutlen. gO не трогаем.
+	for _, lhs in ipairs({ "grr", "gri", "gra" }) do
+		pcall(vim.keymap.del, "n", lhs, { buffer = buf })
+	end
 
 	-- Codelens gopls (run test, generate, tidy...): обновляем тихо,
 	-- показываются виртуал-текстом над функциями.

@@ -9,13 +9,15 @@ local mappings = {
 		-- silent! у тестов: go.nvim спамит Press-ENTER при отсутствии теста,
 		-- результат всё равно виден в quickfix.
 		["n|<leader>gt"] = map_cr("silent! GoTestFunc"):with_noremap():with_silent():with_desc("go: Test function"),
-		["n|<leader>gT"] = map_cr("silent! GoTest"):with_noremap():with_silent():with_desc("go: Test all"),
+		["n|<leader>ta"] = map_cr("silent! GoTest"):with_noremap():with_silent():with_desc("go: Test all"),
 		["n|<leader>gf"] = map_cr("GoAlt"):with_noremap():with_silent():with_desc("go: Alternate file"),
 		["n|<leader>ga"] = map_cr("GoAddTag"):with_noremap():with_silent():with_desc("go: Add struct tag"),
 		["n|<leader>gx"] = map_cr("GoRmTag"):with_noremap():with_silent():with_desc("go: Remove struct tag"),
 		["n|<leader>gm"] = map_cr("GoModTidy"):with_noremap():with_silent():with_desc("go: Mod tidy"),
-		["n|<leader>gF"] = map_cr("GoFillStruct"):with_noremap():with_silent():with_desc("go: Fill struct"),
-		["n|<leader>ee"] = map_callback(function()
+		-- gF убран: его существование заставляло `gf` ждать timeoutlen.
+		-- Fill struct теперь на <leader>fs.
+		["n|<leader>fs"] = map_cr("GoFillStruct"):with_noremap():with_silent():with_desc("go: Fill struct"),
+		["n|<leader>ei"] = map_callback(function()
 				if vim.bo.filetype == "go" then
 					vim.cmd("GoIfErr")
 				else
@@ -28,7 +30,7 @@ local mappings = {
 		-- Тот же GoIfErr из инсерта, без ухода в нормал руками.
 		-- Побочка: после "␣e" в инсерте vim ждёт 300мс (timeoutlen),
 		-- вдруг это начало маппинга, — мелкий лаг редких кейсов.
-		["i|<leader>ee"] = map_cmd("<Esc>:GoIfErr<CR>a"):with_noremap():with_desc("go: if err != nil"),
+		["i|<leader>ei"] = map_cmd("<Esc>:GoIfErr<CR>a"):with_noremap():with_desc("go: if err != nil"),
 	},
 }
 
