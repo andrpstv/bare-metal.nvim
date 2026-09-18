@@ -28,11 +28,11 @@ return function()
 
 	local cmp = require("cmp")
 	require("modules.utils").load_plugin("cmp", {
-		-- Первый айтем выбран и ВСТАВЛЕН сразу при открытии меню,
-		-- Enter не нужен: скролл Tab/C-n/C-p live-меняет текст.
-		-- Enter остался только для сниппетов и автоимпортов.
-		preselect = cmp.PreselectMode.Item,
-		completion = { completeopt = "menu,menuone,popup" },
+		-- Ничего не выбрано, пока не нажмёшь Tab: Enter всегда
+		-- перевод строки / выполнение команды, подсказки игнорируются.
+		-- После Tab навигация live-вставляет текст, Enter по-прежнему
+		-- свободен; полный confirm (сниппеты, автоимпорты) — на <C-y>.
+		preselect = cmp.PreselectMode.None,
 		window = {
 			completion = {
 				border = border("PmenuBorder"),
@@ -92,11 +92,10 @@ return function()
 				elseif require("luasnip").jumpable(-1) then require("luasnip").jump(-1)
 				else fallback() end
 			end, { "i", "s" }),
-			["<CR>"] = cmp.mapping({
-				i = function(fallback) if cmp.visible() and cmp.get_active_entry() then cmp.confirm({ behavior = cmp.ConfirmBehavior.Insert, select = false }) else fallback() end end,
-				s = cmp.mapping.confirm({ select = true }),
-				c = cmp.mapping.confirm({ behavior = cmp.ConfirmBehavior.Insert, select = true }),
-			}),
+			["<CR>"] = cmp.mapping(function(fallback)
+				fallback() -- всегда перевод строки: подтверждение только через <C-y>
+			end, { "i", "s" }),
+			["<C-y>"] = cmp.mapping.confirm({ select = true }),
 		}),
 		snippet = { expand = function(args) require("luasnip").lsp_expand(args.body) end },
 		sources = {
@@ -117,17 +116,20 @@ return function()
 	})
 
 	-- Командная строка: / и : через cmp (нужен cmp-cmdline).
-	-- Tab тоже сразу вставляет, как в коде.
-	local cmdline_tab = {
+	-- Tab вставляет, Enter всегда выполняет (без confirm-подсказок).
+	local cmdline_extra = {
 		["<Tab>"] = cmp.mapping.select_next_item({ behavior = cmp.SelectBehavior.Select }),
 		["<S-Tab>"] = cmp.mapping.select_prev_item({ behavior = cmp.SelectBehavior.Select }),
+		["<CR>"] = cmp.mapping(function(fallback)
+			fallback()
+		end, { "c" }),
 	}
 	cmp.setup.cmdline({ "/", "?" }, {
-		mapping = vim.tbl_extend("force", cmp.mapping.preset.cmdline(), cmdline_tab),
+		mapping = vim.tbl_extend("force", cmp.mapping.preset.cmdline(), cmdline_extra),
 		sources = { { name = "buffer" } },
 	})
 	cmp.setup.cmdline(":", {
-		mapping = vim.tbl_extend("force", cmp.mapping.preset.cmdline(), cmdline_tab),
+		mapping = vim.tbl_extend("force", cmp.mapping.preset.cmdline(), cmdline_extra),
 		sources = cmp.config.sources({ { name = "path" } }, { { name = "cmdline" } }),
 	})
 end
