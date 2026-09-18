@@ -21,6 +21,27 @@ local mappings = {
 			:with_noremap()
 			:with_silent()
 			:with_desc("filebrowser: netrw toggle at pwd"),
+		-- Как старый Telescope file_browser path=%:p:h select_buffer:
+		-- netrw в папке текущего файла + курсор на нём (создать соседа).
+		-- Внутри netrw — возврат к корню проекта (аналог fb-клавиши `w`).
+		["n|<leader>E"] = map_callback(function()
+				if vim.bo.filetype == "netrw" then
+					vim.cmd.edit(vim.fn.fnameescape(vim.fn.getcwd(-1, -1)))
+				else
+					local dir = vim.fn.expand("%:p:h")
+					if dir == "" then
+						dir = vim.fn.getcwd(-1, -1)
+					end
+					local tail = vim.fn.expand("%:t")
+					vim.cmd.edit(vim.fn.fnameescape(dir))
+					if tail ~= "" then
+						pcall(vim.fn.search, vim.fn.escape(tail, ".") .. "$", "w")
+					end
+				end
+			end)
+			:with_noremap()
+			:with_silent()
+			:with_desc("filebrowser: netrw at file / back to pwd"),
 
 		-- Plugin: trouble
 		["n|gt"] = map_cr("Trouble diagnostics toggle")
