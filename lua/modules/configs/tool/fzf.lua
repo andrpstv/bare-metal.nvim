@@ -20,5 +20,15 @@ return function()
 		lsp = {
 			jump1 = true,
 		},
+		-- Превью: не подсвечивать treesitter файлы >100KB (сгенерированные
+		-- монстры tailscale вешают открытие), подсветка с задержкой 30мс —
+		-- сначала текст, потом краска. Лимит превью 2MB.
+		previewers = {
+			builtin = {
+				syntax_limit_b = 1024 * 100,
+				syntax_delay = 30,
+				limit_b = 1024 * 1024 * 2,
+			},
+		},
 	})
 end
