@@ -222,6 +222,22 @@ local function go_client(bufnr)
 	return clients[1]
 end
 
+-- Троттлинг skip-варнингов: при спаме сейвов с печатью каждая
+-- цепочка скипалась бы со своим нотифаем. Чаще раза в 3с не пищим.
+local last_skip_notify = 0
+local function go_skip_notify(what)
+	local now = vim.uv.hrtime()
+	if now - last_skip_notify < 3000000000 then
+		return
+	end
+	last_skip_notify = now
+	vim.notify(
+		"[go] buffer changed meanwhile, skip async " .. what .. " (run :Format)",
+		vim.log.levels.WARN,
+		{ title = "lsp" }
+	)
+end
+
 vim.api.nvim_create_autocmd("BufWritePost", {
 	pattern = "*.go",
 	callback = function()
@@ -237,11 +253,7 @@ vim.api.nvim_create_autocmd("BufWritePost", {
 				return
 			end
 			if vim.api.nvim_buf_get_changedtick(bufnr) ~= tick then
-				vim.notify(
-					"[go] buffer changed meanwhile, skip async " .. what .. " (run :Format)",
-					vim.log.levels.WARN,
-					{ title = "lsp" }
-				)
+				go_skip_notify(what)
 				return
 			end
 			fn()
