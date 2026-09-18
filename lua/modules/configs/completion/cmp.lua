@@ -93,14 +93,14 @@ return function()
 		mapping = cmp.mapping.preset.insert({
 			["<C-p>"] = cmp.mapping(function(fallback)
 				if cmp.visible() then
-					cmp.select_prev_item({ behavior = cmp.SelectBehavior.Select })
+					cmp.select_prev_item({ behavior = cmp.SelectBehavior.Insert })
 				else
 					cmp.complete()
 				end
 			end),
 			["<C-n>"] = cmp.mapping(function(fallback)
 				if cmp.visible() then
-					cmp.select_next_item({ behavior = cmp.SelectBehavior.Select })
+					cmp.select_next_item({ behavior = cmp.SelectBehavior.Insert })
 				else
 					cmp.complete()
 				end
@@ -110,7 +110,7 @@ return function()
 			["<C-w>"] = cmp.mapping.abort(),
 			["<Tab>"] = cmp.mapping(function(fallback)
 				if cmp.visible() then
-					cmp.select_next_item({ behavior = cmp.SelectBehavior.Select })
+					cmp.select_next_item({ behavior = cmp.SelectBehavior.Insert })
 				elseif require("luasnip").expand_or_locally_jumpable() then
 					require("luasnip").expand_or_jump()
 				elseif has_words_before() then
@@ -121,7 +121,7 @@ return function()
 			end, { "i", "s" }),
 			["<S-Tab>"] = cmp.mapping(function(fallback)
 				if cmp.visible() then
-					cmp.select_prev_item({ behavior = cmp.SelectBehavior.Select })
+					cmp.select_prev_item({ behavior = cmp.SelectBehavior.Insert })
 				elseif require("luasnip").jumpable(-1) then
 					require("luasnip").jump(-1)
 				else
@@ -154,8 +154,8 @@ return function()
 	-- Командная строка: / и : через cmp (нужен cmp-cmdline).
 	-- Tab вставляет, Enter всегда выполняет (без confirm-подсказок).
 	local cmdline_extra = {
-		["<Tab>"] = cmp.mapping.select_next_item({ behavior = cmp.SelectBehavior.Select }),
-		["<S-Tab>"] = cmp.mapping.select_prev_item({ behavior = cmp.SelectBehavior.Select }),
+		["<Tab>"] = cmp.mapping.select_next_item({ behavior = cmp.SelectBehavior.Insert }),
+		["<S-Tab>"] = cmp.mapping.select_prev_item({ behavior = cmp.SelectBehavior.Insert }),
 		["<CR>"] = cmp.mapping(function(fallback)
 			fallback()
 		end, { "c" }),
