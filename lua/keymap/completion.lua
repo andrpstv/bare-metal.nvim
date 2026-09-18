@@ -54,10 +54,6 @@ function M.lsp(buf)
 		-- Пикер fzf — только там, где нужен выбор с превью (definitions, symbols).
 		["n|<leader>li"] = map_cr("LspInfo"):with_silent():with_buffer(buf):with_desc("lsp: Info"),
 		["n|<leader>lr"] = map_cr("LspRestart"):with_silent():with_buffer(buf):with_nowait():with_desc("lsp: Restart"),
-		["n|go"] = map_cr("Trouble symbols toggle win.position=right")
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Toggle outline"),
 		["n|gto"] = map_callback(function()
 				_fzf("lsp_document_symbols")
 			end)
@@ -128,10 +124,6 @@ function M.lsp(buf)
 			:with_nowait()
 			:with_buffer(buf)
 			:with_desc("lsp: Rename"),
-		["n|gH"] = map_cr("Trouble lsp_references toggle")
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: References in Trouble (preview, Enter jumps)"),
 		["n|gi"] = map_callback(function()
 				_fzf("lsp_implementations")
 			end)
@@ -162,10 +154,6 @@ function M.lsp(buf)
 			:with_silent()
 			:with_buffer(buf)
 			:with_desc("lsp: Subtypes (implementors)"),
-		["n|gM"] = map_cr("Trouble lsp_implementations toggle")
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Implementations in Trouble (preview, Enter jumps)"),
 		["n|gci"] = map_callback(function()
 				_fzf("lsp_incoming_calls")
 			end)

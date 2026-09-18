@@ -14,18 +14,6 @@ local mappings = {
 		["n|<leader>ga"] = map_cr("GoAddTag"):with_noremap():with_silent():with_desc("go: Add struct tag"),
 		["n|<leader>gx"] = map_cr("GoRmTag"):with_noremap():with_silent():with_desc("go: Remove struct tag"),
 		["n|<leader>gm"] = map_cr("GoModTidy"):with_noremap():with_silent():with_desc("go: Mod tidy"),
-		["n|<leader>gn"] = map_callback(function()
-				vim.lsp.buf.rename()
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("go: Rename symbol"),
-		["n|<leader>gi"] = map_callback(function()
-				vim.lsp.buf.code_action()
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("go: Code action"),
 		["n|<leader>gF"] = map_cr("GoFillStruct"):with_noremap():with_silent():with_desc("go: Fill struct"),
 		["n|<leader>ee"] = map_callback(function()
 				if vim.bo.filetype == "go" then
