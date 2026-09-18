@@ -43,6 +43,8 @@ return {
 				unusedparams = true,
 				unusedwrite = true,
 				useany = true,
+				fieldalignment = true, -- структуры с дырками в памяти
+				httpresponse = true, -- незакрытые http response body
 			},
 			codelenses = {
 				generate = true,
