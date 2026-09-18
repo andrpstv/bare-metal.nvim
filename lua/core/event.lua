@@ -78,6 +78,18 @@ vim.api.nvim_create_autocmd("DirChanged", {
 	end,
 })
 
+-- Открытый netrw следует за сменой глобального pwd:
+-- поменял :cd — листинг переоткрылся на новом корне.
+vim.api.nvim_create_autocmd("DirChanged", {
+	pattern = "*",
+	callback = function()
+		local ev = vim.v.event
+		if ev.scope == "global" and vim.bo.filetype == "netrw" then
+			vim.cmd.edit(vim.fn.fnameescape(ev.cwd))
+		end
+	end,
+})
+
 -- Autojump to last edit
 vim.api.nvim_create_autocmd("BufReadPost", {
 	callback = function()
