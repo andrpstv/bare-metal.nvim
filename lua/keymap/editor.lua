@@ -75,9 +75,30 @@ local mappings = {
 			:with_desc("edit: Substitute word under cursor"),
 	},
 	plugins = {
-		-- Сессии: встроенные :mksession / :source Session.vim
-		["n|<leader>ss"] = map_cu("mksession! Session.vim"):with_noremap():with_silent():with_desc("session: Save"),
-		["n|<leader>sl"] = map_cu("source Session.vim"):with_noremap():with_silent():with_desc("session: Load"),
+		-- Сессии: встроенные :mksession, файл — в data-dir (не мусорим в репо),
+		-- имя — от текущей папки, у каждого проекта своя.
+		["n|<leader>ss"] = map_callback(function()
+				local dir = vim.fn.stdpath("data") .. "/sessions"
+				vim.fn.mkdir(dir, "p")
+				local name = dir .. "/" .. vim.fn.getcwd():gsub("[/\\:]", "%%") .. ".vim"
+				vim.cmd("mksession! " .. vim.fn.fnameescape(name))
+				vim.notify("[session] saved: " .. name, vim.log.levels.INFO)
+			end)
+			:with_noremap()
+			:with_silent()
+			:with_desc("session: Save"),
+		["n|<leader>sl"] = map_callback(function()
+				local dir = vim.fn.stdpath("data") .. "/sessions"
+				local name = dir .. "/" .. vim.fn.getcwd():gsub("[/\\:]", "%%") .. ".vim"
+				if vim.fn.filereadable(name) == 1 then
+					vim.cmd("source " .. vim.fn.fnameescape(name))
+				else
+					vim.notify("[session] no session for this dir", vim.log.levels.WARN)
+				end
+			end)
+			:with_noremap()
+			:with_silent()
+			:with_desc("session: Load"),
 	},
 }
 

@@ -1,4 +1,19 @@
 return function()
+	-- Без бинарника пикер мёртв: предупреждаем разово, а не падаем.
+	-- (Аналог паттерна из lang/lint.lua и completion/lsp.lua.)
+	if vim.fn.executable("fzf") ~= 1 then
+		vim.notify(
+			"[fzf] `fzf` binary not found in $PATH (brew install fzf); picker disabled",
+			vim.log.levels.WARN,
+			{ title = "fzf" }
+		)
+		return
+	end
+	if vim.fn.executable("rg") ~= 1 then
+		vim.notify("[fzf] `rg` not found; live grep will fail (brew install ripgrep)", vim.log.levels.WARN, {
+			title = "fzf",
+		})
+	end
 	require("modules.utils").load_plugin("fzf-lua", {
 		winopts = {
 			height = 0.85,

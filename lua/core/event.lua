@@ -301,6 +301,8 @@ local function is_go_lib(file)
 	return file:match("/go/pkg/mod/")
 		or file:match("/opt/homebrew/Cellar/go/")
 		or file:match("/opt/homebrew/opt/go/")
+		or file:match("/usr/local/go/")
+		or file:match("/usr/lib/go")
 		or file:match("\\go\\pkg\\mod\\")
 		or file:match("Program Files\\Go\\")
 end

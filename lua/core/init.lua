@@ -117,6 +117,9 @@ You're recommended to install PowerShell for better experience.]],
 end
 
 local git_sync_colors = function()
+	if not settings.sync_git_colors then
+		return
+	end
 	if vim.fn.executable("git") ~= 1 then
 		return
 	end
@@ -208,12 +211,20 @@ local load_core = function()
 	git_sync_colors()
 
 	require("core.options")
+	-- На тупых терминалах 24-битный цвет ломает вывод — откатываемся.
+	if (vim.env.TERM or "") == "dumb" or (vim.env.NO_COLOR or "") ~= "" then
+		vim.api.nvim_set_option_value("termguicolors", false, {})
+	end
 	require("core.event")
 	require("core.pack")
 	require("keymap")
 	require("modules.configs.completion.formatting").configure_format_on_save()
 	require("modules.configs.ui.theme")()
 	vim.api.nvim_set_option_value("background", settings.background, {})
+
+	vim.api.nvim_create_user_command("ConfigHealth", function()
+		vim.cmd("checkhealth core")
+	end, { desc = "config: environment preflight (binaries, LSP, theme, keys)" })
 end
 
 -- netrw НЕ отключаем: встроенный проводник доступен через :Ex / :Vex.

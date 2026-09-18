@@ -75,6 +75,13 @@ settings["disabled_plugins"] = {}
 ---@type boolean
 settings["load_big_files_faster"] = true
 
+-- Set to false to stop touching external git/lazygit configs.
+-- When true (default), missing diff-color sections are appended to
+-- ~/.gitconfig and a default lazygit theme is created on first start.
+-- Set false on foreign machines where you don't want side effects.
+---@type boolean
+settings["sync_git_colors"] = true
+
 -- Customize the global color palette here.
 -- These settings will override the defaults during initialization.
 -- Parameters will auto-complete as you type.
