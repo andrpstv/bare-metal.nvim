@@ -192,49 +192,117 @@ end
 autocmd.load_autocmds()
 
 -- Organize Go imports + format on save (separate from augroups due to function callback)
+--
+-- Два пути: быстрый синхронный (тёплый gopls отвечает за ~10-50мс,
+-- сейв атомарный) и фоновый (холодный gopls на большом репо:
+-- сейв НЕ блокируем, доделываем асинхронно с защитой changedtick,
+-- чтобы не наложить старые правки на новый текст; пишем тихо,
+-- нотифаем только проблемы).
+local function go_apply_code_actions(bufnr, responses, enc)
+	for _, res in pairs(responses or {}) do
+		for _, action in ipairs(res.result or {}) do
+			if action.edit then
+				vim.lsp.util.apply_workspace_edit(action.edit, enc)
+			elseif action.command then
+				vim.lsp.buf.execute_command(action.command)
+			end
+		end
+	end
+end
+
+local function go_client(bufnr)
+	local clients = vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/codeAction" })
+	for _, c in ipairs(clients) do
+		if c.name == "gopls" then
+			return c
+		end
+	end
+	return clients[1]
+end
+
 vim.api.nvim_create_autocmd("BufWritePre", {
 	pattern = "*.go",
 	callback = function()
 		local bufnr = vim.api.nvim_get_current_buf()
-		-- Берём именно gopls: порядок get_clients не гарантирован,
-		-- а ответ buf_request_sync индексируется ПО ID КЛИЕНТА,
-		-- а не по порядку (старый код брал result[1] и молча
-		-- пропускал всё при id ~= 1, напр. после LspRestart).
-		local clients = vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/codeAction" })
-		local client = nil
-		for _, c in ipairs(clients) do
-			if c.name == "gopls" then
-				client = c
-				break
-			end
-		end
-		client = client or clients[1]
+		local client = go_client(bufnr)
 		if not client then
 			return
 		end
 		local enc = client.offset_encoding or "utf-16"
 		local params = vim.lsp.util.make_range_params(0, enc)
 		params.context = { only = { "source.organizeImports" } }
-		local result = vim.lsp.buf_request_sync(bufnr, "textDocument/codeAction", params, 2000)
-		if not result then
-			vim.notify(
-				"[go] organize imports timed out (cold gopls on big repo?)",
-				vim.log.levels.WARN,
-				{ title = "lsp" }
-			)
-		else
-			for _, res in pairs(result) do
-				for _, action in ipairs(res.result or {}) do
-					if action.edit then
-						vim.lsp.util.apply_workspace_edit(action.edit, enc)
-					elseif action.command then
-						vim.lsp.buf.execute_command(action.command)
-					end
-				end
-			end
+
+		-- Быстрый путь: тёплый gopls успевает за 400мс.
+		local fast = vim.lsp.buf_request_sync(bufnr, "textDocument/codeAction", params, 400)
+		if fast then
+			go_apply_code_actions(bufnr, fast, enc)
+			vim.lsp.buf.format({ async = false })
+			return
 		end
-		-- Then format
-		vim.lsp.buf.format({ async = false })
+
+		-- Медленный путь: gopls холодный — сейв отпускаем сразу,
+		-- доделываем фоном. Перепроверяем tick перед КАЖДЫМ применением.
+		vim.notify("[go] gopls is warming up, will organize+format in background", vim.log.levels.INFO, {
+			title = "lsp",
+		})
+		local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+		local function guarded(what, fn)
+			if not vim.api.nvim_buf_is_valid(bufnr) then
+				return
+			end
+			if vim.api.nvim_buf_get_changedtick(bufnr) ~= tick then
+				vim.notify(
+					"[go] buffer changed meanwhile, skip async " .. what .. " (run :Format)",
+					vim.log.levels.WARN,
+					{ title = "lsp" }
+				)
+				return
+			end
+			fn()
+			-- Новая база: наши собственные правки tick двигают,
+			-- последующие шаги сверяются уже с ним, а не с сейвовым.
+			tick = vim.api.nvim_buf_get_changedtick(bufnr)
+		end
+		vim.defer_fn(function()
+			if not vim.api.nvim_buf_is_valid(bufnr) or client:is_stopped() then
+				return
+			end
+			client.request("textDocument/codeAction", params, function(err, result)
+				if err then
+					vim.notify(
+						"[go] async organize failed: " .. (err.message or "?"),
+						vim.log.levels.ERROR,
+						{ title = "lsp" }
+					)
+					return
+				end
+				guarded("organize", function()
+					go_apply_code_actions(bufnr, { { result = result } }, enc)
+					vim.cmd("noautocmd silent! update")
+				end)
+				-- Формат следом, тоже асинхронно и под тем же guard.
+				-- База свежая: параметры форматирования считаем заново,
+				-- поэтому сверяемся с текущим tick, а не с сейвовым.
+				tick = vim.api.nvim_buf_get_changedtick(bufnr)
+				local fparams = vim.lsp.util.make_formatting_params()
+				client.request("textDocument/formatting", fparams, function(err2, result2)
+					if err2 then
+						vim.notify(
+							"[go] async format failed: " .. (err2.message or "?"),
+							vim.log.levels.ERROR,
+							{ title = "lsp" }
+						)
+						return
+					end
+					guarded("format", function()
+						if result2 then
+							vim.lsp.util.apply_text_edits(result2, bufnr, enc)
+							vim.cmd("noautocmd silent! update")
+						end
+					end)
+				end, bufnr)
+			end, bufnr)
+		end, 500)
 	end,
 })
 
