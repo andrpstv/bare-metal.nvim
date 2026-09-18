@@ -28,7 +28,11 @@ return function()
 
 	local cmp = require("cmp")
 	require("modules.utils").load_plugin("cmp", {
-		preselect = cmp.PreselectMode.None,
+		-- Первый айтем выбран и ВСТАВЛЕН сразу при открытии меню,
+		-- Enter не нужен: скролл Tab/C-n/C-p live-меняет текст.
+		-- Enter остался только для сниппетов и автоимпортов.
+		preselect = cmp.PreselectMode.Item,
+		completion = { completeopt = "menu,menuone,popup" },
 		window = {
 			completion = {
 				border = border("PmenuBorder"),
@@ -112,13 +116,18 @@ return function()
 		experimental = { ghost_text = false }, -- отключаем для быстрого скролла
 	})
 
-	-- Командная строка: / и : через cmp (нужен cmp-cmdline)
+	-- Командная строка: / и : через cmp (нужен cmp-cmdline).
+	-- Tab тоже сразу вставляет, как в коде.
+	local cmdline_tab = {
+		["<Tab>"] = cmp.mapping.select_next_item({ behavior = cmp.SelectBehavior.Select }),
+		["<S-Tab>"] = cmp.mapping.select_prev_item({ behavior = cmp.SelectBehavior.Select }),
+	}
 	cmp.setup.cmdline({ "/", "?" }, {
-		mapping = cmp.mapping.preset.cmdline(),
+		mapping = vim.tbl_extend("force", cmp.mapping.preset.cmdline(), cmdline_tab),
 		sources = { { name = "buffer" } },
 	})
 	cmp.setup.cmdline(":", {
-		mapping = cmp.mapping.preset.cmdline(),
+		mapping = vim.tbl_extend("force", cmp.mapping.preset.cmdline(), cmdline_tab),
 		sources = cmp.config.sources({ { name = "path" } }, { { name = "cmdline" } }),
 	})
 end
