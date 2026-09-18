@@ -6,14 +6,19 @@ local mappings = {
 	plugins = {
 		-- Проводник: встроенный netrw от папки ТЕКУЩЕГО файла
 		-- (курсор встаёт на файл — удобно создавать соседей через `%`).
-		-- Тоггл: из netrw возвращает к файлу (через alternate-буфер).
+		-- Тоггл: из netrw возвращает ровно в тот файл, откуда открыли
+		-- (буфер запоминаем явно — alternate `#` слишком хрупкий).
 		-- К корню проекта (глобальный pwd) — на <leader>E.
 		["n|<leader>e"] = map_callback(function()
 				if vim.bo.filetype == "netrw" then
-					if not pcall(vim.cmd, "b#") then
+					local back = vim.w.netrw_toggle_from
+					if back and vim.api.nvim_buf_is_valid(back) then
+						vim.cmd.buffer(back)
+					elseif not pcall(vim.cmd, "b#") then
 						vim.cmd("enew")
 					end
 				else
+					vim.w.netrw_toggle_from = vim.api.nvim_get_current_buf()
 					local dir = vim.fn.expand("%:p:h")
 					if dir == "" then
 						dir = vim.fn.getcwd(-1, -1)
@@ -21,7 +26,10 @@ local mappings = {
 					local tail = vim.fn.expand("%:t")
 					vim.cmd.edit(vim.fn.fnameescape(dir))
 					if tail ~= "" then
-						pcall(vim.fn.search, vim.fn.escape(tail, ".") .. "$", "w")
+						-- Экранируем ВСЕ спецсимволы имени, поиск не трогает регистр `/`
+						local keep = vim.fn.getreg("/")
+						pcall(vim.fn.search, tail:gsub("([^%w])", "%%%1") .. "$", "w")
+						vim.fn.setreg("/", keep)
 					end
 				end
 			end)
