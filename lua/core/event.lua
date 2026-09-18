@@ -193,11 +193,13 @@ autocmd.load_autocmds()
 
 -- Organize Go imports + format on save (separate from augroups due to function callback)
 --
--- Два пути: быстрый синхронный (тёплый gopls отвечает за ~10-50мс,
--- сейв атомарный) и фоновый (холодный gopls на большом репо:
--- сейв НЕ блокируем, доделываем асинхронно с защитой changedtick,
--- чтобы не наложить старые правки на новый текст; пишем тихо,
--- нотифаем только проблемы).
+-- Полностью асинхронно: сейв НИКОГДА не блокируется.
+-- BufWritePre пуст — пишем как есть; всё доделывается в BufWritePost:
+-- organize-запрос → guard → применить → тихий допис → format-запрос
+-- → guard → применить → тихий допис.
+-- Каждый шаг сверяет changedtick (не наложить старые правки на новый
+-- текст), пишем через `noautocmd update` (только при изменениях, без петель),
+-- нотифаем только ошибки/пропуски.
 local function go_apply_code_actions(bufnr, responses, enc)
 	for _, res in pairs(responses or {}) do
 		for _, action in ipairs(res.result or {}) do
@@ -220,31 +222,15 @@ local function go_client(bufnr)
 	return clients[1]
 end
 
-vim.api.nvim_create_autocmd("BufWritePre", {
+vim.api.nvim_create_autocmd("BufWritePost", {
 	pattern = "*.go",
 	callback = function()
 		local bufnr = vim.api.nvim_get_current_buf()
 		local client = go_client(bufnr)
-		if not client then
+		if not client or client:is_stopped() then
 			return
 		end
 		local enc = client.offset_encoding or "utf-16"
-		local params = vim.lsp.util.make_range_params(0, enc)
-		params.context = { only = { "source.organizeImports" } }
-
-		-- Быстрый путь: тёплый gopls успевает за 400мс.
-		local fast = vim.lsp.buf_request_sync(bufnr, "textDocument/codeAction", params, 400)
-		if fast then
-			go_apply_code_actions(bufnr, fast, enc)
-			vim.lsp.buf.format({ async = false })
-			return
-		end
-
-		-- Медленный путь: gopls холодный — сейв отпускаем сразу,
-		-- доделываем фоном. Перепроверяем tick перед КАЖДЫМ применением.
-		vim.notify("[go] gopls is warming up, will organize+format in background", vim.log.levels.INFO, {
-			title = "lsp",
-		})
 		local tick = vim.api.nvim_buf_get_changedtick(bufnr)
 		local function guarded(what, fn)
 			if not vim.api.nvim_buf_is_valid(bufnr) then
@@ -259,50 +245,42 @@ vim.api.nvim_create_autocmd("BufWritePre", {
 				return
 			end
 			fn()
-			-- Новая база: наши собственные правки tick двигают,
-			-- последующие шаги сверяются уже с ним, а не с сейвовым.
 			tick = vim.api.nvim_buf_get_changedtick(bufnr)
 		end
-		vim.defer_fn(function()
-			if not vim.api.nvim_buf_is_valid(bufnr) or client:is_stopped() then
+		local params = vim.lsp.util.make_range_params(0, enc)
+		params.context = { only = { "source.organizeImports" } }
+		client.request("textDocument/codeAction", params, function(err, result)
+			if err then
+				vim.notify(
+					"[go] async organize failed: " .. (err.message or "?"),
+					vim.log.levels.ERROR,
+					{ title = "lsp" }
+				)
 				return
 			end
-			client.request("textDocument/codeAction", params, function(err, result)
-				if err then
+			guarded("organize", function()
+				go_apply_code_actions(bufnr, { { result = result } }, enc)
+				vim.cmd("noautocmd silent! update")
+			end)
+			tick = vim.api.nvim_buf_get_changedtick(bufnr)
+			local fparams = vim.lsp.util.make_formatting_params()
+			client.request("textDocument/formatting", fparams, function(err2, result2)
+				if err2 then
 					vim.notify(
-						"[go] async organize failed: " .. (err.message or "?"),
+						"[go] async format failed: " .. (err2.message or "?"),
 						vim.log.levels.ERROR,
 						{ title = "lsp" }
 					)
 					return
 				end
-				guarded("organize", function()
-					go_apply_code_actions(bufnr, { { result = result } }, enc)
-					vim.cmd("noautocmd silent! update")
-				end)
-				-- Формат следом, тоже асинхронно и под тем же guard.
-				-- База свежая: параметры форматирования считаем заново,
-				-- поэтому сверяемся с текущим tick, а не с сейвовым.
-				tick = vim.api.nvim_buf_get_changedtick(bufnr)
-				local fparams = vim.lsp.util.make_formatting_params()
-				client.request("textDocument/formatting", fparams, function(err2, result2)
-					if err2 then
-						vim.notify(
-							"[go] async format failed: " .. (err2.message or "?"),
-							vim.log.levels.ERROR,
-							{ title = "lsp" }
-						)
-						return
+				guarded("format", function()
+					if result2 then
+						vim.lsp.util.apply_text_edits(result2, bufnr, enc)
+						vim.cmd("noautocmd silent! update")
 					end
-					guarded("format", function()
-						if result2 then
-							vim.lsp.util.apply_text_edits(result2, bufnr, enc)
-							vim.cmd("noautocmd silent! update")
-						end
-					end)
-				end, bufnr)
+				end)
 			end, bufnr)
-		end, 500)
+		end, bufnr)
 	end,
 })
 
