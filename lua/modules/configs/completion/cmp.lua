@@ -27,6 +27,14 @@ return function()
 	}
 
 	local cmp = require("cmp")
+
+	-- Есть ли слово перед курсором (чтобы Tab открывал меню, а не делал отступ)
+	local has_words_before = function()
+		local line, col = unpack(vim.api.nvim_win_get_cursor(0))
+		return col ~= 0
+			and vim.api.nvim_buf_get_lines(0, line - 1, line, true)[1]:sub(col, col):match("%s") == nil
+	end
+
 	require("modules.utils").load_plugin("cmp", {
 		-- Ничего не выбрано, пока не нажмёшь Tab: Enter всегда
 		-- перевод строки / выполнение команды, подсказки игнорируются.
@@ -77,20 +85,42 @@ return function()
 			max_view_entries = 80, -- меньше элементов для рендера
 		},
 		mapping = cmp.mapping.preset.insert({
-			["<C-p>"] = cmp.mapping.select_prev_item({ behavior = cmp.SelectBehavior.Select }),
-			["<C-n>"] = cmp.mapping.select_next_item({ behavior = cmp.SelectBehavior.Select }),
+			["<C-p>"] = cmp.mapping(function(fallback)
+				if cmp.visible() then
+					cmp.select_prev_item({ behavior = cmp.SelectBehavior.Select })
+				else
+					cmp.complete()
+				end
+			end),
+			["<C-n>"] = cmp.mapping(function(fallback)
+				if cmp.visible() then
+					cmp.select_next_item({ behavior = cmp.SelectBehavior.Select })
+				else
+					cmp.complete()
+				end
+			end),
 			["<C-d>"] = cmp.mapping.scroll_docs(-4),
 			["<C-f>"] = cmp.mapping.scroll_docs(4),
 			["<C-w>"] = cmp.mapping.abort(),
 			["<Tab>"] = cmp.mapping(function(fallback)
-				if cmp.visible() then cmp.select_next_item({ behavior = cmp.SelectBehavior.Select })
-				elseif require("luasnip").expand_or_locally_jumpable() then require("luasnip").expand_or_jump()
-				else fallback() end
+				if cmp.visible() then
+					cmp.select_next_item({ behavior = cmp.SelectBehavior.Select })
+				elseif require("luasnip").expand_or_locally_jumpable() then
+					require("luasnip").expand_or_jump()
+				elseif has_words_before() then
+					cmp.complete() -- меню закрыто: первый Tab открывает, следующий скроллит
+				else
+					fallback() -- начало строки: обычный отступ
+				end
 			end, { "i", "s" }),
 			["<S-Tab>"] = cmp.mapping(function(fallback)
-				if cmp.visible() then cmp.select_prev_item({ behavior = cmp.SelectBehavior.Select })
-				elseif require("luasnip").jumpable(-1) then require("luasnip").jump(-1)
-				else fallback() end
+				if cmp.visible() then
+					cmp.select_prev_item({ behavior = cmp.SelectBehavior.Select })
+				elseif require("luasnip").jumpable(-1) then
+					require("luasnip").jump(-1)
+				else
+					fallback()
+				end
 			end, { "i", "s" }),
 			["<CR>"] = cmp.mapping(function(fallback)
 				fallback() -- всегда перевод строки: подтверждение только через <C-y>
