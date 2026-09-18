@@ -29,7 +29,7 @@ local mappings = {
 			:with_noremap()
 			:with_silent()
 			:with_desc("tool: Command panel"),
-		["n|<leader>Lg"] = map_callback(function()
+		["n|<leader>fp"] = map_callback(function()
 				_fzf("live_grep")
 			end)
 			:with_noremap()
