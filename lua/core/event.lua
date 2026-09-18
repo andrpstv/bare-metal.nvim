@@ -218,7 +218,9 @@ vim.api.nvim_create_autocmd({ "BufReadPost", "BufEnter" }, {
 		if is_go_lib(file) then
 			vim.bo.modifiable = false
 			vim.bo.readonly = true
-			vim.bo.buftype = "nofile"
+			-- NOTE: НЕ ставим buftype=nofile — к таким буферам LSP
+			-- не аттачится, и внутри stdlib умирают go to definition,
+			-- references и hover. Только read-only + блок сейва ниже.
 		end
 	end,
 })
