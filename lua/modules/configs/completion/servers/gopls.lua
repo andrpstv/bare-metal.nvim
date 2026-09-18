@@ -2,7 +2,7 @@
 return {
 	cmd = { "gopls" },
 	filetypes = { "go", "gomod", "gosum", "gotmpl", "gohtmltmpl", "gotexttmpl" },
-	flags = { allow_incremental_sync = true, debounce_text_changes = 500 },
+	flags = { allow_incremental_sync = true, debounce_text_changes = 150 },
 	capabilities = {
 		textDocument = {
 			completion = {

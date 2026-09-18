@@ -41,6 +41,12 @@ return function()
 		-- После Tab навигация live-вставляет текст, Enter по-прежнему
 		-- свободен; полный confirm (сниппеты, автоимпорты) — на <C-y>.
 		preselect = cmp.PreselectMode.None,
+		-- Меню всплывает само при печати (ничего не выбрано),
+		-- выбор — только руками через Tab/C-n/C-p.
+		completion = {
+			autocomplete = { cmp.TriggerEvent.TextChanged },
+			keyword_length = 1,
+		},
 		window = {
 			completion = {
 				border = border("PmenuBorder"),
