@@ -17,7 +17,9 @@ local mappings = {
 		-- gF убран: его существование заставляло `gf` ждать timeoutlen.
 		-- Fill struct теперь на <leader>fs.
 		["n|<leader>fs"] = map_cr("GoFillStruct"):with_noremap():with_silent():with_desc("go: Fill struct"),
-		["n|<leader>ei"] = map_callback(function()
+		-- GoIfErr на `ie` (if err), а НЕ на `e*`: любой <leader>eX
+		-- заставляет bare <leader>e ждать timeoutlen. Так тоггл мгновенный.
+		["n|<leader>ie"] = map_callback(function()
 				if vim.bo.filetype == "go" then
 					vim.cmd("GoIfErr")
 				else
@@ -28,9 +30,7 @@ local mappings = {
 			:with_silent()
 			:with_desc("go: if err != nil"),
 		-- Тот же GoIfErr из инсерта, без ухода в нормал руками.
-		-- Побочка: после "␣e" в инсерте vim ждёт 300мс (timeoutlen),
-		-- вдруг это начало маппинга, — мелкий лаг редких кейсов.
-		["i|<leader>ei"] = map_cmd("<Esc>:GoIfErr<CR>a"):with_noremap():with_desc("go: if err != nil"),
+		["i|<leader>ie"] = map_cmd("<Esc>:GoIfErr<CR>a"):with_noremap():with_desc("go: if err != nil"),
 	},
 }
 
