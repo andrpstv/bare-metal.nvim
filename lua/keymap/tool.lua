@@ -8,12 +8,19 @@ local mappings = {
 		-- getcwd(-1,-1) игнорирует window-local :lcd, которыми netrw
 		-- сорит (keepdir). После `cd` в netrw (DirChanged продвигает
 		-- его в глобальный) здесь всегда только новый проект.
+		-- Тоггл: из netrw возвращает к файлу (через alternate-буфер).
 		["n|<leader>e"] = map_callback(function()
-				vim.cmd.edit(vim.fn.fnameescape(vim.fn.getcwd(-1, -1)))
+				if vim.bo.filetype == "netrw" then
+					if not pcall(vim.cmd, "b#") then
+						vim.cmd("enew")
+					end
+				else
+					vim.cmd.edit(vim.fn.fnameescape(vim.fn.getcwd(-1, -1)))
+				end
 			end)
 			:with_noremap()
 			:with_silent()
-			:with_desc("filebrowser: netrw at pwd"),
+			:with_desc("filebrowser: netrw toggle at pwd"),
 
 		-- Plugin: trouble
 		["n|gt"] = map_cr("Trouble diagnostics toggle")
