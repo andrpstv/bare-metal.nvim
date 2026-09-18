@@ -86,6 +86,12 @@ function M.lsp(buf)
 			vim.lsp.buf.signature_help()
 		end):with_desc("lsp: Signature help"),
 		["n|gr"] = map_callback(function()
+				_fzf("lsp_references")
+			end)
+			:with_silent()
+			:with_buffer(buf)
+			:with_desc("lsp: References (fzf)"),
+		["n|gR"] = map_callback(function()
 				vim.lsp.buf.references()
 			end)
 			:with_silent()
@@ -127,6 +133,12 @@ function M.lsp(buf)
 			:with_buffer(buf)
 			:with_desc("lsp: References in Trouble (preview, Enter jumps)"),
 		["n|gi"] = map_callback(function()
+				_fzf("lsp_implementations")
+			end)
+			:with_silent()
+			:with_buffer(buf)
+			:with_desc("lsp: Implementations (fzf)"),
+		["n|gI"] = map_callback(function()
 				vim.lsp.buf.implementation()
 			end)
 			:with_silent()
@@ -179,7 +191,21 @@ function M.lsp(buf)
 			:with_silent()
 			:with_desc("lsp: Toggle inlay hints"),
 		["n|<leader>cl"] = map_callback(function()
-				vim.lsp.codelens.run()
+				-- Линзы могли не успеть подгрузиться: рефрешим и ждём,
+				-- иначе run молча ничего не делает. Курсор — на тест-функции.
+				vim.lsp.codelens.refresh()
+				vim.defer_fn(function()
+					local lenses = vim.lsp.codelens.get(0)
+					if #(lenses or {}) == 0 then
+						vim.notify(
+							"[lsp] no codelens here (cursor on Test func? try :GoTestFunc)",
+							vim.log.levels.WARN,
+							{ title = "lsp" }
+						)
+						return
+					end
+					pcall(vim.lsp.codelens.run)
+				end, 500)
 			end)
 			:with_noremap()
 			:with_silent()
