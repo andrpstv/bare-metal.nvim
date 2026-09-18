@@ -101,6 +101,12 @@ function M.lsp(buf)
 			:with_silent()
 			:with_buffer(buf)
 			:with_desc("lsp: Implementations to quickfix"),
+		["n|gy"] = map_callback(function()
+				_fzf("lsp_typedefs", { jump1 = true })
+			end)
+			:with_silent()
+			:with_buffer(buf)
+			:with_desc("lsp: Type definition (e.g. return struct)"),
 		["n|gM"] = map_cr("Trouble lsp_implementations toggle")
 			:with_silent()
 			:with_buffer(buf)

@@ -27,6 +27,11 @@ local mappings = {
 		["i|<C-s>"] = map_cmd("<Esc>:w<CR>"):with_desc("edit: Save file"),
 		["i|<C-q>"] = map_cmd("<Esc>:wq<CR>"):with_desc("edit: Save file and quit"),
 
+		-- Builtins: Undo breakpoints (LazyVim) — гранулярный undo по знакам
+		["i|,"] = map_cmd(",<C-g>u"):with_noremap():with_desc("edit: Undo breakpoint ,"),
+		["i|."] = map_cmd(".<C-g>u"):with_noremap():with_desc("edit: Undo breakpoint ."),
+		["i|;"] = map_cmd(";<C-g>u"):with_noremap():with_desc("edit: Undo breakpoint ;"),
+
 		-- Builtins: Command mode
 		["c|<C-b>"] = map_cmd("<Left>"):with_noremap():with_desc("edit: Left"),
 		["c|<C-f>"] = map_cmd("<Right>"):with_noremap():with_desc("edit: Right"),
@@ -43,6 +48,7 @@ local mappings = {
 		["v|K"] = map_cmd(":m '<-2<CR>gv=gv"):with_desc("edit: Move this line up"),
 		["v|<"] = map_cmd("<gv"):with_desc("edit: Decrease indent"),
 		["v|>"] = map_cmd(">gv"):with_desc("edit: Increase indent"),
+		["x|p"] = map_cmd('"_dP'):with_noremap():with_desc("edit: Paste without yanking"),
 
 		-- Builtins: "Suckless" - named after r/suckless
 		["n|Y"] = map_cmd("y$"):with_desc("edit: Yank text to EOL"),
@@ -50,6 +56,8 @@ local mappings = {
 		["n|n"] = map_cmd("nzzzv"):with_noremap():with_desc("edit: Next search result"),
 		["n|N"] = map_cmd("Nzzzv"):with_noremap():with_desc("edit: Prev search result"),
 		["n|J"] = map_cmd("mzJ`z"):with_noremap():with_desc("edit: Join next line"),
+		["n|<C-d>"] = map_cmd("<C-d>zz"):with_noremap():with_desc("edit: Scroll down + center"),
+		["n|<C-u>"] = map_cmd("<C-u>zz"):with_noremap():with_desc("edit: Scroll up + center"),
 		["n|<S-Tab>"] = map_cr("normal za"):with_noremap():with_silent():with_desc("edit: Toggle code fold"),
 		["n|<Esc>"] = map_callback(function()
 				_flash_esc_or_noh()
@@ -58,6 +66,13 @@ local mappings = {
 			:with_silent()
 			:with_desc("edit: Clear search highlight"),
 		["n|<leader>o"] = map_cr("setlocal spell! spelllang=en_us"):with_desc("edit: Toggle spell check"),
+		["n|<leader>x"] = map_cr("!chmod +x %")
+			:with_noremap()
+			:with_silent()
+			:with_desc("edit: chmod +x current file"),
+		["n|<leader>S"] = map_cmd([[:%s/\<<C-r><C-w>\>/<C-r><C-w>/gI<Left><Left><Left>]])
+			:with_noremap()
+			:with_desc("edit: Substitute word under cursor"),
 	},
 	plugins = {
 		-- Сессии: встроенные :mksession / :source Session.vim

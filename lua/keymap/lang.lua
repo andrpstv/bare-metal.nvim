@@ -1,6 +1,7 @@
 local bind = require("keymap.bind")
 local map_cr = bind.map_cr
 local map_cmd = bind.map_cmd
+local map_callback = bind.map_callback
 
 local mappings = {
 	plugins = {
@@ -14,6 +15,16 @@ local mappings = {
 		["n|<leader>gn"] = map_cmd("lua vim.lsp.buf.rename()"):with_noremap():with_silent():with_desc("go: Rename symbol"),
 		["n|<leader>gi"] = map_cmd("lua vim.lsp.buf.code_action()"):with_noremap():with_silent():with_desc("go: Code action"),
 		["n|<leader>gF"] = map_cr("GoFillStruct"):with_noremap():with_silent():with_desc("go: Fill struct"),
+		["n|<leader>ee"] = map_callback(function()
+				if vim.bo.filetype == "go" then
+					vim.cmd("GoIfErr")
+				else
+					vim.notify("GoIfErr works in Go files only", vim.log.levels.WARN)
+				end
+			end)
+			:with_noremap()
+			:with_silent()
+			:with_desc("go: if err != nil"),
 	},
 }
 

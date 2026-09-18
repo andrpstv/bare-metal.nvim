@@ -92,6 +92,12 @@ local mappings = {
 			:with_noremap()
 			:with_silent()
 			:with_desc("tool: Find buffers"),
+		["n|<leader>f/"] = map_callback(function()
+				_fzf("blines")
+			end)
+			:with_noremap()
+			:with_silent()
+			:with_desc("tool: Fuzzy current buffer"),
 		["n|<leader>fo"] = map_callback(function()
 				_fzf("oldfiles")
 			end)
