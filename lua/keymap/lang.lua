@@ -31,6 +31,13 @@ local mappings = {
 			:with_desc("go: if err != nil"),
 		-- Тот же GoIfErr из инсерта, без ухода в нормал руками.
 		["i|<leader>ie"] = map_cmd("<Esc>:GoIfErr<CR>a"):with_noremap():with_desc("go: if err != nil"),
+		-- Подставить возвращаемые значения в переменные: `f()` -> `x, err := f()`.
+		["n|<leader>ar"] = map_callback(function()
+				_go_assign_vars()
+			end)
+			:with_noremap()
+			:with_silent()
+			:with_desc("go: assign call results (x, err := f())"),
 	},
 }
 
