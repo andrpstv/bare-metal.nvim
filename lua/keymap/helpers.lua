@@ -51,3 +51,20 @@ _G._toggle_virtuallines = function()
 		{ title = "LSP Diagnostic" }
 	)
 end
+
+-- Сегмент статуслайна с LSP: имена приаттаченных к буферу серверов.
+-- Вызывается из 'statusline' (%{%}), обновляется при перерисовке.
+_G._lsp_status = function()
+	local clients = vim.lsp.get_clients({ bufnr = 0 })
+	if #clients == 0 then
+		return ""
+	end
+	local names = {}
+	for _, c in ipairs(clients) do
+		names[#names + 1] = c.name
+	end
+	return " LSP:" .. table.concat(names, ",")
+end
+
+-- Дописываем сегмент к дефолтному статуслайну (ноль плагинов).
+vim.opt.statusline:append("%{%v:lua._lsp_status()%}")
