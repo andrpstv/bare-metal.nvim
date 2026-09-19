@@ -99,6 +99,10 @@ local mappings = {
 			:with_noremap()
 			:with_silent()
 			:with_desc("session: Load"),
+		-- Plugin: diffview.nvim (diff веток/коммитов/история файла)
+		["n|<leader>gd"] = map_cr("DiffviewOpen"):with_silent():with_noremap():with_desc("git: Diff open"),
+		["n|<leader>gD"] = map_cr("DiffviewClose"):with_silent():with_noremap():with_desc("git: Diff close"),
+		["n|<leader>gh"] = map_cr("DiffviewFileHistory"):with_silent():with_noremap():with_desc("git: File history"),
 	},
 }
 

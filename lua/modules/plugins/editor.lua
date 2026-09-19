@@ -28,5 +28,13 @@ editor["m4xshen/autoclose.nvim"] = {
 	event = "InsertEnter",
 	config = require("editor.autoclose"),
 }
+editor["sindrets/diffview.nvim"] = {
+	lazy = true,
+	cmd = { "DiffviewOpen", "DiffviewClose", "DiffviewFileHistory", "DiffviewRefresh" },
+	config = require("editor.diffview"),
+	dependencies = {
+		{ "nvim-lua/plenary.nvim", lazy = true },
+	},
+}
 
 return editor
