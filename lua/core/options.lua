@@ -53,7 +53,7 @@ local function load_options()
 		shiftround = true,
 		shortmess = "aoOTcF",
 		showbreak = "↳  ",
-		showcmd = false,
+		showcmd = true, -- видеть набранный префикс (leader) в cmdline
 		showmode = false,
 		showtabline = 2,
 		sidescrolloff = 5,
