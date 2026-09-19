@@ -311,6 +311,20 @@ function M.register_server(server, config)
 	vim.lsp.enable(server)
 end
 
+---True if the buffer is a real file. Plugin buffers like diffview://,
+---fugitive:// or oil:// carry a non-file URI scheme that servers such as
+---gopls reject with JSON RPC -32700 — keep all LSP extras away from them.
+---@param bufnr integer
+---@return boolean
+function M.is_file_buffer(bufnr)
+	local name = vim.api.nvim_buf_get_name(bufnr)
+	if name == "" then
+		return true
+	end
+	local scheme = name:match("^([%w%.%+%-]+)://")
+	return scheme == nil or scheme == "file"
+end
+
 ---Convert number (0/1) to boolean
 ---@param value number @The value to check
 ---@return boolean|nil @Returns nil if failed

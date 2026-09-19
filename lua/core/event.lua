@@ -44,6 +44,10 @@ vim.api.nvim_create_autocmd("LspAttach", {
 	group = vim.api.nvim_create_augroup("LspKeymapLoader", { clear = true }),
 	callback = function(event)
 		if not _G._debugging then
+			-- Не-file буферы (diffview://...): скипаем всё, см. keymap.completion
+			if not require("modules.utils").is_file_buffer(event.buf) then
+				return
+			end
 			-- LSP Keymaps
 			mapping.lsp(event.buf)
 

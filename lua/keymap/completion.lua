@@ -48,6 +48,17 @@ end
 
 ---@param buf integer
 function M.lsp(buf)
+	-- Плагинные буферы (diffview://, fugitive://, ...): у gopls от
+	-- не-file URI падает JSON RPC -32700, поэтому не вешаем сюда
+	-- ни кеймапы, ни codelens, ни completion (это и были источники ошибок;
+	-- чистый аттач молчит — проверено).
+	-- NOTE: detach НЕ делаем — vim.lsp.buf_detach_client падает с E5113
+	-- на таких буферах (баг core _changetracking). Клиент висит idle.
+	if not require("modules.utils").is_file_buffer(buf) then
+		-- Плюс сносим встроенный K-ховер дефолта (тоже слал бы запросы).
+		pcall(vim.keymap.del, "n", "K", { buffer = buf })
+		return
+	end
 	local map = {
 		-- LSP-related keymaps, ONLY effective in buffers with LSP(s) attached.
 		-- Без префикс-конфликтов: ни один маппинг не является началом другого,
