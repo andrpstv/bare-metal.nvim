@@ -113,13 +113,31 @@ _G._go_assign_vars = function()
 	end
 
 	-- 2. Сигнатура через hover gopls (точный источник типов).
-	local fr, fc = fnode:range()
-	local resp = vim.lsp.buf_request_sync(
-		bufnr,
-		"textDocument/hover",
-		{ textDocument = { uri = vim.uri_from_bufnr(bufnr) }, position = { line = fr, character = fc } },
-		2000
-	)
+	-- Ховерим КОНЕЦ имени функции: у методов поле function — селектор
+	-- `p.Talk`, и начало указывает на переменную, а не на метод.
+	local fr, fc, er, ec = fnode:range()
+	local resp = nil
+	for _, pos in ipairs({ { line = er, character = ec - 1 }, { line = fr, character = fc } }) do
+		resp = vim.lsp.buf_request_sync(
+			bufnr,
+			"textDocument/hover",
+			{ textDocument = { uri = vim.uri_from_bufnr(bufnr) }, position = pos },
+			2000
+		)
+		local got = false
+		for _, res in pairs(resp or {}) do
+			local c = res.result and res.result.contents
+			local text = type(c) == "table" and c.value or type(c) == "string" and c or ""
+			if text:find("\nfunc%s") or text:match("^func%s") then
+				got = true
+				break
+			end
+		end
+		if got then
+			break
+		end
+		resp = nil
+	end
 	local sig = nil
 	for _, res in pairs(resp or {}) do
 		local c = res.result and res.result.contents
@@ -140,13 +158,53 @@ _G._go_assign_vars = function()
 	end
 
 	-- 3. Парсим возвращаемые: всё после закрывающей скобки параметров.
-	local i = sig:find("%(")
+	-- Пропускаем ресивер `func (p T)` и type-параметры `func F[T any]`.
+	local function skip_balanced(s, open_c, close_c)
+		local depth, k = 0, 1
+		while k <= #s do
+			local ch = s:sub(k, k)
+			if ch == open_c then
+				depth = depth + 1
+			elseif ch == close_c then
+				depth = depth - 1
+				if depth == 0 then
+					return s:sub(k + 1):match("^%s*(.*)$")
+				end
+			end
+			k = k + 1
+		end
+		return nil
+	end
+	local rest = sig:match("^func%s*(.-)%s*$")
+	if not rest then
+		return
+	end
+	if rest:sub(1, 1) == "(" then -- receiver `(p Person)`
+		rest = skip_balanced(rest, "(", ")")
+		if not rest then
+			return
+		end
+	end
+	-- rest = `Name...`: пропускаем имя до `(` параметров, по пути
+	-- скипая `[...]` generic-параметров (`Min[T any](a T) T`).
+	local i, sqd = nil, 0
+	for k = 1, #rest do
+		local ch = rest:sub(k, k)
+		if ch == "[" then
+			sqd = sqd + 1
+		elseif ch == "]" then
+			sqd = sqd - 1
+		elseif ch == "(" and sqd == 0 then
+			i = k
+			break
+		end
+	end
 	if not i then
 		return
 	end
 	local depth, j = 0, i
-	while j <= #sig do
-		local ch = sig:sub(j, j)
+	while j <= #rest do
+		local ch = rest:sub(j, j)
 		if ch == "(" then
 			depth = depth + 1
 		elseif ch == ")" then
@@ -157,7 +215,7 @@ _G._go_assign_vars = function()
 		end
 		j = j + 1
 	end
-	local rets = sig:sub(j + 1):match("^%s*(.-)%s*$")
+	local rets = rest:sub(j + 1):match("^%s*(.-)%s*$")
 	if rets == "" then
 		vim.notify("[go] function returns nothing", vim.log.levels.INFO, { title = "go" })
 		return
