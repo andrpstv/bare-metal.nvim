@@ -29,8 +29,9 @@ local mappings = {
 			:with_noremap()
 			:with_silent()
 			:with_desc("go: if err != nil"),
-		-- Тот же GoIfErr из инсерта, без ухода в нормал руками.
-		["i|<leader>ie"] = map_cmd("<Esc>:GoIfErr<CR>a"):with_noremap():with_desc("go: if err != nil"),
+		-- Инсерт-версии НЕТ осознанно: любой маппинг на <leader> в инсерте
+		-- заставляет КАЖДЫЙ пробел ждать timeoutlen (фриз при печати).
+		-- В инсерте вместо этого сниппет: `ir` + Tab (friendly-snippets).
 		-- Подставить возвращаемые значения в переменные: `f()` -> `x, err := f()`.
 		["n|<leader>ar"] = map_callback(function()
 				_go_assign_vars()
