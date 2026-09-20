@@ -357,16 +357,36 @@ local _stl_mode_hl = {
 	R = "DiagnosticWarn", r = "DiagnosticWarn", c = "Type", t = "DiagnosticError",
 }
 
+local _stl_size_cache = {}
 local function _stl_human_size()
-	local suffix = { "b", "k", "M", "G" }
-	local fsize = vim.fn.getfsize(vim.api.nvim_buf_get_name(0))
-	fsize = (fsize < 0 and 0) or fsize
-	if fsize < 1024 then
-		return fsize .. suffix[1]
+	local bufname = vim.api.nvim_buf_get_name(0)
+	-- Кэш на BufEnter/BufWritePost: getfsize = stat syscall на каждый redraw.
+	local tick = (vim.b.stl_size_tick or 0)
+	local key = bufname .. ":" .. tick
+	local cached = _stl_size_cache[key]
+	if cached then
+		return cached
 	end
-	local i = math.floor(math.log(fsize) / math.log(1024))
-	return string.format("%.2g%s", fsize / math.pow(1024, i), suffix[i + 1])
+	local suffix = { "b", "k", "M", "G" }
+	local fsize = vim.fn.getfsize(bufname)
+	fsize = (fsize < 0 and 0) or fsize
+	local out
+	if fsize < 1024 then
+		out = fsize .. suffix[1]
+	else
+		local i = math.floor(math.log(fsize) / math.log(1024))
+		out = string.format("%.2g%s", fsize / math.pow(1024, i), suffix[i + 1])
+	end
+	-- держим кэш маленьким
+	_stl_size_cache = { [key] = out }
+	return out
 end
+-- Инвалидация кэша размера на входе/записи буфера.
+pcall(vim.api.nvim_create_autocmd, { "BufEnter", "BufWritePost" }, {
+	callback = function()
+		vim.b.stl_size_tick = (vim.b.stl_size_tick or 0) + 1
+	end,
+})
 
 _G._statusline = function()
 	local ok, line = pcall(function()
@@ -392,11 +412,20 @@ _G._statusline = function()
 			end
 		end
 		parts[#parts + 1] = "%<"
-		-- Диагностика: ●[ E W I H ] (только ненулевые).
-		local e = #vim.diagnostic.get(0, { severity = vim.diagnostic.severity.ERROR })
-		local w = #vim.diagnostic.get(0, { severity = vim.diagnostic.severity.WARN })
-		local it = #vim.diagnostic.get(0, { severity = vim.diagnostic.severity.INFO })
-		local h = #vim.diagnostic.get(0, { severity = vim.diagnostic.severity.HINT })
+		-- Диагностика: один get() + подсчёт в Lua (было 4 скана на redraw).
+		local diags = vim.diagnostic.get(0)
+		local e, w, it, h = 0, 0, 0, 0
+		for _, d in ipairs(diags) do
+			if d.severity == vim.diagnostic.severity.ERROR then
+				e = e + 1
+			elseif d.severity == vim.diagnostic.severity.WARN then
+				w = w + 1
+			elseif d.severity == vim.diagnostic.severity.INFO then
+				it = it + 1
+			elseif d.severity == vim.diagnostic.severity.HINT then
+				h = h + 1
+			end
+		end
 		if e + w + it + h > 0 then
 			local d = { "%#DiagnosticError#●%*" .. "[" }
 			if e > 0 then

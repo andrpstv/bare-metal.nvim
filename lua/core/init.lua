@@ -48,25 +48,29 @@ end
 
 local clipboard_config = function()
 	if global.is_mac then
-		vim.g.clipboard = {
-			name = "macOS-clipboard",
-			copy = { ["+"] = "pbcopy", ["*"] = "pbcopy" },
-			paste = { ["+"] = "pbpaste", ["*"] = "pbpaste" },
-			cache_enabled = 0,
-		}
+		if vim.fn.executable("pbcopy") == 1 and vim.fn.executable("pbpaste") == 1 then
+			vim.g.clipboard = {
+				name = "macOS-clipboard",
+				copy = { ["+"] = "pbcopy", ["*"] = "pbcopy" },
+				paste = { ["+"] = "pbpaste", ["*"] = "pbpaste" },
+				cache_enabled = 1,
+			}
+		end
 	elseif global.is_wsl then
-		vim.g.clipboard = {
-			name = "win32yank-wsl",
-			copy = {
-				["+"] = "win32yank.exe -i --crlf",
-				["*"] = "win32yank.exe -i --crlf",
-			},
-			paste = {
-				["+"] = "win32yank.exe -o --lf",
-				["*"] = "win32yank.exe -o --lf",
-			},
-			cache_enabled = 0,
-		}
+		if vim.fn.executable("win32yank.exe") == 1 then
+			vim.g.clipboard = {
+				name = "win32yank-wsl",
+				copy = {
+					["+"] = "win32yank.exe -i --crlf",
+					["*"] = "win32yank.exe -i --crlf",
+				},
+				paste = {
+					["+"] = "win32yank.exe -o --lf",
+					["*"] = "win32yank.exe -o --lf",
+				},
+				cache_enabled = 1,
+			}
+		end
 	elseif global.is_windows then
 		-- Native Windows: win32yank or built-in clipboard
 		if vim.fn.executable("win32yank.exe") == 1 then
@@ -80,10 +84,35 @@ local clipboard_config = function()
 					["+"] = "win32yank.exe -o --lf",
 					["*"] = "win32yank.exe -o --lf",
 				},
-				cache_enabled = 0,
+				cache_enabled = 1,
 			}
 		end
 		-- else: let Neovim use built-in Win32 clipboard
+	elseif global.is_linux then
+		-- Plain Linux: prefer wl-copy, fall back to xclip/xsel, else builtin.
+		if vim.fn.executable("wl-copy") == 1 and vim.fn.executable("wl-paste") == 1 then
+			vim.g.clipboard = {
+				name = "wayland-clipboard",
+				copy = { ["+"] = "wl-copy", ["*"] = "wl-copy" },
+				paste = { ["+"] = "wl-paste --no-newline", ["*"] = "wl-paste --no-newline" },
+				cache_enabled = 1,
+			}
+		elseif vim.fn.executable("xclip") == 1 then
+			vim.g.clipboard = {
+				name = "xclip-clipboard",
+				copy = { ["+"] = "xclip -selection clipboard", ["*"] = "xclip -selection primary" },
+				paste = { ["+"] = "xclip -selection clipboard -o", ["*"] = "xclip -selection primary -o" },
+				cache_enabled = 1,
+			}
+		elseif vim.fn.executable("xsel") == 1 then
+			vim.g.clipboard = {
+				name = "xsel-clipboard",
+				copy = { ["+"] = "xsel --clipboard --input", ["*"] = "xsel --primary --input" },
+				paste = { ["+"] = "xsel --clipboard --output", ["*"] = "xsel --primary --output" },
+				cache_enabled = 1,
+			}
+		end
+		-- else: builtin (may be dead without provider — :checkhealth will tell).
 	end
 end
 
@@ -211,10 +240,6 @@ local load_core = function()
 	git_sync_colors()
 
 	require("core.options")
-	-- На тупых терминалах 24-битный цвет ломает вывод — откатываемся.
-	if (vim.env.TERM or "") == "dumb" or (vim.env.NO_COLOR or "") ~= "" then
-		vim.api.nvim_set_option_value("termguicolors", false, {})
-	end
 	require("core.event")
 	require("core.pack")
 	require("keymap")
@@ -224,7 +249,20 @@ local load_core = function()
 	require("core.pairs").setup()
 	require("modules.configs.completion.formatting").configure_format_on_save()
 	require("modules.configs.ui.theme")()
-	vim.api.nvim_set_option_value("background", settings.background, {})
+	-- khold — dark-only: background=light сносит colors_name в nil.
+	if settings.background == "light" and settings.colorscheme == "khold" then
+		vim.notify("[core] khold has no light variant — forcing dark", vim.log.levels.WARN)
+		vim.api.nvim_set_option_value("background", "dark", {})
+	else
+		vim.api.nvim_set_option_value("background", settings.background, {})
+	end
+	-- На тупых терминалах 24-битный цвет ломает вывод — откатываемся ПОСЛЕ темы:
+	-- тема (black-metal) включает termguicolors=true безусловно и затирала ранний гард.
+	-- Плюс screen/tmux без truecolor.
+	local term = vim.env.TERM or ""
+	if term == "dumb" or (vim.env.NO_COLOR or "") ~= "" or term:match("^screen") then
+		vim.api.nvim_set_option_value("termguicolors", false, {})
+	end
 
 	vim.api.nvim_create_user_command("ConfigHealth", function()
 		vim.cmd("checkhealth core")

@@ -17,33 +17,42 @@ local M = {}
 
 ---Иерархия типов gopls (supertypes/subtypes) в quickfix.
 ---supertypes структуры = интерфейсы, что она имплементит.
+---Асинхронно: buf_request_sync фризил UI до 4с при висящем gopls.
 ---@param kind "supertypes"|"subtypes"
 local function type_hierarchy(kind)
 	local bufnr = vim.api.nvim_get_current_buf()
 	local params = vim.lsp.util.make_position_params(0, "utf-16")
-	local prepared = vim.lsp.buf_request_sync(bufnr, "textDocument/prepareTypeHierarchy", params, 2000)
-	if not prepared then
-		vim.notify("[lsp] no type hierarchy here", vim.log.levels.INFO, { title = "lsp" })
-		return
-	end
-	local items = {}
-	for _, res in pairs(prepared) do
-		for _, item in ipairs(res.result or {}) do
-			local resolved = vim.lsp.buf_request_sync(bufnr, "typeHierarchy/" .. kind, { item = item }, 2000)
-			for _, res2 in pairs(resolved or {}) do
-				for _, hi in ipairs(res2.result or {}) do
-					local loc = { uri = hi.uri, range = hi.selectionRange or hi.range }
-					vim.list_extend(items, vim.lsp.util.locations_to_items({ loc }, "utf-16"))
+	vim.lsp.buf_request(bufnr, "textDocument/prepareTypeHierarchy", params, function(err, result)
+		if err or not result or vim.tbl_isempty(result) then
+			vim.notify("[lsp] no type hierarchy here", vim.log.levels.INFO, { title = "lsp" })
+			return
+		end
+		local pending = 0
+		local items = {}
+		local done = function()
+			pending = pending - 1
+			if pending == 0 then
+				if #items == 0 then
+					vim.notify("[lsp] empty " .. kind, vim.log.levels.INFO, { title = "lsp" })
+					return
 				end
+				vim.fn.setqflist({}, " ", { title = "LSP " .. kind, items = items })
+				vim.cmd("copen")
 			end
 		end
-	end
-	if #items == 0 then
-		vim.notify("[lsp] empty " .. kind, vim.log.levels.INFO, { title = "lsp" })
-		return
-	end
-	vim.fn.setqflist({}, " ", { title = "LSP " .. kind, items = items })
-	vim.cmd("copen")
+		for _, item in ipairs(result) do
+			pending = pending + 1
+			vim.lsp.buf_request(bufnr, "typeHierarchy/" .. kind, { item = item }, function(err2, res2)
+				if not err2 and res2 then
+					for _, hi in ipairs(res2) do
+						local loc = { uri = hi.uri, range = hi.selectionRange or hi.range }
+						vim.list_extend(items, vim.lsp.util.locations_to_items({ loc }, "utf-16"))
+					end
+				end
+				done()
+			end)
+		end
+	end)
 end
 
 ---@param buf integer
@@ -92,7 +101,11 @@ function M.lsp(buf)
 			:with_desc("lsp: Line diagnostic"),
 		["n|gs"] = map_callback(function()
 			require("completion.signature").show_smart()
-		end):with_desc("lsp: Signature help (snap to call if in string)"),
+		end)
+			:with_silent()
+			:with_noremap()
+			:with_buffer(buf)
+			:with_desc("lsp: Signature help (snap to call if in string)"),
 		["n|gr"] = map_callback(function()
 				_fzf("lsp_references")
 			end)
@@ -159,12 +172,14 @@ function M.lsp(buf)
 			end)
 			:with_noremap()
 			:with_silent()
+			:with_buffer(buf)
 			:with_desc("lsp: Toggle virtual lines"),
 		["n|<leader>lh"] = map_callback(function()
 				_toggle_inlayhint()
 			end)
 			:with_noremap()
 			:with_silent()
+			:with_buffer(buf)
 			:with_desc("lsp: Toggle inlay hints"),
 		["n|<leader>cl"] = map_callback(function()
 				-- Линзы могли не успеть подгрузиться: рефрешим и ждём,
@@ -195,14 +210,18 @@ function M.lsp(buf)
 
 	-- Codelens gopls (run test, generate, tidy...): обновляем тихо,
 	-- показываются виртуал-текстом над функциями.
-	local codelens_group = vim.api.nvim_create_augroup("LspCodelensRefresh", { clear = false })
-	vim.api.nvim_create_autocmd({ "BufEnter", "InsertLeave", "BufWritePost" }, {
-		group = codelens_group,
-		buffer = buf,
-		callback = function()
-			pcall(vim.lsp.codelens.refresh)
-		end,
-	})
+	-- Гард от дублей на :LspRestart (каждый LspAttach звал бы setup заново).
+	if not vim.b[buf].codelens_setup then
+		vim.b[buf].codelens_setup = true
+		local codelens_group = vim.api.nvim_create_augroup("LspCodelensRefresh", { clear = false })
+		vim.api.nvim_create_autocmd({ "BufEnter", "InsertLeave", "BufWritePost" }, {
+			group = codelens_group,
+			buffer = buf,
+			callback = function()
+				pcall(vim.lsp.codelens.refresh)
+			end,
+		})
+	end
 
 	local ok, user_mappings = pcall(require, "user.keymap.completion")
 	if ok and type(user_mappings.lsp) == "function" then

@@ -43,6 +43,9 @@ return function()
 			local ok, preset = pcall(require, "completion.servers." .. name)
 			if ok and type(preset) == "table" then
 				utils.register_server(name, vim.tbl_deep_extend("force", opts, preset))
+			elseif ok and type(preset) == "function" then
+				-- clangd.lua возвращает function(defaults): вызывает vim.lsp.config сам.
+				preset(opts)
 			else
 				utils.register_server(name, opts)
 			end

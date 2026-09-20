@@ -22,7 +22,9 @@ local mappings = {
 		["i|<C-l>"] = map_cmd("<Right>"):with_noremap():with_desc("edit: Move cursor to right"),
 		["i|<C-j>"] = map_cmd("<Esc>ji"):with_noremap():with_desc("Move cursor down"),
 		["i|<C-k>"] = map_cmd("<Esc>ki"):with_noremap():with_desc("Move cursor up"),
-		["i|<C-i>"] = map_cmd("<ESC>^i"):with_noremap():with_desc("edit: Move cursor to line start"),
+		-- NOTE: i|<C-i> УДАЛЁН: в терминале <C-i> и <Tab> — один кейкод 9
+		-- (vim.keycode('<C-i>')==vim.keycode('<Tab>')), маппинг съедал Tab
+		-- и убивал cmp select_next. Для начала строки есть <C-a>/<Home>.
 		["i|<C-a>"] = map_cmd("<ESC>$a"):with_noremap():with_desc("edit: Move cursor to line end"),
 		["i|<C-b>"] = map_cmd("<Esc>bi"):with_noremap():with_desc("Move to beginning of word"),
 		["i|<C-e>"] = map_cmd("<Esc>ei"):with_noremap():with_desc("Move to end of word"),

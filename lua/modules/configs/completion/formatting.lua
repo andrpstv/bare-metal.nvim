@@ -37,7 +37,7 @@ function M.enable_format_on_save()
 			-- Skip Go files (handled by organizeImports + format in event.lua)
 			if vim.bo.filetype == "go" then return end
 			if vim.api.nvim_buf_line_count(0) <= max_lines_for_format then
-				M.format({ filter = M.format_filter })
+				M.format({ filter = M.format_filter, quiet = true })
 			end
 		end,
 	})
@@ -94,7 +94,12 @@ function M.format(opts)
 	clients = vim.tbl_filter(function(client)
 		return client.supports_method and client.supports_method("textDocument/formatting")
 	end, clients)
-	if #clients == 0 then return end
+	if #clients == 0 then
+		if not opts.quiet then
+			vim.notify("[format] no formatter attached (LSP without formatting?)", vim.log.levels.INFO)
+		end
+		return
+	end
 
 	local params = vim.lsp.util.make_formatting_params()
 	for _, client in pairs(clients) do

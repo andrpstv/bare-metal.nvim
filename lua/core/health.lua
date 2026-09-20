@@ -221,17 +221,14 @@ end
 
 local function check_keymaps()
     vim.health.start("Keymaps")
+    -- Без дублей: gd/gr/K буферные (LspAttach) — из health:// их не видно,
+    -- поэтому чекаем только глобальные; LSP-мапы проверяются на живом буфере.
     local maps = {
         { "n", "<leader>ff",  "Find files" },
         { "n", "<leader>fp",  "Live grep" },
         { "n", "<leader>e",   "File browser" },
-        { "n", "gd",          "Goto definition" },
-        { "n", "gr",          "References" },
-        { "n", "K",           "Hover" },
         { "n", "<leader>ph",  "Lazy" },
         { "n", "<leader>q",   "Quickfix toggle" },
-        { "n", "<leader>ph",  "Lazy" },
-        { "n", "<leader>e",   "File browser" },
     }
 
     local missing = {}

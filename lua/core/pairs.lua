@@ -29,6 +29,9 @@ local disabled_ft = {
 local closers = { [")"] = true, ["]"] = true, ["}"] = true }
 
 local function is_disabled()
+	if vim.bo.binary then
+		return true
+	end
 	return disabled_ft[vim.bo.filetype] == true
 end
 
@@ -42,12 +45,13 @@ local function around()
 end
 
 -- Открывающая скобка: всегда пара. disable_when_touch=false как в старом конфиге.
+-- <C-g>u — undo-брейкпоинт: иначе `((((` откатывается целиком одним `u`.
 local function make_opener(open, close)
 	return function()
 		if is_disabled() then
 			return open
 		end
-		return open .. close .. "<Left>"
+		return "<C-g>u" .. open .. close .. "<Left>"
 	end
 end
 
@@ -69,6 +73,7 @@ end
 -- Пару ставим только на границе слова: слева начало/пробел/открывашка,
 -- справа конец/пробел/закрывашка/пунктуация. Иначе печатаем одиночную,
 -- чтобы don't не превращалось в don''t, а foo"bar" не плодило пары.
+-- Тройные `"""`/`'''`: третья кавычка — одиночная, иначе `"""` -> `""""`.
 local function make_quote(char)
 	return function()
 		if is_disabled() then
@@ -80,6 +85,14 @@ local function make_quote(char)
 		local prev, next = around()
 		if next == char then
 			return "<Right>"
+		end
+		if prev == char then
+			local line = vim.api.nvim_get_current_line()
+			local col = vim.api.nvim_win_get_cursor(0)[2]
+			local prevprev = col > 1 and line:sub(col - 1, col - 1) or ""
+			if prevprev == char then
+				return char -- третья подряд: не спамим пару
+			end
 		end
 		local prev_ok = prev == "" or prev:match("[%s%(%[{<\"'`]")
 		local next_ok = next == "" or next:match("[%s%)%]}>.,;:!?\"'`]")
@@ -135,6 +148,9 @@ local function make_bs(fallback)
 		end
 		local prev, next = around()
 		local pair = prev .. next
+		if pair == "<>" and vim.bo.filetype ~= "rust" then
+			return fallback -- <> автопарится только в rust, чужое не едим
+		end
 		if
 			pair == "()"
 			or pair == "[]"
@@ -162,7 +178,8 @@ end
 		local maps = {}
 		for _, lhs in ipairs({ "(", "[", "{", ")", "]", "}", "<", ">", '"', "'", "`", "<BS>", "<C-h>" }) do
 			local found = vim.fn.maparg(lhs, "i", false, true)
-			maps[#maps + 1] = lhs .. "=" .. (found and "ok" or "missing")
+			local ok = type(found) == "table" and not vim.tbl_isempty(found)
+			maps[#maps + 1] = lhs .. "=" .. (ok and "ok" or "missing")
 		end
 		local state = is_disabled() and "disabled for ft=" .. vim.bo.filetype or "active"
 		vim.notify("[pairs] " .. state .. " | " .. table.concat(maps, " "), vim.log.levels.INFO)

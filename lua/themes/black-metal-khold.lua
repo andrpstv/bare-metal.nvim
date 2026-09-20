@@ -14,10 +14,9 @@ M.setup = function()
 		end
 		return fallback
 	end
-	require("black-metal").setup({
+	local ok, err = pcall(require("black-metal").setup, {
 		theme = "khold",
 		comments = { italic = true },
-		backgrounds = { "term", "float", "popup", "sidebar" },
 		-- term_colors ВЫКЛЮЧЕНЫ осознанно: в палитре khold перепутаны
 		-- имена (diag_red — teal, diag_green — red), иначе в :terminal
 		-- красный/зелёный поменяны местами (git diff врёт).
@@ -99,7 +98,34 @@ M.setup = function()
 			Substitute = { fg = "#ffffff", bg = "#af3a3a" },
 		},
 	})
-	require("black-metal").load()
+	if not ok then
+		vim.notify("[theme] black-metal setup failed: " .. tostring(err) .. " — fallback habamax", vim.log.levels.ERROR)
+		pcall(vim.cmd, "colorscheme habamax")
+		return
+	end
+	local load_ok, load_err = pcall(require("black-metal").load)
+	if not load_ok then
+		vim.notify("[theme] black-metal load failed: " .. tostring(load_err) .. " — fallback habamax", vim.log.levels.ERROR)
+		pcall(vim.cmd, "colorscheme habamax")
+		return
+	end
+	-- Идемпотентный реаплай кастома: :colorscheme khold сносит highlights,
+	-- т.к. colors/khold.lua делает setup({})+load без них.
+	vim.api.nvim_create_autocmd("ColorScheme", {
+		group = vim.api.nvim_create_augroup("KholdCustomHl", { clear = true }),
+		callback = function(ev)
+			if ev.match == "khold" then
+				for _, g in ipairs({
+					"GitSignsAdd", "GitSignsAddLn", "GitSignsAddNr", "GitSignsAddCul",
+					"GitSignsChange", "GitSignsChangeLn", "GitSignsChangeNr", "GitSignsChangeCul",
+					"GitSignsDelete", "GitSignsDeleteLn", "GitSignsDeleteNr", "GitSignsDeleteCul",
+				}) do
+					local fg = g:match("Add") and "#5f8787" or (g:match("Delete") and "#974b46" or "#888888")
+					pcall(vim.api.nvim_set_hl, 0, g, { fg = fg })
+				end
+			end
+		end,
+	})
 end
 
 return M

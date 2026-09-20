@@ -19,6 +19,7 @@ return function()
 	lint.linters.golangcilint.ignore_exitcode = true
 
 	vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost", "InsertLeave" }, {
+		pattern = { "*.go", "*.mod", "*.tmpl" },
 		callback = function()
 			lint.try_lint()
 		end,
