@@ -16,6 +16,8 @@ local mappings = {
 		["i|<C-Enter>"] = map_cmd("<Esc>o"):with_noremap():with_desc("Insert new line below"),
 		["i|<C-S-Enter>"] = map_cmd("<Esc>O"):with_noremap():with_desc("Insert new line above"),
 		["i|<C-u>"] = map_cmd("<C-G>u<C-U>"):with_noremap():with_desc("edit: Delete previous block"),
+		-- NOTE: этот маппинг затирается core.pairs (<C-h> стирает как <BS>,
+		-- так было и при autoclose). Уберёшь pairs — оживёт.
 		["i|<C-h>"] = map_cmd("<Left>"):with_noremap():with_desc("edit: Move cursor to left"),
 		["i|<C-l>"] = map_cmd("<Right>"):with_noremap():with_desc("edit: Move cursor to right"),
 		["i|<C-j>"] = map_cmd("<Esc>ji"):with_noremap():with_desc("Move cursor down"),

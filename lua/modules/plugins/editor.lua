@@ -1,6 +1,7 @@
 local editor = {}
 
--- Минимум: treesitter (+textobjects), прыжки flash, автозакрытие скобок.
+-- Минимум: treesitter (+textobjects), прыжки flash.
+-- Автозакрытие скобок — встроенное (core.pairs, ноль плагинов).
 -- Убрано: persisted (сессии -> :mksession), bufdel (-> :bd),
 -- faster, mini.*, hop (дубль flash), highlight-colors (веб),
 -- vim-cool (-> autocmd), suda, sleuth (-> editorconfig),
@@ -22,11 +23,6 @@ editor["folke/flash.nvim"] = {
 	lazy = true,
 	event = { "CursorHold", "CursorHoldI" },
 	config = require("editor.flash"),
-}
-editor["m4xshen/autoclose.nvim"] = {
-	lazy = true,
-	event = "InsertEnter",
-	config = require("editor.autoclose"),
 }
 editor["sindrets/diffview.nvim"] = {
 	lazy = true,

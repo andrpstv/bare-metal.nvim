@@ -218,6 +218,10 @@ local load_core = function()
 	require("core.event")
 	require("core.pack")
 	require("keymap")
+	-- pairs СТРОГО после keymap: <C-h> и <BS> делят поведение стирания,
+	-- наш хендлер должен побеждать `i|<C-h> -> <Left>` из keymap/editor.lua.
+	-- Так же было со старым autoclose: он грузился по InsertEnter, т.е. позже всех.
+	require("core.pairs").setup()
 	require("modules.configs.completion.formatting").configure_format_on_save()
 	require("modules.configs.ui.theme")()
 	vim.api.nvim_set_option_value("background", settings.background, {})

@@ -13,5 +13,47 @@
     "prefix": "gf",
     "body": "go ${1:func}($0)",
     "description": "Snippet for goroutine declaration"
+  },
+  "table-driven test": {
+    "prefix": "tf",
+    "body": [
+      "func Test${1:Name}(t *testing.T) {",
+      "\ttests := []struct {",
+      "\t\tname string",
+      "\t\t${2:field} ${3:type}",
+      "\t\twant ${4:type}",
+      "\t}{",
+      "\t\t// TODO: Add test cases.",
+      "\t}",
+      "\tfor _, tt := range tests {",
+      "\t\tt.Run(tt.name, func(t *testing.T) {",
+      "\t\t\tif got := ${5:Func}(${6:args}); got != tt.want {",
+      "\t\t\t\tt.Errorf(\"${1:Name}() = %v, want %v\", got, tt.want)",
+      "\t\t\t}",
+      "\t\t})",
+      "\t}",
+      "}$0"
+    ],
+    "description": "Table-driven test with t.Run subtests"
+  },
+  "subtest t.Run": {
+    "prefix": "trun",
+    "body": [
+      "t.Run(\"${1:name}\", func(t *testing.T) {",
+      "\t$0",
+      "})"
+    ],
+    "description": "Subtest with t.Run"
+  },
+  "benchmark": {
+    "prefix": "bench",
+    "body": [
+      "func Benchmark${1:Name}(b *testing.B) {",
+      "\tfor i := 0; i < b.N; i++ {",
+      "\t\t${2:Func}($0)",
+      "\t}",
+      "}"
+    ],
+    "description": "Benchmark skeleton"
   }
 }
