@@ -91,8 +91,8 @@ function M.lsp(buf)
 			:with_buffer(buf)
 			:with_desc("lsp: Line diagnostic"),
 		["n|gs"] = map_callback(function()
-			vim.lsp.buf.signature_help()
-		end):with_desc("lsp: Signature help"),
+			require("completion.signature").show_smart()
+		end):with_desc("lsp: Signature help (snap to call if in string)"),
 		["n|gr"] = map_callback(function()
 				_fzf("lsp_references")
 			end)

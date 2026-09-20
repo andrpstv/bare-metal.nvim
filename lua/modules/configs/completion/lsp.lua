@@ -50,4 +50,7 @@ return function()
 	end
 
 	pcall(require, "user.configs.lsp")
+
+	-- Липкая сигнатура без плагинов (своя, см. completion.signature).
+	require("completion.signature").setup()
 end
