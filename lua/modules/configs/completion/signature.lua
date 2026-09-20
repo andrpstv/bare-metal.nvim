@@ -157,7 +157,10 @@ local function refresh()
 			close()
 			return
 		end
-		place(lines, range)
+		-- place() может упасть (узкий экран и т.п.) — тогда тоже гасим.
+		if not pcall(place, lines, range) then
+			close()
+		end
 	end, bufnr)
 end
 
