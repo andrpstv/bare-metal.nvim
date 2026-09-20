@@ -253,6 +253,7 @@ function M.setup()
 	})
 
 	-- Движение в инсерте: обновляем (debounce) или гасим вне вызова.
+	-- Всё тело под pcall: любая ошибка обязана гасить окно, а не сиротить его.
 	vim.api.nvim_create_autocmd("CursorMovedI", {
 		group = group,
 		callback = function()
@@ -262,26 +263,40 @@ function M.setup()
 				if g ~= state.gen then
 					return
 				end
-				if vim.fn.mode() ~= "i" then
-					return
-				end
-				if #sig_clients(0) == 0 then
+				local ok, res = pcall(function()
+					if vim.fn.mode() ~= "i" then
+						return "close"
+					end
+					if #sig_clients(0) == 0 then
+						return "close"
+					end
+					if in_call_args() then
+						return "refresh"
+					end
+					return "close"
+				end)
+				if not ok or res ~= "refresh" then
 					close()
-					return
-				end
-				if in_call_args() then
+				elseif res == "refresh" then
 					refresh()
-				else
-					close()
 				end
 			end, 200)
 		end,
 	})
 
-	-- Уход: гасим всегда.
-	vim.api.nvim_create_autocmd({ "InsertLeave", "BufLeave" }, {
+	-- Уход: гасим всегда. CursorMoved (нормал) страхует случаи,
+	-- когда флоат пережил insert (смена окна на тот же буфер и т.п.).
+	vim.api.nvim_create_autocmd({ "InsertLeave", "BufLeave", "WinLeave" }, {
 		group = group,
 		callback = close,
+	})
+	vim.api.nvim_create_autocmd("CursorMoved", {
+		group = group,
+		callback = function()
+			if vim.fn.mode() ~= "i" then
+				close()
+			end
+		end,
 	})
 end
 
