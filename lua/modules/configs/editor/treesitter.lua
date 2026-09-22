@@ -46,7 +46,6 @@ return vim.schedule_wrap(function()
 			},
 		},
 		indent = { enable = true },
-		matchup = { enable = true },
 	}, false, require("nvim-treesitter.configs").setup)
 	require("nvim-treesitter.install").prefer_git = true
 	if use_ssh then

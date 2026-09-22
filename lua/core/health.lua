@@ -115,81 +115,61 @@ local function check_go_env()
     end
 end
 
-local function check_mason()
-    vim.health.start("Mason")
-    local ok, registry = pcall(require, "mason-registry")
-    if not ok then
-        vim.health.warn("mason-registry not loaded")
-        add("warn", "mason-registry not loaded")
-        return
-    end
-
-    local settings = require("core.settings")
-    local all = {}
-    for _, list in ipairs({ settings.lsp_deps, settings.none_ls_deps, settings.dap_deps }) do
-        for _, name in ipairs(list) do
-            table.insert(all, name)
-        end
-    end
-
-    local installed, missing = {}, {}
-    for _, name in ipairs(all) do
-        local pkg_ok, pkg = pcall(registry.get_package, name)
-        if pkg_ok and pkg:is_installed() then
-            table.insert(installed, name)
+-- Внешние бинарники минимального стека (mason нет — всё системное).
+-- Совпадает с гардами в completion/lsp.lua, lang/lint.lua, tool/fzf.lua.
+local function check_tools()
+    vim.health.start("External Tools")
+    local lsp_bins = { gopls = "gopls", lua_ls = "lua-language-server", bashls = "bash-language-server" }
+    local needed, missing = {}, {}
+    for _, name in ipairs(require("core.settings").lsp_deps) do
+        local bin = lsp_bins[name] or name
+        if has(bin) then
+            table.insert(needed, name .. " (" .. bin .. ")")
         else
-            table.insert(missing, name)
+            table.insert(missing, name .. " (" .. bin .. ")")
         end
     end
-
-    if #installed > 0 then
-        vim.health.ok(#installed .. " installed: " .. table.concat(installed, ", "))
-    end
-    if #missing > 0 then
-        vim.health.warn(#missing .. " not installed: " .. table.concat(missing, ", "))
-        add("warn", "mason: " .. table.concat(missing, ", ") .. " not installed")
-    end
-end
-
-local function check_mason_binaries()
-    vim.health.start("Mason Binaries")
-    local registry_ok, registry = pcall(require, "mason-registry")
-    if not registry_ok then
-        return
-    end
-
-    local settings = require("core.settings")
-    local all = {}
-    for _, list in ipairs({ settings.lsp_deps, settings.none_ls_deps, settings.dap_deps }) do
-        for _, name in ipairs(list) do
-            table.insert(all, name)
-        end
-    end
-
-    local broken = {}
-    for _, name in ipairs(all) do
-        local pkg_ok, pkg = pcall(registry.get_package, name)
-        if pkg_ok and pkg:is_installed() then
-            -- Try common binary names
-            local bin_names = { name, name .. ".exe" }
-            local found = false
-            for _, bin in ipairs(bin_names) do
-                if vim.fn.executable(bin) == 1 then
-                    found = true
-                    break
-                end
-            end
-            if not found then
-                table.insert(broken, name)
-            end
-        end
-    end
-
-    if #broken > 0 then
-        vim.health.warn("installed but binary not in PATH: " .. table.concat(broken, ", "))
-        add("warn", "mason binaries broken: " .. table.concat(broken, ", "))
+    if #missing == 0 then
+        vim.health.ok("LSP servers: " .. table.concat(needed, ", "))
     else
-        vim.health.ok("all installed binaries accessible")
+        vim.health.warn("LSP servers missing (skipped at startup): " .. table.concat(missing, ", "))
+        add("warn", "missing LSP: " .. table.concat(missing, ", "))
+    end
+
+    if has("golangci-lint") then
+        vim.health.ok("linter: golangci-lint")
+    else
+        vim.health.warn("golangci-lint missing (go lint disabled)")
+        add("warn", "missing linter: golangci-lint")
+    end
+
+    if has("fzf") then
+        vim.health.ok("picker: fzf")
+    else
+        vim.health.error("fzf missing — fzf-lua picker is dead (brew install fzf)")
+        add("error", "missing picker: fzf")
+    end
+    if has("rg") then
+        vim.health.ok("grep: rg")
+    else
+        vim.health.warn("rg missing — live grep will fail")
+        add("warn", "missing grep: rg")
+    end
+    if not has("fd") then
+        vim.health.info("fd not found (files picker falls back to slower find)")
+    end
+
+    -- Компилятор нужен один раз: сборка treesitter-парсеров и LuaSnip jsregexp.
+    -- Без него нет подсветки!
+    if has("cc") or has("gcc") or has("cl") or has("clang") then
+        vim.health.ok("C compiler present (treesitter/LuaSnip build)")
+    else
+        vim.health.error("no C compiler (cc/gcc/clang/cl) — treesitter parsers cannot build")
+        add("error", "no C compiler for treesitter/LuaSnip")
+    end
+    if not has("make") and not is_windows then
+        vim.health.warn("make missing (LuaSnip jsregexp build needs it)")
+        add("warn", "make missing")
     end
 end
 
@@ -241,20 +221,36 @@ end
 
 local function check_keymaps()
     vim.health.start("Keymaps")
+    -- Без дублей: gd/gr/K буферные (LspAttach) — из health:// их не видно,
+    -- поэтому чекаем только глобальные; LSP-мапы проверяются на живом буфере.
     local maps = {
-        { "n", "<F6>",        "Debug Continue" },
-        { "n", "<F8>",        "Debug Breakpoint" },
-        { "n", "<leader>gt",  "Go Test" },
-        { "n", "<leader>gN",  "Go Debug" },
-        { "n", "<leader>ph",  "Lazy" },
+        { "n", "<leader>ff",  "Find files" },
+        { "n", "<leader>fp",  "Live grep" },
         { "n", "<leader>e",   "File browser" },
+        { "n", "<leader>ph",  "Lazy" },
+        { "n", "<leader>q",   "Quickfix toggle" },
     }
 
     local missing = {}
+    -- LSP-клавиши буферные: ищем по всем listed-буферам через API,
+    -- т.к. maparg смотрит только текущий буфер (а чек бежит из health://).
+    local buf_maps = {}
+    for _, b in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.fn.buflisted(b) == 1 then
+            for _, m in ipairs(vim.api.nvim_buf_get_keymap(b, "n")) do
+                buf_maps[m.lhs] = true
+            end
+        end
+    end
     for _, m in ipairs(maps) do
         local info = vim.fn.maparg(m[2], m[1], false, true)
-        if not info or (not info.callback and (not info.rhs or info.rhs == "")) then
-            table.insert(missing, m[2] .. " (" .. m[3] .. ")")
+        local ok = info and (info.callback or (info.rhs and info.rhs ~= ""))
+        if not ok then
+            -- mapleader в выдаче API раскрыт в <Space>? сверяем оба вида
+            local want = m[2]:gsub("<leader>", vim.g.mapleader or " ")
+            if not buf_maps[m[2]] and not buf_maps[want] then
+                table.insert(missing, m[2] .. " (" .. m[3] .. ")")
+            end
         end
     end
     if #missing == 0 then
@@ -344,6 +340,9 @@ local function check_shell()
 end
 
 local function check_git_config()
+    if not require("core.settings").sync_git_colors then
+        return
+    end
     vim.health.start("Git Config")
     if vim.fn.executable("git") ~= 1 then
         vim.health.info("git not installed, skipping")
@@ -362,25 +361,6 @@ local function check_git_config()
     end
 end
 
-local function check_lazygit_config()
-    vim.health.start("Lazygit Config")
-    if has("lazygit") then
-        local config_path
-        if is_windows then
-            config_path = vim.fn.expand("$APPDATA") .. "/lazygit/config.yml"
-        else
-            config_path = vim.fn.expand("~/.config/lazygit/config.yml")
-        end
-        if vim.fn.filereadable(config_path) == 1 then
-            vim.health.ok("config found: " .. config_path)
-        else
-            vim.health.warn("config not found at " .. config_path)
-            add("warn", "lazygit: no config file")
-        end
-    else
-        vim.health.info("lazygit not installed")
-    end
-end
 
 local function check_startup()
     vim.health.start("Startup")
@@ -405,8 +385,7 @@ M.check = function()
 
     check_system()
     check_go_env()
-    check_mason()
-    check_mason_binaries()
+    check_tools()
     check_lsp()
     check_theme()
     check_keymaps()
@@ -414,7 +393,6 @@ M.check = function()
     check_providers()
     check_shell()
     check_git_config()
-    check_lazygit_config()
     check_startup()
 
     print_summary()

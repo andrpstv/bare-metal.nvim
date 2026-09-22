@@ -8,6 +8,16 @@ local mappings = {
 	builtins = {
 		-- Builtins: Buffer
 		["n|<leader>bn"] = map_cu("enew"):with_noremap():with_silent():with_desc("buffer: New"),
+
+		-- Builtins: Quickfix (пара к LSP-флоу на встроенке: gr/gi)
+		["n|]q"] = map_cr("cnext"):with_noremap():with_silent():with_desc("quickfix: Next"),
+		["n|[q"] = map_cr("cprev"):with_noremap():with_silent():with_desc("quickfix: Previous"),
+		["n|<leader>q"] = map_callback(function()
+				_toggle_qf()
+			end)
+			:with_noremap()
+			:with_silent()
+			:with_desc("quickfix: Toggle"),
 		["n|[b"] = map_cr("bprevious"):with_noremap():with_silent():with_desc("buffer: Previous"),
 		["n|]b"] = map_cr("bnext"):with_noremap():with_silent():with_desc("buffer: Next"),
 
@@ -29,60 +39,14 @@ local mappings = {
 		["n|to"] = map_cr("tabonly"):with_noremap():with_silent():with_desc("tab: Only keep current tab"),
 	},
 	plugins = {
-		-- Plugin: nvim-bufdel
-		["n|<A-q>"] = map_cr("BufDel"):with_noremap():with_silent():with_desc("buffer: Close current"),
+		-- Буферы: встроенные :bnext/:bprevious/:bd (barbar удалён)
+		["n|<A-q>"] = map_cr("bd"):with_noremap():with_silent():with_desc("buffer: Close current"),
 
-		-- Plugin: barbar.nvim
-		["n|<A-i>"] = map_cr("BufferNext"):with_noremap():with_silent():with_desc("buffer: Switch to next"),
-		["n|<A-o>"] = map_cr("BufferPrevious"):with_noremap():with_silent():with_desc("buffer: Switch to prev"),
-		["n|<A-S-i>"] = map_cr("BufferMoveNext")
-			:with_noremap()
-			:with_silent()
-			:with_desc("buffer: Move current to next"),
-		["n|<A-S-o>"] = map_cr("BufferMovePrevious")
-			:with_noremap()
-			:with_silent()
-			:with_desc("buffer: Move current to prev"),
-		["n|<leader>be"] = map_cr("BufferSortByExtension"):with_noremap():with_desc("buffer: Sort by extension"),
-		["n|<leader>bd"] = map_cr("BufferSortByDirectory"):with_noremap():with_desc("buffer: Sort by directory"),
-		["n|<A-1>"] = map_cr("BufferGoto 1"):with_noremap():with_silent():with_desc("buffer: Goto buffer 1"),
-		["n|<A-2>"] = map_cr("BufferGoto 2"):with_noremap():with_silent():with_desc("buffer: Goto buffer 2"),
-		["n|<A-3>"] = map_cr("BufferGoto 3"):with_noremap():with_silent():with_desc("buffer: Goto buffer 3"),
-		["n|<A-4>"] = map_cr("BufferGoto 4"):with_noremap():with_silent():with_desc("buffer: Goto buffer 4"),
-		["n|<A-5>"] = map_cr("BufferGoto 5"):with_noremap():with_silent():with_desc("buffer: Goto buffer 5"),
-		["n|<A-6>"] = map_cr("BufferGoto 6"):with_noremap():with_silent():with_desc("buffer: Goto buffer 6"),
-		["n|<A-7>"] = map_cr("BufferGoto 7"):with_noremap():with_silent():with_desc("buffer: Goto buffer 7"),
-		["n|<A-8>"] = map_cr("BufferGoto 8"):with_noremap():with_silent():with_desc("buffer: Goto buffer 8"),
-		["n|<A-9>"] = map_cr("BufferGoto 9"):with_noremap():with_silent():with_desc("buffer: Goto buffer 9"),
-
-		-- Plugin: smart-splits.nvim
-		["n|<A-h>"] = map_cu("SmartResizeLeft")
-			:with_silent()
-			:with_noremap()
-			:with_desc("window: Resize -3 horizontally"),
-		["n|<A-j>"] = map_cu("SmartResizeDown"):with_silent():with_noremap():with_desc("window: Resize -3 vertically"),
-		["n|<A-k>"] = map_cu("SmartResizeUp"):with_silent():with_noremap():with_desc("window: Resize +3 vertically"),
-		["n|<A-l>"] = map_cu("SmartResizeRight")
-			:with_silent()
-			:with_noremap()
-			:with_desc("window: Resize +3 horizontally"),
-		["n|<C-h>"] = map_cu("SmartCursorMoveLeft"):with_silent():with_noremap():with_desc("window: Focus left"),
-		["n|<C-j>"] = map_cu("SmartCursorMoveDown"):with_silent():with_noremap():with_desc("window: Focus down"),
-		["n|<C-k>"] = map_cu("SmartCursorMoveUp"):with_silent():with_noremap():with_desc("window: Focus up"),
-		["n|<C-l>"] = map_cu("SmartCursorMoveRight"):with_silent():with_noremap():with_desc("window: Focus right"),
-		["n|<leader>Wh"] = map_cu("SmartSwapLeft")
-			:with_silent()
-			:with_noremap()
-			:with_desc("window: Move window leftward"),
-		["n|<leader>Wj"] = map_cu("SmartSwapDown")
-			:with_silent()
-			:with_noremap()
-			:with_desc("window: Move window downward"),
-		["n|<leader>Wk"] = map_cu("SmartSwapUp"):with_silent():with_noremap():with_desc("window: Move window upward"),
-		["n|<leader>Wl"] = map_cu("SmartSwapRight")
-			:with_silent()
-			:with_noremap()
-			:with_desc("window: Move window rightward"),
+		-- Окна: встроенные <C-w> (smart-splits удалён)
+		["n|<C-h>"] = map_cmd("<C-w>h"):with_silent():with_noremap():with_desc("window: Focus left"),
+		["n|<C-j>"] = map_cmd("<C-w>j"):with_silent():with_noremap():with_desc("window: Focus down"),
+		["n|<C-k>"] = map_cmd("<C-w>k"):with_silent():with_noremap():with_desc("window: Focus up"),
+		["n|<C-l>"] = map_cmd("<C-w>l"):with_silent():with_noremap():with_desc("window: Focus right"),
 	},
 }
 

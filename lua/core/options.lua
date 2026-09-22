@@ -53,7 +53,7 @@ local function load_options()
 		shiftround = true,
 		shortmess = "aoOTcF",
 		showbreak = "↳  ",
-		showcmd = false,
+		showcmd = true, -- видеть набранный префикс (leader) в cmdline
 		showmode = false,
 		showtabline = 2,
 		sidescrolloff = 5,
@@ -74,7 +74,9 @@ local function load_options()
 		ttimeoutlen = 0,
 		undodir = global.cache_dir .. "/undo//",
 		-- Please do NOT set `updatetime` to above 500, otherwise most plugins may not function correctly
-		updatetime = 200,
+		-- PERF: 200 -> 1000: CursorHold-пачки (gitsigns/flash, git-спавны) в 5 раз реже.
+		-- Откат одной строкой, если swap/crash-recovery критичен.
+		updatetime = 1000,
 		viewoptions = "folds,cursor,curdir,slash,unix",
 		virtualedit = "block",
 		visualbell = true,
@@ -134,7 +136,8 @@ local function load_options()
 	end
 end
 
--- Newtrw liststyle: https://medium.com/usevim/the-netrw-style-options-3ebe91d42456
-vim.g.netrw_liststyle = 3
+-- Newtrw liststyle: 0 thin, 1 long, 2 wide, 3 tree
+-- https://medium.com/usevim/the-netrw-style-options-3ebe91d42456
+vim.g.netrw_liststyle = 1
 
 load_options()

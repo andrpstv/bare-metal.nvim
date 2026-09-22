@@ -27,8 +27,26 @@ return function()
 	}
 
 	local cmp = require("cmp")
+
+	-- Есть ли слово перед курсором (чтобы Tab открывал меню, а не делал отступ)
+	local has_words_before = function()
+		local line, col = unpack(vim.api.nvim_win_get_cursor(0))
+		return col ~= 0
+			and vim.api.nvim_buf_get_lines(0, line - 1, line, true)[1]:sub(col, col):match("%s") == nil
+	end
+
 	require("modules.utils").load_plugin("cmp", {
+		-- Ничего не выбрано, пока не нажмёшь Tab: Enter всегда
+		-- перевод строки / выполнение команды, подсказки игнорируются.
+		-- После Tab навигация live-вставляет текст, Enter по-прежнему
+		-- свободен; полный confirm (сниппеты, автоимпорты) — на <C-y>.
 		preselect = cmp.PreselectMode.None,
+		-- Меню всплывает само при печати (ничего не выбрано),
+		-- выбор — только руками через Tab/C-n/C-p.
+		completion = {
+			autocomplete = { cmp.TriggerEvent.TextChanged },
+			keyword_length = 1,
+		},
 		window = {
 			completion = {
 				border = border("PmenuBorder"),
@@ -56,6 +74,37 @@ return function()
 				luasnip = "[SNIP]",
 			}, { __index = function() return "[BTN]" end })[entry.source.name]
 
+			-- Превью сниппета СЛЕВА, рядом с триггером: первая строка тела.
+			-- Правая колонка (menu) остаётся короткой: [SNIP]/[LSP]/[BUF].
+			-- Раскрытие — на <C-y>. (abbr только рисуется, на фильтр не влияет.)
+			if entry.source.name == "luasnip" then
+				local ok, first = pcall(function()
+					local data = entry.completion_item and entry.completion_item.data
+					if not data or not data.snip_id then
+						return nil
+					end
+					local snip = require("luasnip").get_id_snippet(data.snip_id)
+					if not snip then
+						return nil
+					end
+					local doc = snip:get_docstring()
+					local line = type(doc) == "table" and doc[1] or tostring(doc):match("[^\n]*")
+					if not line or line == "" then
+						return nil
+					end
+					line = line:gsub("%s+", " ")
+					-- Чистим плейсхолдеры для читаемости: ${1:type} -> type
+					line = line:gsub("%${%d+:([^}]*)}", "%1"):gsub("%${%d+}", ""):gsub("$0", "")
+					if #line > 50 then
+						line = vim.fn.strcharpart(line, 0, 50) .. "…"
+					end
+					return line
+				end)
+				if ok and first then
+					vim_item.abbr = vim_item.abbr .. "  " .. first
+				end
+			end
+
 				-- Ограничиваем длину текста для ускорения рендера
 				local label = vim_item.abbr
 				if #label > 80 then
@@ -73,26 +122,49 @@ return function()
 			max_view_entries = 80, -- меньше элементов для рендера
 		},
 		mapping = cmp.mapping.preset.insert({
-			["<C-p>"] = cmp.mapping.select_prev_item({ behavior = cmp.SelectBehavior.Select }),
-			["<C-n>"] = cmp.mapping.select_next_item({ behavior = cmp.SelectBehavior.Select }),
+			["<C-p>"] = cmp.mapping(function(fallback)
+				if cmp.visible() then
+					cmp.select_prev_item({ behavior = cmp.SelectBehavior.Insert })
+				else
+					cmp.complete()
+				end
+			end),
+			["<C-n>"] = cmp.mapping(function(fallback)
+				if cmp.visible() then
+					cmp.select_next_item({ behavior = cmp.SelectBehavior.Insert })
+				else
+					cmp.complete()
+				end
+			end),
 			["<C-d>"] = cmp.mapping.scroll_docs(-4),
 			["<C-f>"] = cmp.mapping.scroll_docs(4),
 			["<C-w>"] = cmp.mapping.abort(),
 			["<Tab>"] = cmp.mapping(function(fallback)
-				if cmp.visible() then cmp.select_next_item({ behavior = cmp.SelectBehavior.Select })
-				elseif require("luasnip").expand_or_locally_jumpable() then require("luasnip").expand_or_jump()
-				else fallback() end
+				if cmp.visible() then
+					-- Чистый скролл с живой вставкой; сниппеты НЕ раскрываем
+					-- (их тело видно в menu-колонке и в окне документации).
+					cmp.select_next_item({ behavior = cmp.SelectBehavior.Insert })
+				elseif require("luasnip").expand_or_locally_jumpable() then
+					require("luasnip").expand_or_jump()
+				elseif has_words_before() then
+					cmp.complete() -- меню закрыто: первый Tab открывает, следующий скроллит
+				else
+					fallback() -- начало строки: обычный отступ
+				end
 			end, { "i", "s" }),
 			["<S-Tab>"] = cmp.mapping(function(fallback)
-				if cmp.visible() then cmp.select_prev_item({ behavior = cmp.SelectBehavior.Select })
-				elseif require("luasnip").jumpable(-1) then require("luasnip").jump(-1)
-				else fallback() end
+				if cmp.visible() then
+					cmp.select_prev_item({ behavior = cmp.SelectBehavior.Insert })
+				elseif require("luasnip").jumpable(-1) then
+					require("luasnip").jump(-1)
+				else
+					fallback()
+				end
 			end, { "i", "s" }),
-			["<CR>"] = cmp.mapping({
-				i = function(fallback) if cmp.visible() and cmp.get_active_entry() then cmp.confirm({ behavior = cmp.ConfirmBehavior.Insert, select = false }) else fallback() end end,
-				s = cmp.mapping.confirm({ select = true }),
-				c = cmp.mapping.confirm({ behavior = cmp.ConfirmBehavior.Insert, select = true }),
-			}),
+			["<CR>"] = cmp.mapping(function(fallback)
+				fallback() -- всегда перевод строки: подтверждение только через <C-y>
+			end, { "i", "s" }),
+			["<C-y>"] = cmp.mapping.confirm({ select = true }),
 		}),
 		snippet = { expand = function(args) require("luasnip").lsp_expand(args.body) end },
 		sources = {
@@ -110,5 +182,23 @@ return function()
 			end } },
 		},
 		experimental = { ghost_text = false }, -- отключаем для быстрого скролла
+	})
+
+	-- Командная строка: / и : через cmp (нужен cmp-cmdline).
+	-- Tab вставляет, Enter всегда выполняет (без confirm-подсказок).
+	local cmdline_extra = {
+		["<Tab>"] = cmp.mapping.select_next_item({ behavior = cmp.SelectBehavior.Insert }),
+		["<S-Tab>"] = cmp.mapping.select_prev_item({ behavior = cmp.SelectBehavior.Insert }),
+		["<CR>"] = cmp.mapping(function(fallback)
+			fallback()
+		end, { "c" }),
+	}
+	cmp.setup.cmdline({ "/", "?" }, {
+		mapping = vim.tbl_extend("force", cmp.mapping.preset.cmdline(), cmdline_extra),
+		sources = { { name = "buffer" } },
+	})
+	cmp.setup.cmdline(":", {
+		mapping = vim.tbl_extend("force", cmp.mapping.preset.cmdline(), cmdline_extra),
+		sources = cmp.config.sources({ { name = "path" } }, { { name = "cmdline" } }),
 	})
 end

@@ -132,9 +132,8 @@ function Lazy:load_lazy()
 					"editorconfig",
 					-- Do not load spell files
 					"spellfile",
-					-- Do not use builtin matchit.vim and matchparen.vim because we're using vim-matchup
-					"matchit",
-					"matchparen",
+					-- matchit/matchparen оставлены ВКЛЮЧЁННЫМИ: vim-matchup удалён,
+					-- builtin-подсветка пар иначе теряется бесплатно.
 					-- Do not load tohtml.vim
 					"tohtml",
 					-- Do not load zipPlugin.vim, gzip.vim and tarPlugin.vim (all of these plugins are

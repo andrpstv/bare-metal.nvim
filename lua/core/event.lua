@@ -44,15 +44,52 @@ vim.api.nvim_create_autocmd("LspAttach", {
 	group = vim.api.nvim_create_augroup("LspKeymapLoader", { clear = true }),
 	callback = function(event)
 		if not _G._debugging then
+			-- Не-file буферы (diffview://...): скипаем всё, см. keymap.completion
+			if not require("modules.utils").is_file_buffer(event.buf) then
+				return
+			end
 			-- LSP Keymaps
 			mapping.lsp(event.buf)
 
+			local client = vim.lsp.get_client_by_id(event.data.client_id)
+
+			-- Дополнение отдано nvim-cmp: встроенный autotrigger выключен,
+			-- иначе два попапа дерутся.
+			if client and vim.lsp.completion then
+				pcall(vim.lsp.completion.enable, false, event.data.client_id, event.buf)
+			end
+
 			-- LSP Inlay Hints
 			local inlayhints_enabled = require("core.settings").lsp_inlayhints
-			local client = vim.lsp.get_client_by_id(event.data.client_id)
 			if client and client.server_capabilities.inlayHintProvider ~= nil then
 				vim.lsp.inlay_hint.enable(inlayhints_enabled == true, { bufnr = event.buf })
 			end
+		end
+	end,
+})
+
+-- netrw меняет директорию через :lcd (только для окна),
+-- из-за чего проводник в новом сплите снова показывает старый путь.
+-- Продвигаем любую window-local смену в глобальную:
+-- ментальная модель "cd меняет pwd" работает везде.
+vim.api.nvim_create_autocmd("DirChanged", {
+	pattern = "*",
+	callback = function()
+		local ev = vim.v.event
+		if ev.scope == "window" then
+			vim.cmd.cd(vim.fn.fnameescape(ev.cwd))
+		end
+	end,
+})
+
+-- Открытый netrw следует за сменой глобального pwd:
+-- поменял :cd — листинг переоткрылся на новом корне.
+vim.api.nvim_create_autocmd("DirChanged", {
+	pattern = "*",
+	callback = function()
+		local ev = vim.v.event
+		if ev.scope == "global" and vim.bo.filetype == "netrw" then
+			vim.cmd.edit(vim.fn.fnameescape(ev.cwd))
 		end
 	end,
 })
@@ -159,26 +196,107 @@ end
 autocmd.load_autocmds()
 
 -- Organize Go imports + format on save (separate from augroups due to function callback)
-vim.api.nvim_create_autocmd("BufWritePre", {
-	pattern = "*.go",
-	callback = function()
-		-- First organize imports
-		local clients = vim.lsp.get_clients({ bufnr = 0, method = "textDocument/codeAction" })
-		local client = clients[1]
-		local params = vim.lsp.util.make_range_params(0, client and client.offset_encoding or "utf-16")
-		params.context = { only = { "source.organizeImports" } }
-		local result = vim.lsp.buf_request_sync(0, "textDocument/codeAction", params, 1000)
-		if result and result[1] then
-			for _, action in ipairs(result[1].result or {}) do
-				if action.edit then
-					vim.lsp.util.apply_workspace_edit(action.edit, "utf-16")
-				elseif action.command then
-					vim.lsp.buf.execute_command(action.command)
-				end
+--
+-- Полностью асинхронно: сейв НИКОГДА не блокируется.
+-- BufWritePre пуст — пишем как есть; всё доделывается в BufWritePost:
+-- organize-запрос → guard → применить → тихий допис → format-запрос
+-- → guard → применить → тихий допис.
+-- Каждый шаг сверяет changedtick (не наложить старые правки на новый
+-- текст), пишем через `noautocmd update` (только при изменениях, без петель),
+-- нотифаем только ошибки/пропуски.
+local function go_apply_code_actions(bufnr, responses, enc)
+	for _, res in pairs(responses or {}) do
+		for _, action in ipairs(res.result or {}) do
+			if action.edit then
+				vim.lsp.util.apply_workspace_edit(action.edit, enc)
+			elseif action.command then
+				vim.lsp.buf.execute_command(action.command)
 			end
 		end
-		-- Then format
-		vim.lsp.buf.format({ async = false })
+	end
+end
+
+local function go_client(bufnr)
+	local clients = vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/codeAction" })
+	for _, c in ipairs(clients) do
+		if c.name == "gopls" then
+			return c
+		end
+	end
+	return clients[1]
+end
+
+-- Троттлинг skip-варнингов: при спаме сейвов с печатью каждая
+-- цепочка скипалась бы со своим нотифаем. Чаще раза в 3с не пищим.
+local last_skip_notify = 0
+local function go_skip_notify(what)
+	local now = vim.uv.hrtime()
+	if now - last_skip_notify < 3000000000 then
+		return
+	end
+	last_skip_notify = now
+	vim.notify(
+		"[go] buffer changed meanwhile, skip async " .. what .. " (run :Format)",
+		vim.log.levels.WARN,
+		{ title = "lsp" }
+	)
+end
+
+vim.api.nvim_create_autocmd("BufWritePost", {
+	pattern = "*.go",
+	callback = function()
+		local bufnr = vim.api.nvim_get_current_buf()
+		local client = go_client(bufnr)
+		if not client or client:is_stopped() then
+			return
+		end
+		local enc = client.offset_encoding or "utf-16"
+		local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+		local function guarded(what, fn)
+			if not vim.api.nvim_buf_is_valid(bufnr) then
+				return
+			end
+			if vim.api.nvim_buf_get_changedtick(bufnr) ~= tick then
+				go_skip_notify(what)
+				return
+			end
+			fn()
+			tick = vim.api.nvim_buf_get_changedtick(bufnr)
+		end
+		local params = vim.lsp.util.make_range_params(0, enc)
+		params.context = { only = { "source.organizeImports" } }
+		client.request("textDocument/codeAction", params, function(err, result)
+			if err then
+				vim.notify(
+					"[go] async organize failed: " .. (err.message or "?"),
+					vim.log.levels.ERROR,
+					{ title = "lsp" }
+				)
+				return
+			end
+			guarded("organize", function()
+				go_apply_code_actions(bufnr, { { result = result } }, enc)
+				vim.cmd("noautocmd silent! update")
+			end)
+			tick = vim.api.nvim_buf_get_changedtick(bufnr)
+			local fparams = vim.lsp.util.make_formatting_params()
+			client.request("textDocument/formatting", fparams, function(err2, result2)
+				if err2 then
+					vim.notify(
+						"[go] async format failed: " .. (err2.message or "?"),
+						vim.log.levels.ERROR,
+						{ title = "lsp" }
+					)
+					return
+				end
+				guarded("format", function()
+					if result2 then
+						vim.lsp.util.apply_text_edits(result2, bufnr, enc)
+						vim.cmd("noautocmd silent! update")
+					end
+				end)
+			end, bufnr)
+		end, bufnr)
 	end,
 })
 
@@ -187,6 +305,8 @@ local function is_go_lib(file)
 	return file:match("/go/pkg/mod/")
 		or file:match("/opt/homebrew/Cellar/go/")
 		or file:match("/opt/homebrew/opt/go/")
+		or file:match("/usr/local/go/")
+		or file:match("/usr/lib/go")
 		or file:match("\\go\\pkg\\mod\\")
 		or file:match("Program Files\\Go\\")
 end
@@ -197,7 +317,9 @@ vim.api.nvim_create_autocmd({ "BufReadPost", "BufEnter" }, {
 		if is_go_lib(file) then
 			vim.bo.modifiable = false
 			vim.bo.readonly = true
-			vim.bo.buftype = "nofile"
+			-- NOTE: НЕ ставим buftype=nofile — к таким буферам LSP
+			-- не аттачится, и внутри stdlib умирают go to definition,
+			-- references и hover. Только read-only + блок сейва ниже.
 		end
 	end,
 })

@@ -1,46 +1,17 @@
 local completion = {}
 
+-- Минимальный LSP: только конфиги серверов.
+-- Установка бинарников — системная (go install / brew), без mason.
 completion["neovim/nvim-lspconfig"] = {
 	lazy = true,
-	event = { "CursorHold", "CursorHoldI" },
+	event = { "BufReadPre", "BufNewFile" },
 	config = require("completion.lsp"),
-	dependencies = {
-		{ "mason-org/mason.nvim" },
-		{ "mason-org/mason-lspconfig.nvim" },
-		{ "folke/neoconf.nvim" },
-		{
-			"Jint-lzxy/lsp_signature.nvim",
-			config = require("completion.lsp-signature"),
-		},
-	},
 }
-completion["nvimdev/lspsaga.nvim"] = {
-	lazy = true,
-	event = "LspAttach",
-	config = require("completion.lspsaga"),
-	dependencies = "nvim-tree/nvim-web-devicons",
-}
-completion["DNLHC/glance.nvim"] = {
-	lazy = true,
-	event = "LspAttach",
-	config = require("completion.glance"),
-}
-completion["joechrisellis/lsp-format-modifications.nvim"] = {
-	lazy = true,
-	event = "LspAttach",
-}
-completion["nvimtools/none-ls.nvim"] = {
-	lazy = true,
-	ft = { "lua", "sh", "bash", "zsh" },
-	config = require("completion.none-ls"),
-	dependencies = {
-		"nvim-lua/plenary.nvim",
-		"jay-babu/mason-null-ls.nvim",
-	},
-}
+
+-- Автодополнение: движок nvim-cmp + источники (как у Primeagen).
 completion["hrsh7th/nvim-cmp"] = {
 	lazy = true,
-	event = "InsertEnter",
+	event = { "InsertEnter", "CmdlineEnter" },
 	config = require("completion.cmp"),
 	dependencies = {
 		{
@@ -53,6 +24,7 @@ completion["hrsh7th/nvim-cmp"] = {
 		{ "hrsh7th/cmp-nvim-lsp" },
 		{ "hrsh7th/cmp-path" },
 		{ "hrsh7th/cmp-buffer" },
+		{ "hrsh7th/cmp-cmdline" },
 	},
 }
 

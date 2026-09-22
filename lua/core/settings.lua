@@ -1,8 +1,10 @@
 local settings = {}
 
 -- Set to false if you want to use HTTPS to update plugins and Treesitter parsers.
+-- false здесь осознанно: существующие плагины склонированы по HTTPS,
+-- по SSH (true) установка новых падает с Permission denied.
 ---@type boolean
-settings["use_ssh"] = true
+settings["use_ssh"] = false
 
 -- Set to false if you don't use Copilot.
 ---@type boolean
@@ -67,22 +69,18 @@ settings["diagnostics_level"] = "HINT"
 
 -- List plugins to disable here (e.g., "Some-User/A-Repo").
 ---@type string[]
-settings["disabled_plugins"] = {
-	"paint.nvim",
-	"edgy.nvim",
-	"rainbow-delimiters.nvim",
-	"advanced-git-search.nvim",
-    "diffview.nvim",
-    "vim-rhubarb",
-    "vim-fugitive",
-    "smartyank.nvim",
-    "lsp-format-modifications.nvim",
-    "fzy-lua-native"
-}
+settings["disabled_plugins"] = {} 
 
 -- Set to false if you don't use Neovim to open large files.
 ---@type boolean
 settings["load_big_files_faster"] = true
+
+-- Set to false to stop touching external git/lazygit configs.
+-- When true, missing diff-color sections are appended to
+-- ~/.gitconfig and a default lazygit theme is created on first start.
+-- Default false: no side effects on foreign machines (opt-in).
+---@type boolean
+settings["sync_git_colors"] = false
 
 -- Customize the global color palette here.
 -- These settings will override the defaults during initialization.
@@ -95,7 +93,7 @@ settings["palette_overwrite"] = {
 	yellow = "#888888",     -- modifications (type gray)
 }
 
--- Set the colorscheme here.
+-- Set the colorscheme here (black-metal khold, см. lua/themes/black-metal-khold.lua).
 ---@type string
 settings["colorscheme"] = "khold"
 
@@ -114,41 +112,21 @@ settings["background"] = "dark"
 ---@type string
 settings["external_browser"] = "chrome-cli open"
 
--- Set the search backend here.
--- `telescope` is fine for most use cases.
--- `fzf` is faster for large repos but needs the `fzf` binary in $PATH.
--- If missing, errors are expected until the binary is installed.
----@type "telescope"|"fzf"
-settings["search_backend"] = "telescope"
+-- Set the search backend here (единственный пикер — fzf-lua, нужен бинарник `fzf`).
+---@type "fzf"
+settings["search_backend"] = "fzf"
 
 -- Set to false to disable LSP inlay hints.
 ---@type boolean
 settings["lsp_inlayhints"] = true
 
--- LSPs to install during bootstrap.
+-- LSPs to enable. Бинарники ставятся системно (go install / brew), без mason.
 -- Full list: https://github.com/neovim/nvim-lspconfig/tree/master/lua/lspconfig/configs
 ---@type string[]
 settings["lsp_deps"] = {
 	"bashls",
 	"lua_ls",
 	"gopls",
-}
-
--- General-purpose sources for none-ls to install during bootstrap.
--- Supported sources: https://github.com/nvimtools/none-ls.nvim/tree/main/lua/none-ls/builtins
----@type string[]
-settings["none_ls_deps"] = {
-	"gofumpt",
-	"goimports",
-	"shfmt",
-	"stylua",
-}
-
--- Debug Adapter Protocol (DAP) clients to install and configure during bootstrap.
--- Supported DAPs: https://github.com/jay-babu/mason-nvim-dap.nvim/blob/main/lua/mason-nvim-dap/mappings/source.lua
----@type string[]
-settings["dap_deps"] = {
-	"delve", -- Go
 }
 
 -- Treesitter parsers to install during bootstrap.

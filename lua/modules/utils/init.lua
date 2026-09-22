@@ -147,7 +147,7 @@ local function set_global_hl(name, foreground, background, italic)
 		fg = foreground,
 		bg = background,
 		italic = italic == true,
-		default = not vim.g.colors_name:find("catppuccin"),
+		default = not (vim.g.colors_name or ""):find("catppuccin"),
 	})
 end
 
@@ -309,6 +309,20 @@ function M.register_server(server, config)
 		vim.lsp.config(server, config)
 	end
 	vim.lsp.enable(server)
+end
+
+---True if the buffer is a real file. Plugin buffers like diffview://,
+---fugitive:// or oil:// carry a non-file URI scheme that servers such as
+---gopls reject with JSON RPC -32700 — keep all LSP extras away from them.
+---@param bufnr integer
+---@return boolean
+function M.is_file_buffer(bufnr)
+	local name = vim.api.nvim_buf_get_name(bufnr)
+	if name == "" then
+		return true
+	end
+	local scheme = name:match("^([%w%.%+%-]+)://")
+	return scheme == nil or scheme == "file"
 end
 
 ---Convert number (0/1) to boolean

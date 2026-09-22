@@ -16,16 +16,25 @@ local mappings = {
 		["i|<C-Enter>"] = map_cmd("<Esc>o"):with_noremap():with_desc("Insert new line below"),
 		["i|<C-S-Enter>"] = map_cmd("<Esc>O"):with_noremap():with_desc("Insert new line above"),
 		["i|<C-u>"] = map_cmd("<C-G>u<C-U>"):with_noremap():with_desc("edit: Delete previous block"),
+		-- NOTE: этот маппинг затирается core.pairs (<C-h> стирает как <BS>,
+		-- так было и при autoclose). Уберёшь pairs — оживёт.
 		["i|<C-h>"] = map_cmd("<Left>"):with_noremap():with_desc("edit: Move cursor to left"),
 		["i|<C-l>"] = map_cmd("<Right>"):with_noremap():with_desc("edit: Move cursor to right"),
 		["i|<C-j>"] = map_cmd("<Esc>ji"):with_noremap():with_desc("Move cursor down"),
 		["i|<C-k>"] = map_cmd("<Esc>ki"):with_noremap():with_desc("Move cursor up"),
-		["i|<C-i>"] = map_cmd("<ESC>^i"):with_noremap():with_desc("edit: Move cursor to line start"),
+		-- NOTE: i|<C-i> УДАЛЁН: в терминале <C-i> и <Tab> — один кейкод 9
+		-- (vim.keycode('<C-i>')==vim.keycode('<Tab>')), маппинг съедал Tab
+		-- и убивал cmp select_next. Для начала строки есть <C-a>/<Home>.
 		["i|<C-a>"] = map_cmd("<ESC>$a"):with_noremap():with_desc("edit: Move cursor to line end"),
 		["i|<C-b>"] = map_cmd("<Esc>bi"):with_noremap():with_desc("Move to beginning of word"),
 		["i|<C-e>"] = map_cmd("<Esc>ei"):with_noremap():with_desc("Move to end of word"),
 		["i|<C-s>"] = map_cmd("<Esc>:w<CR>"):with_desc("edit: Save file"),
 		["i|<C-q>"] = map_cmd("<Esc>:wq<CR>"):with_desc("edit: Save file and quit"),
+
+		-- Builtins: Undo breakpoints (LazyVim) — гранулярный undo по знакам
+		["i|,"] = map_cmd(",<C-g>u"):with_noremap():with_desc("edit: Undo breakpoint ,"),
+		["i|."] = map_cmd(".<C-g>u"):with_noremap():with_desc("edit: Undo breakpoint ."),
+		["i|;"] = map_cmd(";<C-g>u"):with_noremap():with_desc("edit: Undo breakpoint ;"),
 
 		-- Builtins: Command mode
 		["c|<C-b>"] = map_cmd("<Left>"):with_noremap():with_desc("edit: Left"),
@@ -43,6 +52,7 @@ local mappings = {
 		["v|K"] = map_cmd(":m '<-2<CR>gv=gv"):with_desc("edit: Move this line up"),
 		["v|<"] = map_cmd("<gv"):with_desc("edit: Decrease indent"),
 		["v|>"] = map_cmd(">gv"):with_desc("edit: Increase indent"),
+		["x|p"] = map_cmd('"_dP'):with_noremap():with_desc("edit: Paste without yanking"),
 
 		-- Builtins: "Suckless" - named after r/suckless
 		["n|Y"] = map_cmd("y$"):with_desc("edit: Yank text to EOL"),
@@ -50,6 +60,8 @@ local mappings = {
 		["n|n"] = map_cmd("nzzzv"):with_noremap():with_desc("edit: Next search result"),
 		["n|N"] = map_cmd("Nzzzv"):with_noremap():with_desc("edit: Prev search result"),
 		["n|J"] = map_cmd("mzJ`z"):with_noremap():with_desc("edit: Join next line"),
+		["n|<C-d>"] = map_cmd("<C-d>zz"):with_noremap():with_desc("edit: Scroll down + center"),
+		["n|<C-u>"] = map_cmd("<C-u>zz"):with_noremap():with_desc("edit: Scroll up + center"),
 		["n|<S-Tab>"] = map_cr("normal za"):with_noremap():with_silent():with_desc("edit: Toggle code fold"),
 		["n|<Esc>"] = map_callback(function()
 				_flash_esc_or_noh()
@@ -58,89 +70,43 @@ local mappings = {
 			:with_silent()
 			:with_desc("edit: Clear search highlight"),
 		["n|<leader>o"] = map_cr("setlocal spell! spelllang=en_us"):with_desc("edit: Toggle spell check"),
+		["n|<leader>x"] = map_cr("!chmod +x %")
+			:with_noremap()
+			:with_silent()
+			:with_desc("edit: chmod +x current file"),
+		["n|<leader>S"] = map_cmd([[:%s/\<<C-r><C-w>\>/<C-r><C-w>/gI<Left><Left><Left>]])
+			:with_noremap()
+			:with_desc("edit: Substitute word under cursor"),
 	},
 	plugins = {
-		-- Plugin: persisted.nvim
-		["n|<leader>ss"] = map_cu("SessionSave"):with_noremap():with_silent():with_desc("session: Save"),
-		["n|<leader>sl"] = map_cu("SessionLoad"):with_noremap():with_silent():with_desc("session: Load current"),
-		["n|<leader>sd"] = map_cu("SessionDelete"):with_noremap():with_silent():with_desc("session: Delete"),
-
-		-- Plugin: comment.nvim
-		["n|gcc"] = map_callback(function()
-				return vim.v.count == 0 and et("<Plug>(comment_toggle_linewise_current)")
-					or et("<Plug>(comment_toggle_linewise_count)")
+		-- Сессии: встроенные :mksession, файл — в data-dir (не мусорим в репо),
+		-- имя — от текущей папки, у каждого проекта своя.
+		["n|<leader>ss"] = map_callback(function()
+				local dir = vim.fn.stdpath("data") .. "/sessions"
+				vim.fn.mkdir(dir, "p")
+				local name = dir .. "/" .. vim.fn.getcwd():gsub("[/\\:]", "%%") .. ".vim"
+				vim.cmd("mksession! " .. vim.fn.fnameescape(name))
+				vim.notify("[session] saved: " .. name, vim.log.levels.INFO)
 			end)
-			:with_silent()
 			:with_noremap()
-			:with_expr()
-			:with_desc("edit: Toggle comment for line"),
-		["n|gbc"] = map_callback(function()
-				return vim.v.count == 0 and et("<Plug>(comment_toggle_blockwise_current)")
-					or et("<Plug>(comment_toggle_blockwise_count)")
+			:with_silent()
+			:with_desc("session: Save"),
+		["n|<leader>sl"] = map_callback(function()
+				local dir = vim.fn.stdpath("data") .. "/sessions"
+				local name = dir .. "/" .. vim.fn.getcwd():gsub("[/\\:]", "%%") .. ".vim"
+				if vim.fn.filereadable(name) == 1 then
+					vim.cmd("source " .. vim.fn.fnameescape(name))
+				else
+					vim.notify("[session] no session for this dir", vim.log.levels.WARN)
+				end
 			end)
-			:with_silent()
 			:with_noremap()
-			:with_expr()
-			:with_desc("edit: Toggle comment for block"),
-		["n|gc"] = map_cmd("<Plug>(comment_toggle_linewise)")
 			:with_silent()
-			:with_noremap()
-			:with_desc("edit: Toggle comment for line with operator"),
-		["n|gb"] = map_cmd("<Plug>(comment_toggle_blockwise)")
-			:with_silent()
-			:with_noremap()
-			:with_desc("edit: Toggle comment for block with operator"),
-		["x|gc"] = map_cmd("<Plug>(comment_toggle_linewise_visual)")
-			:with_silent()
-			:with_noremap()
-			:with_desc("edit: Toggle comment for line with selection"),
-		["x|gb"] = map_cmd("<Plug>(comment_toggle_blockwise_visual)")
-			:with_silent()
-			:with_noremap()
-			:with_desc("edit: Toggle comment for block with selection"),
-
-		-- Plugin: diffview.nvim
-		["n|<leader>gd"] = map_cr("DiffviewOpen"):with_silent():with_noremap():with_desc("git: Show diff"),
-		["n|<leader>gD"] = map_cr("DiffviewClose"):with_silent():with_noremap():with_desc("git: Close diff"),
-
-		-- Plugin: hop.nvim
-		["nv|<leader>w"] = map_cmd("<Cmd>HopWordMW<CR>"):with_noremap():with_desc("jump: Goto word"),
-		["nv|<leader>j"] = map_cmd("<Cmd>HopLineMW<CR>"):with_noremap():with_desc("jump: Goto line"),
-		["nv|<leader>k"] = map_cmd("<Cmd>HopLineMW<CR>"):with_noremap():with_desc("jump: Goto line"),
-		["nv|<leader>c"] = map_cmd("<Cmd>HopChar1MW<CR>"):with_noremap():with_desc("jump: Goto one char"),
-		["nv|<leader>C"] = map_cmd("<Cmd>HopChar2MW<CR>"):with_noremap():with_desc("jump: Goto two chars"),
-
-		-- Plugin: grug-far
-		["n|<leader>Ss"] = map_callback(function()
-				require("grug-far").open()
-			end)
-			:with_silent()
-			:with_noremap()
-			:with_desc("editn: Toggle search & replace panel"),
-		["n|<leader>Sp"] = map_callback(function()
-				require("grug-far").open({ prefills = { search = vim.fn.expand("<cword>") } })
-			end)
-			:with_silent()
-			:with_noremap()
-			:with_desc("editn: search&replace current word (project)"),
-		["v|<leader>Sp"] = map_callback(function()
-				require("grug-far").with_visual_selection()
-			end)
-			:with_silent()
-			:with_noremap()
-			:with_desc("edit: search & replace current word (project)"),
-		["n|<leader>Sf"] = map_callback(function()
-				require("grug-far").open({ prefills = { paths = vim.fn.expand("%") } })
-			end)
-			:with_silent()
-			:with_noremap()
-			:with_desc("editn: search & replace current word (file)"),
-
-		-- Plugin: nvim-treehopper
-		["o|m"] = map_cu("lua require('tsht').nodes()"):with_silent():with_desc("jump: Operate across syntax tree"),
-
-		-- Plugin: suda.vim
-		["n|<A-s>"] = map_cu("SudaWrite"):with_silent():with_noremap():with_desc("editn: Save file using sudo"),
+			:with_desc("session: Load"),
+		-- Plugin: diffview.nvim (diff веток/коммитов/история файла)
+		["n|<leader>gd"] = map_cr("DiffviewOpen"):with_silent():with_noremap():with_desc("git: Diff open"),
+		["n|<leader>gD"] = map_cr("DiffviewClose"):with_silent():with_noremap():with_desc("git: Diff close"),
+		["n|<leader>gh"] = map_cr("DiffviewFileHistory"):with_silent():with_noremap():with_desc("git: File history"),
 	},
 }
 
