@@ -74,7 +74,9 @@ local function load_options()
 		ttimeoutlen = 0,
 		undodir = global.cache_dir .. "/undo//",
 		-- Please do NOT set `updatetime` to above 500, otherwise most plugins may not function correctly
-		updatetime = 200,
+		-- PERF: 200 -> 1000: CursorHold-пачки (gitsigns/flash, git-спавны) в 5 раз реже.
+		-- Откат одной строкой, если swap/crash-recovery критичен.
+		updatetime = 1000,
 		viewoptions = "folds,cursor,curdir,slash,unix",
 		virtualedit = "block",
 		visualbell = true,

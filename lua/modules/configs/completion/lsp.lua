@@ -56,4 +56,11 @@ return function()
 
 	-- Липкая сигнатура без плагинов (своя, см. completion.signature).
 	require("completion.signature").setup()
+
+	-- PERF: греем nvim-cmp в простое после старта, иначе его загрузка
+	-- ложится на первый `:` (CmdlineEnter) или InsertEnter.
+	vim.defer_fn(function()
+		pcall(require, "cmp")
+		pcall(require, "cmp_nvim_lsp")
+	end, 1500)
 end

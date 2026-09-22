@@ -18,9 +18,15 @@ return function()
 
 	lint.linters.golangcilint.ignore_exitcode = true
 
-	vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost", "InsertLeave" }, {
+	-- PERF: линт только по сохранению. BufEnter/InsertLeave устраивали
+	-- 1-2 конкурентных golangci-lint на каждое открытие (включая stdlib).
+	vim.api.nvim_create_autocmd({ "BufWritePost" }, {
 		pattern = { "*.go", "*.mod", "*.tmpl" },
-		callback = function()
+		callback = function(a)
+			local f = vim.api.nvim_buf_get_name(a.buf)
+			if f:match("go/pkg/mod") or f:match("Program Files\\Go") or f:match("/go/src/") then
+				return
+			end
 			lint.try_lint()
 		end,
 	})
