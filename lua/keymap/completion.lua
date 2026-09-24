@@ -214,11 +214,25 @@ function M.lsp(buf)
 	if not vim.b[buf].codelens_setup then
 		vim.b[buf].codelens_setup = true
 		local codelens_group = vim.api.nvim_create_augroup("LspCodelensRefresh", { clear = false })
+		-- Один таймер на буфер: шторм BufEnter/InsertLeave не должен слать
+		-- запросы пачками на слабом ПК. Большие файлы скипаем вообще.
+		local codelens_timer = vim.uv.new_timer()
+		vim.api.nvim_clear_autocmds({ group = codelens_group, buffer = buf })
 		vim.api.nvim_create_autocmd({ "BufEnter", "InsertLeave", "BufWritePost" }, {
 			group = codelens_group,
 			buffer = buf,
 			callback = function()
-				pcall(vim.lsp.codelens.refresh)
+				if vim.b[buf].large_file then
+					return
+				end
+				if codelens_timer then
+					codelens_timer:stop()
+					codelens_timer:start(500, 0, vim.schedule_wrap(function()
+						if vim.api.nvim_buf_is_valid(buf) then
+							pcall(vim.lsp.codelens.refresh)
+						end
+					end))
+				end
 			end,
 		})
 	end

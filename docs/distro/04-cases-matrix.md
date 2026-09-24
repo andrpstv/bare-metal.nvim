@@ -19,7 +19,7 @@ Every row: trigger → expected behavior → exact English string (see `02-ux-en
 | 13 | Rate limit 403/429 | `GitHub rate limit reached. Try again in ~12 min or set GITHUB_TOKEN. No changes made.` |
 | 14 | Disk full | Pre-check `statvfs`; on `ENOSPC`: `Not enough disk space (need X, have Y). … No changes made.` |
 | 15 | No permission (dest) | `Cannot write to pack/distro/opt/X (permission denied). Check ownership. No changes made.` |
-| 16 | Concurrent `:DistroInstall` | `Another installation is running (pid …). [Wait / Cancel]` via `tmp/distro/.lock`. |
+| 16 | Concurrent `:DistroInstall` | `Another installation is running (pid …). [Wait / Cancel]` via `<cache>/distro/.lock` (stale locks auto-reclaimed). |
 | 17 | `--headless` without `--yes` | `Refusing: this needs explicit confirmation. Re-run with --yes. No changes were made.` |
 | 18 | `gcc` missing + parser install | Block parser, route: `Tool missing: 'gcc' is needed… [Install / Show alternatives / Skip]`. |
 | 19 | macOS + `Install gcc` | Honest: `curl cannot provide Apple Command Line Tools. Run: xcode-select --install … [Copy command / Skip]`. |

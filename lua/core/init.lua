@@ -157,12 +157,15 @@ local git_sync_colors = function()
 	local red = settings.palette_overwrite.red or "#974b46"
 	local is_windows = vim.fn.has("win32") == 1
 
-	-- git config path
+	-- git config path (expand может вернуть литерал при пустом env — проверяем)
 	local gitconfig
 	if is_windows then
 		gitconfig = vim.fn.expand("$USERPROFILE") .. "/.gitconfig"
 	else
 		gitconfig = vim.fn.expand("~/.gitconfig")
+	end
+	if gitconfig:match("%$") then
+		return
 	end
 
 	local content = ""
@@ -185,12 +188,15 @@ local git_sync_colors = function()
 		end
 	end
 
-	-- lazygit config path
+	-- lazygit config path (тот же гард от пустого env)
 	local lg_dir
 	if is_windows then
 		lg_dir = vim.fn.expand("$APPDATA") .. "/lazygit"
 	else
 		lg_dir = vim.fn.expand("~/.config/lazygit")
+	end
+	if lg_dir:match("%$") then
+		return
 	end
 
 	if vim.fn.isdirectory(lg_dir) == 0 then

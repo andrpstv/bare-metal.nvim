@@ -27,7 +27,9 @@ local function load_options()
 		fileformats = "unix,mac,dos",
 		foldlevelstart = 99,
 		grepformat = "%f:%l:%c:%m",
-		grepprg = "rg --hidden --vimgrep --smart-case --",
+		-- rg может отсутствовать (Windows без winget-пакета, минимальные системы):
+		-- без гарда :grep падает E149. Фолбэк — встроенный grep.
+		grepprg = vim.fn.executable("rg") == 1 and "rg --hidden --vimgrep --smart-case --" or "grep -n $* /dev/null",
 		helpheight = 12,
 		hidden = true,
 		history = 2000,

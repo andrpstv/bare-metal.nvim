@@ -6,7 +6,9 @@ function M.input_args()
 end
 
 function M.input_exec_path()
-	return vim.fn.input('Path to executable (default to "a.out"): ', vim.fn.expand("%:p:h") .. "/a.out", "file")
+	-- Windows: исполняемые файлы с .exe, разделитель — backslash.
+	local suffix = (vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1) and ".exe" or ""
+	return vim.fn.input('Path to executable (default to "a.out"): ', vim.fn.expand("%:p:h") .. "/a.out" .. suffix, "file")
 end
 
 function M.input_file_path()

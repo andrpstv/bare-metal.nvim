@@ -28,7 +28,9 @@ function M.tarball_url(repo, ref)
 end
 
 function M.tmpdir()
-	return vim.fn.stdpath("config") .. "/tmp/distro"
+	-- Staging lives in stdpath("cache"), NOT in the config repo: keeps
+	-- `git status` clean and works with a readonly config dir (Windows: ~/AppData).
+	return vim.fn.stdpath("cache") .. "/distro"
 end
 
 local function ensure_tmp()
@@ -55,10 +57,12 @@ end
 
 function M.check_prereqs()
 	if not has_bin("curl") then
-		return false, "curl not found. Install it first: macOS: 'brew install curl' · Windows: 'winget install curl.curl' — then reopen :Distro."
+		return false, "curl not found. Install it first: macOS: 'brew install curl' · Windows: 'winget install curl.curl' · Linux: 'sudo apt install curl' — then reopen :Distro."
 	end
-	if not has_bin("tar") and not has_bin("unzip") and not is_win() then
-		return false, "Neither tar nor unzip found. Install one, then reopen :Distro."
+	-- tar is mandatory everywhere (.tar.gz unpack + bsdtar zip support);
+	-- unzip/PowerShell are only fallbacks for .zip.
+	if not has_bin("tar") then
+		return false, "tar not found. macOS/Windows ship bsdtar built-in; Linux: 'sudo apt install tar'. Then reopen :Distro."
 	end
 	return true
 end
@@ -68,16 +72,21 @@ local function lock_path()
 end
 
 --- Best-effort single-instance guard. Returns release fn or nil+msg.
+--- Locks older than 10 minutes are treated as stale (crashed nvim) and reclaimed.
 function M.acquire()
 	ensure_tmp()
 	local lp = lock_path()
 	local st = vim.uv.fs_stat(lp)
 	if st then
-		return nil, "Another installation is running. Wait or delete tmp/distro/.lock if stale. No changes made."
+		local age = st.mtime and (os.time() - st.mtime.sec) or 0
+		if age <= 600 then
+			return nil, "Another installation is running. Wait a bit and retry. No changes made."
+		end
+		os.remove(lp)
 	end
 	local f = io.open(lp, "w")
 	if f then
-		f:write(tostring(vim.fn.getpid()))
+		f:write(tostring(vim.fn.getpid()) .. "\n" .. os.time() .. "\n")
 		f:close()
 	end
 	return function()
@@ -162,30 +171,23 @@ local function curl_base(extra_args)
 	return parts
 end
 
---- Run a command given as argv list (no shell quoting pitfalls cross-platform).
+--- Run a command given as argv list. No shell involved (safe for spaces and
+--- non-ASCII paths on Windows), with a timeout so a hung child can't freeze UI.
+---@param argv string[]
+---@param timeout_ms integer?
 ---@return integer exit code (0 = ok)
-local function run_argv(argv, log_label)
+function M.run_argv(argv, log_label, timeout_ms)
 	local mirror = require("distro.mirror")
 	M.log((log_label or "exec") .. " :: " .. mirror.redact(table.concat(argv, " ")))
-	-- os.execute(string) goes through the shell; quote each arg for the platform.
-	local quoted = {}
-	for _, a in ipairs(argv) do
-		quoted[#quoted + 1] = M.Q(a)
-	end
-	local rc = os.execute(table.concat(quoted, " "))
-	-- Lua 5.1 (LuaJIT): os.execute returns status code directly on POSIX;
-	-- on failure modes normalize to non-zero.
-	if rc == nil then
+	local obj = vim.system(argv, { text = true, timeout = timeout_ms or 120000 }):wait()
+	if not obj then
 		return 1
 	end
-	if type(rc) == "number" then
-		-- LuaJIT returns raw wait status (code*256) on POSIX
-		if rc > 255 then
-			return math.floor(rc / 256)
-		end
-		return rc
-	end
-	return 1
+	return obj.code or 1
+end
+
+local function run_argv(argv, log_label)
+	return M.run_argv(argv, log_label)
 end
 
 --- Download a URL to a file. Returns true or false+err.
@@ -245,12 +247,7 @@ function M.unpack_flat(archive, stage, strip)
 	if strip and is_zip and vim.fn.executable("tar") == 1 then
 		args[#args + 1] = "--strip-components=1" -- bsdtar supports it for zips
 	end
-	local q = {}
-	for _, a in ipairs(args) do
-		q[#q + 1] = M.Q(a)
-	end
-	M.log("unpack flat :: " .. table.concat(args, " "))
-	if os.execute(table.concat(q, " ")) ~= 0 then
+	if M.run_argv(args, "unpack flat", 60000) ~= 0 then
 		return false
 	end
 	if strip and is_zip then
@@ -299,16 +296,12 @@ hoist_single_child = function(stage)
 	return true
 end
 
---- Unpack .zip into stage dir. bsdtar → unzip → PowerShell, in that order.
+--- Unpack .zip into stage dir.
+--- Order: bsdtar first everywhere; then PowerShell on Windows (built-in),
+--- `unzip` last (third-party). Each step confirms success before moving on.
 local function unpack_zip(archive, stage)
 	if has_bin("tar") and run_argv({ "tar", "xf", archive, "-C", stage, "--strip-components=1" }, "unpack zip(tar)") == 0 then
 		return true
-	end
-	if has_bin("unzip") then
-		if run_argv({ "unzip", "-q", archive, "-d", stage }, "unpack zip(unzip)") == 0 then
-			return hoist_single_child(stage)
-		end
-		return false
 	end
 	if is_win() then
 		local ps = "Expand-Archive -Path "
@@ -320,6 +313,12 @@ local function unpack_zip(archive, stage)
 		if run_argv({ "powershell", "-NoProfile", "-NonInteractive", "-Command", ps }, "unpack zip(ps)") == 0 then
 			return hoist_single_child(stage)
 		end
+	end
+	if has_bin("unzip") then
+		if run_argv({ "unzip", "-q", archive, "-d", stage }, "unpack zip(unzip)") == 0 then
+			return hoist_single_child(stage)
+		end
+		return false
 	end
 	return false
 end
@@ -358,6 +357,16 @@ function M.install_one(entry, opts)
 	local ok, err = M.check_prereqs()
 	if not ok then
 		return false, err
+	end
+	-- skip redundant re-downloads of the exact same pin (healthy dir + same ref)
+	do
+		local lock = require("distro.lock").read()
+		local l = lock[entry.name]
+		local cfg0 = vim.fn.stdpath("config")
+		local dest0 = string.format("%s/pack/distro/%s/%s", cfg0, entry.kind, entry.name)
+		if l and l.ref == entry.ref and vim.uv.fs_stat(dest0 .. "/.distro-ok") then
+			return true, "Already installed '" .. entry.name .. "' (" .. entry.ref:sub(1, 7) .. "). No changes made."
+		end
 	end
 	local src, src_err = M.resolve_source(entry)
 	if not src then
@@ -443,6 +452,12 @@ function M.remove_one(entry, opts)
 	local cfg = vim.fn.stdpath("config")
 	local dest = string.format("%s/pack/distro/%s/%s", cfg, entry.kind, entry.name)
 	vim.fn.delete(dest, "rf")
+	-- drop the lock ghost too, otherwise status() reports stale data
+	local lock = require("distro.lock").read()
+	if lock[entry.name] ~= nil then
+		lock[entry.name] = nil
+		require("distro.lock").write(lock)
+	end
 	return true, "Removed '" .. entry.name .. "'. No other changes made."
 end
 

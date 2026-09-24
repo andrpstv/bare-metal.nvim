@@ -11,7 +11,8 @@ function global:load_variables()
 	self.cache_dir = vim.fn.stdpath("cache")
 	self.data_dir = string.format("%s/site/", vim.fn.stdpath("data"))
 	self.modules_dir = self.vim_path .. "/modules"
-	self.home = self.is_windows and vim.env.USERPROFILE or vim.env.HOME
+	-- HOME может отсутствовать (sudo/systemd/CI): фолбэки по цепочке, никогда nil.
+	self.home = vim.env.USERPROFILE or vim.env.HOME or vim.fn.expand("~") or ""
 end
 
 global:load_variables()

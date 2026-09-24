@@ -43,9 +43,10 @@ return function()
 		preselect = cmp.PreselectMode.None,
 		-- Меню всплывает само при печати (ничего не выбрано),
 		-- выбор — только руками через Tab/C-n/C-p.
+		-- keyword_length=2: на слабом ПК не спамим источниками на каждый символ.
 		completion = {
 			autocomplete = { cmp.TriggerEvent.TextChanged },
-			keyword_length = 1,
+			keyword_length = 2,
 		},
 		window = {
 			completion = {
@@ -170,13 +171,20 @@ return function()
 		sources = {
 			{ name = "nvim_lsp", max_item_count = 100 },
 			{ name = "luasnip" },
-			{ name = "path" },
-			{ name = "buffer", option = { get_bufnrs = function()
-				local bufnrs = {}
-				for _, b in ipairs(vim.api.nvim_list_bufs()) do
-					if vim.api.nvim_buf_is_loaded(b) and vim.api.nvim_buf_line_count(b) < 5000 then
-						table.insert(bufnrs, b)
+			{ name = "path", max_item_count = 20 },
+			{ name = "buffer", max_item_count = 20, option = { get_bufnrs = function()
+				-- Только текущий + уже видимые маленькие буферы: полный скан
+				-- всех буферов на каждый кейстрок убивал слабый ПК.
+				local seen, bufnrs = {}, {}
+				local function add(b)
+					if not seen[b] and vim.api.nvim_buf_is_loaded(b) and vim.api.nvim_buf_line_count(b) < 1000 then
+						seen[b] = true
+						bufnrs[#bufnrs + 1] = b
 					end
+				end
+				add(vim.api.nvim_get_current_buf())
+				for _, w in ipairs(vim.api.nvim_list_wins()) do
+					add(vim.api.nvim_win_get_buf(w))
 				end
 				return bufnrs
 			end } },

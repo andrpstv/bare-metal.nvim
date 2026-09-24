@@ -57,31 +57,53 @@ _G._pick_lsp = function(scope, opts)
 	end
 	if opts.jump1 then
 		local method = "textDocument/" .. (scope == "type_definition" and "typeDefinition" or scope == "references" and "references" or scope == "implementation" and "implementation" or "definition")
-		local params = vim.lsp.util.make_position_params(0, "utf-16")
-		local resp = vim.lsp.buf_request_sync(0, method, params, 2000)
-		local locs = {}
-		for _, res in pairs(resp or {}) do
-			local r = res.result
-			if r then
-				if r.uri then
-					locs[#locs + 1] = r
-				else
-					vim.list_extend(locs, r)
-				end
-			end
-		end
-		if #locs == 1 then
-			local item = vim.lsp.util.locations_to_items(locs, "utf-16")[1]
-			if item then
-				vim.cmd.edit(vim.fn.fnameescape(item.filename))
-				pcall(vim.api.nvim_win_set_cursor, 0, { item.lnum, item.col - 1 })
-				return
-			end
-		elseif #locs == 0 then
-			vim.notify("[lsp] no results for " .. scope, vim.log.levels.INFO, { title = "lsp" })
+		if #vim.lsp.get_clients({ bufnr = 0, method = method }) == 0 then
+			vim.notify("[lsp] no client for " .. scope .. " here", vim.log.levels.INFO, { title = "lsp" })
 			return
 		end
-		-- 2+ результатов: падаем в пикер ниже
+		local params = vim.lsp.util.make_position_params(0, "utf-16")
+		-- Async: никогда не фризим UI (раньше buf_request_sync(2000) висел на висящем gopls).
+		-- Сторож: если ответа нет 2с — предупреждаем (раньше это делал сам timeout sync).
+		local req_buf = vim.api.nvim_get_current_buf()
+		local responded = false
+		vim.defer_fn(function()
+			if not responded and vim.api.nvim_buf_is_valid(req_buf) then
+				vim.notify("[lsp] slow response (" .. scope .. "), server busy?", vim.log.levels.WARN, { title = "lsp" })
+			end
+		end, 2000)
+		vim.lsp.buf_request(0, method, params, function(err, result)
+			responded = true
+			if err then
+				vim.notify("[lsp] gopls busy (" .. scope .. ")", vim.log.levels.WARN, { title = "lsp" })
+				return
+			end
+			local locs = {}
+			if result then
+				if result.uri then
+					locs[1] = result
+				else
+					locs = result
+				end
+			end
+			if #locs == 1 then
+				local ok_item, item = pcall(vim.lsp.util.locations_to_items, locs, "utf-16")
+				item = ok_item and item[1] or nil
+				if item then
+					vim.cmd.edit(vim.fn.fnameescape(item.filename))
+					pcall(vim.api.nvim_win_set_cursor, 0, { item.lnum, item.col - 1 })
+					return
+				end
+			elseif #locs == 0 then
+				vim.notify("[lsp] no results for " .. scope, vim.log.levels.INFO, { title = "lsp" })
+				return
+			end
+			-- 2+ результатов: падаем в пикер ниже
+			local ok2, extra2 = pcall(require, "mini.extra")
+			if ok2 then
+				extra2.pickers.lsp({ scope = scope })
+			end
+		end)
+		return
 	end
 	local ok, extra = pcall(require, "mini.extra")
 	if not ok then
@@ -121,6 +143,10 @@ _G._flash_esc_or_noh = function()
 end
 
 _G._toggle_inlayhint = function()
+	if #vim.lsp.get_clients({ bufnr = 0, method = "textDocument/inlayHint" }) == 0 then
+		vim.notify("No inlay-hint client here", vim.log.levels.INFO, { title = "LSP Inlay Hint" })
+		return
+	end
 	local is_enabled = vim.lsp.inlay_hint.is_enabled({ bufnr = 0 })
 	vim.lsp.inlay_hint.enable(not is_enabled)
 	vim.notify(
@@ -151,85 +177,12 @@ _G._toggle_qf = function()
 	vim.cmd("copen")
 end
 
--- Дописываем сегмент к дефолтному статуслайну (ноль плагинов).
-vim.opt.statusline:append("%{%v:lua._lsp_status()%}")
-
 -- Go: подставить возвращаемые значения вызова в переменные (как Alt+Enter в GoLand).
 -- `load(2)` -> `data, err := load(2)`; вложенный вызов извлекается строкой выше.
 -- Нужны treesitter-go и живой gopls; только простые случаи, иначе подскажет.
-_G._go_assign_vars = function()
-	local bufnr = vim.api.nvim_get_current_buf()
-	if vim.bo[bufnr].filetype ~= "go" then
-		vim.notify("[go] assign works in Go files only", vim.log.levels.WARN, { title = "go" })
-		return
-	end
-
-	-- 1. Вызов под курсором (берём самый внутренний).
-	-- Парсер может спать (headless/первый вызов) — будим явно.
-	local ok_parser, parser = pcall(vim.treesitter.get_parser, bufnr, "go")
-	if not ok_parser or not parser then
-		vim.notify("[go] no treesitter Go parser (:TSInstall go)", vim.log.levels.WARN, { title = "go" })
-		return
-	end
-	parser:parse(true)
-	local node = vim.treesitter.get_node()
-	while node and node:type() ~= "call_expression" do
-		node = node:parent()
-	end
-	if not node then
-		vim.notify("[go] no call under cursor", vim.log.levels.WARN, { title = "go" })
-		return
-	end
-	local fnodes = node:field("function")
-	local fnode = type(fnodes) == "table" and fnodes[1] or fnodes
-	if not fnode then
-		return
-	end
-
-	-- 2. Сигнатура через hover gopls (точный источник типов).
-	-- Ховерим КОНЕЦ имени функции: у методов поле function — селектор
-	-- `p.Talk`, и начало указывает на переменную, а не на метод.
-	local fr, fc, er, ec = fnode:range()
-	local resp = nil
-	for _, pos in ipairs({ { line = er, character = ec - 1 }, { line = fr, character = fc } }) do
-		resp = vim.lsp.buf_request_sync(
-			bufnr,
-			"textDocument/hover",
-			{ textDocument = { uri = vim.uri_from_bufnr(bufnr) }, position = pos },
-			2000
-		)
-		local got = false
-		for _, res in pairs(resp or {}) do
-			local c = res.result and res.result.contents
-			local text = type(c) == "table" and c.value or type(c) == "string" and c or ""
-			if text:find("\nfunc%s") or text:match("^func%s") then
-				got = true
-				break
-			end
-		end
-		if got then
-			break
-		end
-		resp = nil
-	end
-	local sig = nil
-	for _, res in pairs(resp or {}) do
-		local c = res.result and res.result.contents
-		local text = type(c) == "table" and c.value or type(c) == "string" and c or ""
-		for line in text:gmatch("[^\n]+") do
-			if line:match("^func%s") then
-				sig = line
-				break
-			end
-		end
-		if sig then
-			break
-		end
-	end
-	if not sig then
-		vim.notify("[go] cannot get signature (cursor on function name?)", vim.log.levels.WARN, { title = "go" })
-		return
-	end
+-- Шаги 3-4 (парсинг сигнатуры -> правка) — чистая функция от sig, вызывается
+-- из async hover-цепочки ниже, чтобы UI никогда не блокировался.
+local function go_assign_apply(sig, bufnr, node)
 
 	-- 3. Парсим возвращаемые: всё после закрывающей скобки параметров.
 	-- Пропускаем ресивер `func (p T)` и type-параметры `func F[T any]`.
@@ -384,7 +337,12 @@ _G._go_assign_vars = function()
 		return
 	end
 	-- Уже присвоено? (`x := f()`, `return f()`)
-	local sr, sc, er, ec = node:range()
+	local ok_r, sr, sc, er, ec = pcall(function()
+		return node:range()
+	end)
+	if not ok_r then
+		return
+	end
 	local line = vim.api.nvim_buf_get_lines(bufnr, sr, sr + 1, true)[1] or ""
 	local before = line:sub(1, sc)
 	if before:match("[:=]%s*$") or before:match("=%s*$") or before:match("%f[%w]return%f[%W]") then
@@ -393,8 +351,14 @@ _G._go_assign_vars = function()
 	end
 
 	local lhs = table.concat(names, ", ") .. " := "
-	local calltext = vim.treesitter.get_node_text(node, bufnr)
-	local parent = node:parent()
+	local ok_t, calltext = pcall(vim.treesitter.get_node_text, node, bufnr)
+	if not ok_t or not calltext then
+		return
+	end
+	local ok_p, parent = pcall(function()
+		return node:parent()
+	end)
+	parent = ok_p and parent or nil
 	if parent and parent:type() == "expression_statement" then
 		-- Отдельный стейтмент: `load(2)` -> `data, err := load(2)`
 		vim.api.nvim_buf_set_text(bufnr, sr, sc, er, ec, { lhs .. calltext })
@@ -411,23 +375,130 @@ _G._go_assign_vars = function()
 	end
 end
 
+_G._go_assign_vars = function()
+	local bufnr = vim.api.nvim_get_current_buf()
+	if vim.bo[bufnr].filetype ~= "go" then
+		vim.notify("[go] assign works in Go files only", vim.log.levels.WARN, { title = "go" })
+		return
+	end
+	if #vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/hover" }) == 0 then
+		vim.notify("[go] no hover client (gopls not attached?)", vim.log.levels.WARN, { title = "go" })
+		return
+	end
+
+	-- 1. Вызов под курсором (берём самый внутренний).
+	local ok_parser, parser = pcall(vim.treesitter.get_parser, bufnr, "go")
+	if not ok_parser or not parser then
+		vim.notify("[go] no treesitter Go parser (:TSInstall go)", vim.log.levels.WARN, { title = "go" })
+		return
+	end
+	pcall(function()
+		parser:parse(true)
+	end)
+	local ok_node, node = pcall(vim.treesitter.get_node)
+	if ok_node and node then
+		local ok_walk, top = pcall(function()
+			while node and node:type() ~= "call_expression" do
+				node = node:parent()
+			end
+			return node
+		end)
+		if ok_walk then
+			node = top
+		else
+			node = nil
+		end
+	end
+	if not node then
+		vim.notify("[go] no call under cursor", vim.log.levels.WARN, { title = "go" })
+		return
+	end
+	local ok_field, fnodes = pcall(function()
+		return node:field("function")
+	end)
+	local fnode = ok_field and (type(fnodes) == "table" and fnodes[1] or fnodes) or nil
+	if not fnode then
+		return
+	end
+	local ok_range, fr, fc, er, ec = pcall(function()
+		return fnode:range()
+	end)
+	if not ok_range then
+		return
+	end
+
+	-- 2. Сигнатура через hover gopls — async цепочка (UI не блокируется никогда).
+	-- Ховерим КОНЕЦ имени функции, затем начало; первая годная сигнатура побеждает.
+	local positions = { { line = er, character = ec - 1 }, { line = fr, character = fc } }
+	local function sig_of(result)
+		local c = result and result.contents
+		local text = type(c) == "table" and c.value or type(c) == "string" and c or ""
+		for line in text:gmatch("[^\n]+") do
+			if line:match("^func%s") then
+				return line
+			end
+		end
+		return nil
+	end
+	local function try_pos(i)
+		if i > #positions then
+			vim.notify("[go] cannot get signature (cursor on function name?)", vim.log.levels.WARN, { title = "go" })
+			return
+		end
+		local pos = positions[i]
+		local params = { textDocument = { uri = vim.uri_from_bufnr(bufnr) }, position = pos }
+		local responded = false
+		vim.defer_fn(function()
+			if not responded and vim.api.nvim_buf_is_valid(bufnr) then
+				vim.notify("[go] slow response, gopls busy?", vim.log.levels.WARN, { title = "go" })
+			end
+		end, 2000)
+		vim.lsp.buf_request(bufnr, "textDocument/hover", params, function(err, result)
+			responded = true
+			if err then
+				vim.notify("[go] gopls busy, try again", vim.log.levels.WARN, { title = "go" })
+				return
+			end
+			local sig = sig_of(result)
+			if sig then
+				if vim.api.nvim_buf_is_valid(bufnr) then
+					go_assign_apply(sig, bufnr, node)
+				end
+			else
+				try_pos(i + 1)
+			end
+		end)
+	end
+	try_pos(1)
+end
+
 -- Статуслайн в духе heirline ramojus (без плагинов):
 -- `[NOR] fname [+] | ●[E W] [servers] %= Ln:Col |  branch(+a-r~c) | (lines size)`
 -- Цвета — ссылками на группы темы (следуют за сменой colorscheme сами).
 local _stl_devicons = {}
+local _stl_icon_cache = {}
 local function _stl_icon(filename)
+	local ext = vim.fn.fnamemodify(filename, ":e")
+	local cached = _stl_icon_cache[ext]
+	if cached then
+		return cached
+	end
 	local ok, dev = pcall(require, "nvim-web-devicons")
 	if not ok then
+		_stl_icon_cache[ext] = ""
 		return ""
 	end
-	local icon, hl = dev.get_icon(filename, vim.fn.fnamemodify(filename, ":e"), { default = true })
+	local icon, hl = dev.get_icon(filename, ext, { default = true })
 	if not icon then
+		_stl_icon_cache[ext] = ""
 		return ""
 	end
 	if hl and not _stl_devicons[hl] then
 		_stl_devicons[hl] = true
 	end
-	return (hl and ("%#" .. hl .. "#") or "") .. icon .. "%* "
+	local out = (hl and ("%#" .. hl .. "#") or "") .. icon .. "%* "
+	_stl_icon_cache[ext] = out
+	return out
 end
 
 local _stl_modes = {
@@ -448,6 +519,34 @@ local _stl_mode_hl = {
 local _stl_size_cache = {}
 local _stl_lsp_cache = {}
 local _stl_git_cache = {}
+-- Счётчики диагностик: единственный дорогой кусок статуслайна (был get() на redraw).
+-- Обновляется по DiagnosticChanged, на redraw только читается.
+local _stl_diag_cache = {}
+
+-- Нормализация bufnr: callers historically pass 0 (= current), but caches and
+-- invalidations must key on the REAL buffer id, otherwise entries never clear.
+local function _stl_buf(bufnr)
+	if not bufnr or bufnr == 0 then
+		return vim.api.nvim_get_current_buf()
+	end
+	return bufnr
+end
+
+local function _stl_count_diags(bufnr)
+	local e, w, it, h = 0, 0, 0, 0
+	for _, d in ipairs(vim.diagnostic.get(bufnr)) do
+		if d.severity == vim.diagnostic.severity.ERROR then
+			e = e + 1
+		elseif d.severity == vim.diagnostic.severity.WARN then
+			w = w + 1
+		elseif d.severity == vim.diagnostic.severity.INFO then
+			it = it + 1
+		elseif d.severity == vim.diagnostic.severity.HINT then
+			h = h + 1
+		end
+	end
+	return { e, w, it, h }
+end
 
 local function _stl_human_size()
 	local bufname = vim.api.nvim_buf_get_name(0)
@@ -468,13 +567,20 @@ local function _stl_human_size()
 		local i = math.floor(math.log(fsize) / math.log(1024))
 		out = string.format("%.2g%s", fsize / math.pow(1024, i), suffix[i + 1])
 	end
-	-- держим кэш маленьким
-	_stl_size_cache = { [key] = out }
+	-- держим кэш маленьким (32 последних), таблицу не сносим целиком
+	_stl_size_cache[key] = out
+	local n = 0
+	for _ in pairs(_stl_size_cache) do
+		n = n + 1
+	end
+	if n > 32 then
+		_stl_size_cache = { [key] = out }
+	end
 	return out
 end
 
 local function _stl_get_lsp_names(bufnr)
-	bufnr = bufnr or 0
+	bufnr = _stl_buf(bufnr)
 	local cached = _stl_lsp_cache[bufnr]
 	if cached then
 		return cached
@@ -488,7 +594,7 @@ local function _stl_get_lsp_names(bufnr)
 end
 
 local function _stl_get_git_status(bufnr)
-	bufnr = bufnr or 0
+	bufnr = _stl_buf(bufnr)
 	local cached = _stl_git_cache[bufnr]
 	if cached then
 		return cached
@@ -513,19 +619,37 @@ local function _stl_get_git_status(bufnr)
 end
 
 -- Инвалидация кэшей.
+local _stl_augroup = vim.api.nvim_create_augroup("StlCache", { clear = true })
 pcall(vim.api.nvim_create_autocmd, { "BufEnter", "BufWritePost" }, {
+	group = _stl_augroup,
 	callback = function()
 		vim.b.stl_size_tick = (vim.b.stl_size_tick or 0) + 1
 	end,
 })
 pcall(vim.api.nvim_create_autocmd, { "LspAttach", "LspDetach" }, {
+	group = _stl_augroup,
 	callback = function(args)
 		_stl_lsp_cache[args.buf] = nil
 	end,
 })
 pcall(vim.api.nvim_create_autocmd, { "BufWritePost", "FocusGained", "BufEnter" }, {
+	group = _stl_augroup,
 	callback = function(args)
 		_stl_git_cache[args.buf] = nil
+	end,
+})
+pcall(vim.api.nvim_create_autocmd, "DiagnosticChanged", {
+	group = _stl_augroup,
+	callback = function(args)
+		_stl_diag_cache[args.buf] = _stl_count_diags(args.buf)
+	end,
+})
+pcall(vim.api.nvim_create_autocmd, { "BufWipeout", "BufDelete" }, {
+	group = _stl_augroup,
+	callback = function(args)
+		_stl_lsp_cache[args.buf] = nil
+		_stl_git_cache[args.buf] = nil
+		_stl_diag_cache[args.buf] = nil
 	end,
 })
 
@@ -553,20 +677,14 @@ _G._statusline = function()
 			end
 		end
 		parts[#parts + 1] = "%<"
-		-- Диагностика: один get() + подсчёт в Lua (было 4 скана на redraw).
-		local diags = vim.diagnostic.get(0)
-		local e, w, it, h = 0, 0, 0, 0
-		for _, d in ipairs(diags) do
-			if d.severity == vim.diagnostic.severity.ERROR then
-				e = e + 1
-			elseif d.severity == vim.diagnostic.severity.WARN then
-				w = w + 1
-			elseif d.severity == vim.diagnostic.severity.INFO then
-				it = it + 1
-			elseif d.severity == vim.diagnostic.severity.HINT then
-				h = h + 1
-			end
+		-- Диагностика: читаем кэш DiagnosticChanged (никаких get() на redraw).
+		local bufnr = vim.api.nvim_get_current_buf()
+		local dc = _stl_diag_cache[bufnr]
+		if not dc then
+			dc = _stl_count_diags(bufnr)
+			_stl_diag_cache[bufnr] = dc
 		end
+		local e, w, it, h = dc[1], dc[2], dc[3], dc[4]
 		if e + w + it + h > 0 then
 			local d = { "%#DiagnosticError#●%*" .. "[" }
 			if e > 0 then
@@ -608,4 +726,4 @@ end
 vim.opt.statusline = "%!v:lua._statusline()"
 
 -- Как у ramojus: перерисовывать статуслайн при смене режима.
-vim.api.nvim_create_autocmd("ModeChanged", { command = "redrawstatus" })
+vim.api.nvim_create_autocmd("ModeChanged", { group = _stl_augroup, command = "redrawstatus" })

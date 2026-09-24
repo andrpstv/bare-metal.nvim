@@ -306,9 +306,16 @@ function M.register_server(server, config)
 	vim.validate("config", config, "table", true)
 
 	if config then
-		vim.lsp.config(server, config)
+		local ok_cfg, err_cfg = pcall(vim.lsp.config, server, config)
+		if not ok_cfg then
+			vim.notify("register_server " .. server .. ": " .. tostring(err_cfg):sub(1, 120), vim.log.levels.WARN, { title = "[lsp]" })
+			return
+		end
 	end
-	vim.lsp.enable(server)
+	local ok_en, err_en = pcall(vim.lsp.enable, server)
+	if not ok_en then
+		vim.notify("register_server enable " .. server .. ": " .. tostring(err_en):sub(1, 120), vim.log.levels.WARN, { title = "[lsp]" })
+	end
 end
 
 ---True if the buffer is a real file. Plugin buffers like diffview://,
@@ -407,7 +414,24 @@ function M.load_plugin(plugin_name, opts, vim_plugin, setup_callback)
 			-- Return early if the user explicitly requires disabling plugin setup
 			return
 		else
-			setup_callback = setup_callback or require(plugin_name).setup
+			if not setup_callback then
+				local ok_mod, mod_or_err = pcall(require, plugin_name)
+				if not ok_mod then
+					vim.notify(
+						"load_plugin <" .. plugin_name .. "> skipped: " .. tostring(mod_or_err):sub(1, 160),
+						vim.log.levels.WARN,
+						{ title = "[utils] Plugin" }
+					)
+					return
+				end
+				setup_callback = mod_or_err.setup
+			end
+			-- NOTE: setup бывает таблицей с __call (nvim-cmp) — проверяем вызываемость.
+			local mt = type(setup_callback) == "table" and getmetatable(setup_callback) or nil
+			if type(setup_callback) ~= "function" and not (mt and mt.__call) then
+				vim.notify("load_plugin <" .. plugin_name .. "> has no setup()", vim.log.levels.WARN, { title = "[utils] Plugin" })
+				return
+			end
 			-- User config exists?
 			if ok then
 				-- Extend base config if the returned user config is a table

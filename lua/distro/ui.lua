@@ -6,6 +6,23 @@ local M = {}
 
 local ST = { missing = "○", outdated = "◐", corrupted = "✖", ["build-needed"] = "⚒", installed = "●" }
 
+-- status -> highlight (linked to builtin groups, so any theme applies)
+local ST_HL = { missing = "DistroErr", outdated = "DistroWarn", corrupted = "DistroErr", ["build-needed"] = "DistroWarn", installed = "DistroOk" }
+
+local function ensure_hl()
+	for name, link in pairs({
+		DistroOk = "DiagnosticOk",
+		DistroWarn = "DiagnosticWarn",
+		DistroErr = "DiagnosticError",
+		DistroDim = "Comment",
+		DistroTitle = "Title",
+		DistroUp = "DiagnosticWarn",
+	}) do
+		pcall(vim.api.nvim_set_hl, 0, name, { link = link, default = true })
+	end
+end
+M.ensure_hl = ensure_hl
+
 local function groups()
 	local manifest = require("distro.manifest")
 	local status = require("distro.lock").status()
@@ -24,13 +41,11 @@ local function groups()
 	return g
 end
 
-local function row(p, st, extra)
+--- Build one grid row. Returns text + highlight spans ({col0, col1, group}, byte cols).
+---@return string, table
+local function build_row(p, st, extra, NW, suffix)
 	local short = p.ref:sub(1, 7)
 	local lock = require("distro.lock").read()[p.name]
-	local ver = short
-	if lock and lock.mirror then
-		ver = short .. " (mirror:" .. (lock.mirror_branch or "?") .. ")"
-	end
 	-- "up to date" means: matches the pinned distro version (lock == manifest).
 	-- Upstream may still be ahead — that is shown as ↑<sha> (press X to refresh).
 	local up = require("distro.install").remote_newer(p.name, p.ref)
@@ -47,7 +62,21 @@ local function row(p, st, extra)
 	if p.provides then
 		label = label .. " [" .. table.concat(p.provides, ", ") .. "]"
 	end
-	return string.format("%s %-28s %-22s  %s", ST[st] or "?", p.name, ver, extra or label)
+	if lock and lock.mirror then
+		label = label .. " (mirror:" .. (lock.mirror_branch or "?") .. ")"
+	end
+	if suffix and suffix ~= "" then
+		label = label .. " · " .. suffix
+	end
+	local icon = ST[st] or "?"
+	-- layout: 3sp + icon(3B) + 1sp + name(NW) + 2sp + ver(7) + 2sp + label
+	local text = string.format("   %s %-" .. NW .. "s  %-7s  %s", icon, p.name, short, extra or label)
+	local spans = { { 3, 6, ST_HL[st] or "DistroDim" } }
+	local up_at = text:find("↑", 1, true)
+	if up_at then
+		spans[#spans + 1] = { up_at - 1, up_at + 9, "DistroUp" } -- ↑ + 7 hex + space-ish
+	end
+	return text, spans
 end
 
 --- Count of rows whose cached X-check found a newer upstream HEAD.
@@ -70,9 +99,29 @@ function M.render()
 	-- Cursor-aware keys (i/u/d/r/x/Enter) resolve through this map.
 	local map = {}
 	local lines = {}
-	local function add(text, target)
+	local hls = {}
+	-- grid: name column sized to content (cap 32), everything else fixed
+	local NW = 12
+	for _, p in ipairs(manifest.plugins) do
+		NW = math.min(32, math.max(NW, #p.name))
+	end
+	for _, p in ipairs(manifest.catalog or {}) do
+		NW = math.min(32, math.max(NW, #p.name))
+	end
+	local function add(text, target, hl)
 		lines[#lines + 1] = text
 		map[#lines] = target
+		if hl then
+			for _, s in ipairs(hl) do
+				hls[#hls + 1] = { line = #lines - 1, col0 = s[1], col1 = s[2], group = s[3] }
+			end
+		end
+	end
+	local function sep()
+		add(string.rep("─", 60), { type = "text" }, { { 0, -1, "DistroDim" } })
+	end
+	local function header(text, section)
+		add(" " .. text, { type = "header", section = section }, { { 1, -1, "DistroTitle" } })
 	end
 	add(
 		" Distro ── "
@@ -88,44 +137,51 @@ function M.render()
 	add(" Nothing is downloaded or updated automatically — ever.", { type = "text" })
 	add(" 'up to date' = matches the pinned distro version. ↑sha = upstream moved (X to refresh).", { type = "text" })
 	add(" Source: " .. mirror.label(), { type = "text" })
-	add("", { type = "text" })
-	add(string.format(" Missing (%d)   [I] Install", #g.missing), { type = "header", section = "missing" })
+	sep()
+	header(string.format("Missing (%d)   [I] Install", #g.missing), "missing")
 	for _, p in ipairs(g.missing) do
-		add("   " .. row(p, (require("distro.lock").status()[p.name])), { type = "entry", section = "missing", entry = p })
+		local text, spans = build_row(p, (require("distro.lock").status()[p.name]), nil, NW)
+		add(text, { type = "entry", section = "missing", entry = p }, spans)
 	end
-	add("", { type = "text" })
-	add(string.format(" Needs attention (%d)   [U] Sync to pin  [R] Revert", #g.outdated), { type = "header", section = "outdated" })
+	sep()
+	header(string.format("Needs attention (%d)   [U] Sync to pin  [R] Revert", #g.outdated), "outdated")
 	for _, p in ipairs(g.outdated) do
-		add("   " .. row(p, (require("distro.lock").status()[p.name])), { type = "entry", section = "outdated", entry = p })
+		local text, spans = build_row(p, (require("distro.lock").status()[p.name]), nil, NW)
+		add(text, { type = "entry", section = "outdated", entry = p }, spans)
 	end
-	add("", { type = "text" })
-	add(string.format(" Installed (%d)", #g.installed), { type = "header", section = "installed" })
+	sep()
+	header(string.format("Installed (%d)", #g.installed), "installed")
 	for _, p in ipairs(g.installed) do
-		add("   " .. row(p, "installed"), { type = "entry", section = "installed", entry = p })
+		local text, spans = build_row(p, "installed", nil, NW)
+		add(text, { type = "entry", section = "installed", entry = p }, spans)
 	end
-	add("", { type = "text" })
-	add(" Catalog (on demand — :DistroInstall <name>)", { type = "header", section = "catalog" })
+	sep()
+	header("Catalog (on demand — :DistroInstall <name>)", "catalog")
 	local loader = require("distro.loader")
 	for _, p in ipairs(manifest.catalog or {}) do
 		local present = loader.is_present(p)
-		add(
-			string.format("   %s %-28s %-7s  %s", present and "●" or "○", p.name, p.ref:sub(1, 7), p.desc or ""),
-			{ type = "catalog", section = "catalog", entry = p }
-		)
+		local text, spans = build_row(p, present and "installed" or "missing", nil, NW, p.desc)
+		add(text, { type = "catalog", section = "catalog", entry = p }, spans)
 	end
+	sep()
+	header("Binaries   [B] Menu — gopls, bashls, lua_ls, stylua, …", "bins")
 	add("", { type = "text" })
-	add(" Binaries   [B] Menu — gopls, bashls, lua_ls, stylua, …", { type = "header", section = "bins" })
-	add("", { type = "text" })
-	add(" Mirror   [M] Open mirror menu — switch source, token, test", { type = "header", section = "mirror" })
+	header("Mirror   [M] Open mirror menu — switch source, token, test", "mirror")
 	local eff = require("distro.mirror").effective()
 	add("   mode: " .. mirror.label() .. (eff.enabled and "" or "  (github = public internet)"), { type = "text" })
 	if eff.enabled and require("distro.mirror").insecure(eff.extra_args) then
-		add("   ! TLS verification DISABLED (--insecure)", { type = "text" })
+		add("   ! TLS verification DISABLED (--insecure)", { type = "text" }, { { 3, -1, "DistroWarn" } })
 	end
 	add("", { type = "text" })
-	add(" row: i install · u sync · d/Enter details · r revert · x check", { type = "text" })
-	add(" all: I install · U sync · C clean · S adopt · X check · D input · R revert · B bins · M mirror · ? help · q quit", { type = "text" })
+	add(" row: i install · u sync · d/Enter details · r revert · x check · o open", { type = "text" })
+	add(" all: I install · U sync · C clean · S adopt · X check · D input", { type = "text" })
+	add("      R revert · B bins · M mirror · ? help · q quit", { type = "text" })
 	M._map = map
+	M._hl = hls
+	M._width = 0
+	for _, l in ipairs(lines) do
+		M._width = math.min(100, math.max(M._width, vim.fn.strdisplaywidth(l)))
+	end
 	return lines
 end
 
@@ -586,7 +642,9 @@ function M.do_check_remote()
 end
 
 local function open_float(lines)
-	local width = 88
+	require("distro.ui").ensure_hl()
+	local content_w = (require("distro.ui")._width or 88) + 2
+	local width = math.min(math.max(80, content_w), math.max(40, vim.o.columns - 4))
 	local height = math.min(#lines, vim.o.lines - 4)
 	local buf = vim.api.nvim_create_buf(false, true)
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -607,6 +665,32 @@ local function open_float(lines)
 		vim.wo[current_win].cursorline = true
 		vim.wo[current_win].wrap = false
 	end)
+	-- status colors (namespace per buffer, applied once per render)
+	local ns = vim.api.nvim_create_namespace("distro_ui")
+	for _, h in ipairs(require("distro.ui")._hl or {}) do
+		pcall(vim.api.nvim_buf_add_highlight, buf, ns, h.group, h.line, h.col0, h.col1)
+	end
+	-- live title follows the cursor: "Distro — <plugin>" on rows
+	local group = vim.api.nvim_create_augroup("DistroUITitle", { clear = true })
+	vim.api.nvim_create_autocmd("CursorMoved", {
+		group = group,
+		buffer = buf,
+		callback = function()
+			if not (current_win and vim.api.nvim_win_is_valid(current_win)) then
+				return
+			end
+			local line = vim.api.nvim_win_get_cursor(current_win)[1]
+			local t = (require("distro.ui")._map or {})[line]
+			local title = "Distro"
+			if t and t.entry then
+				title = "Distro — " .. t.entry.name
+			elseif t and t.type == "header" then
+				title = "Distro — " .. (t.section or "")
+			end
+			pcall(vim.api.nvim_win_set_config, current_win, { title = title })
+		end,
+		desc = "distro: live float title",
+	})
 	local map = function(key, fn, desc)
 		vim.keymap.set("n", key, fn, { buffer = buf, nowait = true, desc = desc })
 	end
@@ -624,6 +708,18 @@ local function open_float(lines)
 	end, "Details of this")
 	map("r", M.do_revert_cursor, "Revert this")
 	map("x", M.do_check_cursor, "Check upstream of this")
+	map("o", function()
+		local t = cur_target()
+		if t and t.entry then
+			local url = "https://github.com/" .. t.entry.repo
+			local ok, err = pcall(vim.ui.open, url)
+			if not ok then
+				vim.notify("[Distro] cannot open browser: " .. tostring(err):sub(1, 120), vim.log.levels.WARN)
+			end
+		else
+			vim.notify("No plugin under cursor. Move to a plugin row first.", vim.log.levels.INFO)
+		end
+	end, "Open repo in browser")
 	-- bulk actions (uppercase/global)
 	map("I", M.do_install_missing, "Install all missing")
 	map("U", M.do_sync_outdated, "Sync all to pin")
@@ -651,6 +747,7 @@ function M.open_help()
 		"   d / Enter . details: pin, upstream, deps, config, triggers, source",
 		"   r ......... revert this entry to its previous version",
 		"   x ......... check upstream HEAD of this entry (1 API call)",
+		"   o ......... open repo page in browser",
 		"",
 		" Whole distro (anywhere):",
 		"   I ......... install all missing        U .. sync all outdated to pins",

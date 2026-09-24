@@ -70,7 +70,14 @@ local mappings = {
 			:with_silent()
 			:with_desc("edit: Clear search highlight"),
 		["n|<leader>o"] = map_cr("setlocal spell! spelllang=en_us"):with_desc("edit: Toggle spell check"),
-		["n|<leader>x"] = map_cr("!chmod +x %")
+		["n|<leader>x"] = map_callback(function()
+				-- chmod есть только на POSIX; на Windows — понятный нотифай вместо E371.
+				if vim.fn.has("win32") == 1 or vim.fn.executable("chmod") ~= 1 then
+					vim.notify("chmod not available on this system", vim.log.levels.WARN, { title = "edit" })
+					return
+				end
+				vim.cmd("!chmod +x %")
+			end)
 			:with_noremap()
 			:with_silent()
 			:with_desc("edit: chmod +x current file"),

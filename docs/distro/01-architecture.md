@@ -8,7 +8,7 @@
 │   ├── opt/<name>/             # everything else, via `packadd`
 │   └── parser/*.so             # built parsers (NOT committed by default)
 ├── tools/<tool>/               # config-local toolchains (gcc/fzf) — optional, confirm-gated
-├── tmp/distro/                 # downloads + unpack staging (gitignored)
+├── <cache>/distro/              # downloads + unpack staging (stdpath cache)
 └── lua/
     ├── core/distro.lua         # boot loader (replaces core/pack.lua). NO network.
     └── distro/
@@ -53,7 +53,7 @@ Also exports `TOOLS` (fzf/rg/gcc/make/go) and `PARSERS` (derived from `settings.
 - `M.require_consent(opts)` — errors unless `opts.user_confirmed == true`. Headless additionally needs `opts.yes == true`.
 - `M.install_one(entry, opts)` — atomic: check curl/tar → download → size check → unpack → sweep `.git*` → rename → `lock.record` → optional `build` (also confirm-gated) → `packadd` if UI open.
 - `M.remove_one(entry)` — for `:DistroClean`, also confirm-gated.
-- Concurrency: `tmp/distro/.lock` with pid; second caller gets friendly `Another installation is running`.
+- Concurrency: `<cache>/distro/.lock` (10-min stale reclaim); second caller gets friendly `Another installation is running`.
 
 ### `loader.lua` — boot + lazy triggers, ZERO network
 - `M.boot()`:

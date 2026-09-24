@@ -142,3 +142,31 @@ per `neovim-tui-qa` skill. No `--headless` for interactive checks.
 - Bugs fixed: manifest syntax error from python edit (missing commas) — plus M.open
   pcall guard so a broken manifest shows one friendly error, never a traceback;
   gopls/dlv `version` (no dashes) ver_args; binaries menu blank-version display.
+
+## Round 9 (2026-09-24, frontend-grade UI)
+
+- Grid: name column sized to content (cap 32), fixed ver column, separators,
+  status-colored dots (green/yellow/red via linked hl groups), upstream marker
+  highlighted, headers as Title, cursorline + nowrap, width clamped to terminal,
+  footer split into two fittable lines.
+- Live float title follows cursor ("Distro — <plugin>" / section name).
+- New `o` key opens repo page via vim.ui.open (pcall-guarded).
+- TUI verified: render, colors, live title, `o` without crash.
+
+## Round 10 (2026-09-24, refactor P0–P3 verification)
+
+- Startup: 49ms empty / 141ms with Go (was 125/174). 18/18 modules load headless.
+- Big file (1MB/20k lines JSON): zero errors, `large=true ft=off lsp=0`, notify shown.
+- Found & fixed live: `foldmethod` set via `vim.bo` (window-local!) → `vim.wo`;
+  loader two-phase `loading[]` short-circuit skipped ALL packadd (nothing on rtp) →
+  separate `packing`/`finishing` sets; my own `type()~="function"` guard rejected
+  nvim-cmp's callable-table `setup` → `__call` check; `table.unpack` missing on
+  LuaJIT → local fallback; nvim-lint `try_lint(names, opts-table)` takes no bufnr →
+  skip-if-switched instead; `vim.uv.kill` liveness probe unreliable → age-based stale lock.
+- Hang test (`kill -STOP gopls` + `gd`): UI responsive, `[lsp] slow response` after 2s
+  (async + watchdog; added after first silent pass).
+- Save storm (3× `:w`): 0 errors. Picker/binaries/UI/resize: green.
+- Diag cache: `●[ 1 ]` appears after InsertLeave via DiagnosticChanged (no per-redraw get).
+- Lock crash matrix: single-corrupt recovers from .bak; double-corrupt → 26 `corrupted`;
+  20-min stale `.lock` reclaimed + removed on release.
+- Open: Windows execution (code-reviewed only), `go`-method installs live, corp URLs live.

@@ -12,7 +12,7 @@ Same manager, same confirm-gated flow — only the **source** of curl archives c
 - Token rules:
   - Token lives **only** in env (`DISTRO_MIRROR_TOKEN`) or session memory (`:DistroMirror set-token`,
     lost on exit). **Never** in `distro-mirror.local.json`, never in git, never in logs.
-  - Every URL shown in UI previews and written to `tmp/distro/distro.log` is redacted
+  - Every URL shown in UI previews and written to `<cache>/distro/distro.log` is redacted
     (`token:<redacted>`).
 - `--insecure` (needed behind MITM proxies) is supported but **explicit**: it must be listed
   in `extra_args`, and every confirm preview shows `TLS verification DISABLED (--insecure)`.

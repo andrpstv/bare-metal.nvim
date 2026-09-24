@@ -227,10 +227,10 @@ function M.install_tool(name, opts)
 		vim.fn.delete(dest .. ".old", "rf")
 		vim.fn.delete(archive)
 	end
-	-- ensure executable bit on POSIX
+	-- ensure executable bit on POSIX (luv chmod: no spawn, Windows-safe no-op guard)
 	local bin = dest .. "/" .. (tool.bin or name) .. (is_win and ".exe" or "")
 	if vim.uv.fs_stat(bin) and not is_win then
-		os.execute("chmod +x " .. install.Q(bin))
+		pcall(vim.uv.fs_chmod, bin, 493) -- 0755
 	end
 	require("distro.lock").record("tools/" .. name, {
 		repo = tool.repo or tool.url or name,

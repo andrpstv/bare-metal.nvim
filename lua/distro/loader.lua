@@ -27,10 +27,97 @@ local function notify_missing(entry)
 	end)
 end
 
---- Idempotent local load. Deps first, then packadd + config. Returns true if usable.
+--- Idempotent local load. Two phases: (1) packadd the whole dep subtree so
+--- requires resolve, (2) after/plugin + configs deps-first. Returns true if usable.
+--- `loaded` is set only on full success so a broken dep never poisons the parent.
+local loading = {}
+local packing = {}
+local finishing = {}
+
+--- Phase 1: ensure entry + all deps are packadd'ed (rtp). No configs yet.
+---@return boolean
+local function pack_subtree(entry)
+	if M.loaded[entry.name] then
+		return true
+	end
+	if packing[entry.name] then
+		return true -- cycle: the outer frame packs it
+	end
+	packing[entry.name] = true
+	local manifest = require("distro.manifest")
+	local ok = true
+	for _, dep in ipairs(entry.deps or {}) do
+		local d = manifest.get(dep)
+		if not d or not M.is_present(d) then
+			notify_missing(d or { name = dep })
+			ok = false
+			break
+		end
+		if not pack_subtree(d) then
+			ok = false
+			break
+		end
+	end
+	if ok then
+		local pok = pcall(vim.cmd, "packadd " .. entry.name)
+		if not pok and entry.kind ~= "start" then
+			-- start/ plugins are already on rtp; treat packadd error as non-fatal
+			ok = false
+		end
+	end
+	packing[entry.name] = nil
+	return ok
+end
+
+--- Phase 2: after/plugin + config, deps first.
+---@return boolean
+local function finish_subtree(entry)
+	if M.loaded[entry.name] then
+		return true
+	end
+	if finishing[entry.name] then
+		return true -- cycle: the outer frame finishes it
+	end
+	local manifest = require("distro.manifest")
+	finishing[entry.name] = true
+	local ok = true
+	for _, dep in ipairs(entry.deps or {}) do
+		local d = manifest.get(dep)
+		if d and not finish_subtree(d) then
+			ok = false
+			break
+		end
+	end
+	if ok then
+		-- :packadd sources plugin/ but NOT after/plugin (lazy.nvim did that part).
+		-- Several plugins self-register there (e.g. all cmp sources), so source them.
+		M.source_after(M.pack_dir(entry))
+		if entry.config then
+			local cfg_mod = entry.config:match("^themes%.") and entry.config or ("modules.configs." .. entry.config)
+			local ok_req, cfg = pcall(require, cfg_mod)
+			if ok_req then
+				if type(cfg) == "function" then
+					local ok_call, err = pcall(cfg)
+					if not ok_call then
+						vim.notify("[Distro] config '" .. cfg_mod .. "' failed: " .. tostring(err), vim.log.levels.ERROR)
+					end
+				elseif type(cfg) == "table" and cfg.setup then
+					pcall(cfg.setup)
+				end
+			end
+		end
+		M.loaded[entry.name] = true
+	end
+	finishing[entry.name] = nil
+	return ok
+end
+
 function M.load(name)
 	if M.loaded[name] then
 		return true
+	end
+	if loading[name] then
+		return false -- cycle: bail out instead of recursing forever
 	end
 	local manifest = require("distro.manifest")
 	local entry = manifest.get(name)
@@ -41,42 +128,19 @@ function M.load(name)
 		notify_missing(entry)
 		return false
 	end
-	-- mark early: recursion-safe for diamond deps (no cycles in manifest)
-	M.loaded[name] = true
-	for _, dep in ipairs(entry.deps or {}) do
-		M.load(dep)
-	end
-	local ok = pcall(vim.cmd, "packadd " .. name)
-	if not ok then
-		-- start/ plugins are already on rtp; treat packadd error as non-fatal
-		if entry.kind ~= "start" then
-			M.loaded[name] = nil
-			return false
-		end
-	end
-	-- :packadd sources plugin/ but NOT after/plugin (lazy.nvim did that part).
-	-- Several plugins self-register there (e.g. all cmp sources), so source them.
-	M.source_after(M.pack_dir(entry))
-	if entry.config then
-		local cfg_mod = entry.config:match("^themes%.") and entry.config or ("modules.configs." .. entry.config)
-		local ok_req, cfg = pcall(require, cfg_mod)
-		if ok_req then
-			if type(cfg) == "function" then
-				local ok_call, err = pcall(cfg)
-				if not ok_call then
-					vim.notify("[Distro] config '" .. cfg_mod .. "' failed: " .. tostring(err), vim.log.levels.ERROR)
-				end
-			elseif type(cfg) == "table" and cfg.setup then
-				pcall(cfg.setup)
-			end
-		end
-	end
-	return true
+	loading[name] = true
+	local ok = pack_subtree(entry) and finish_subtree(entry)
+	loading[name] = nil
+	return ok
 end
 
 --- Source after/plugin files of a vendored plugin dir (see M.load).
 ---@param dir string absolute plugin dir
 function M.source_after(dir)
+	-- 99% плагинов без after/: лишний glob на каждый load ни к чему
+	if vim.uv.fs_stat(dir .. "/after") == nil then
+		return
+	end
 	local files = vim.fn.glob(dir .. "/after/plugin/**/*.{lua,vim}", false, true)
 	for _, f in ipairs(files) do
 		if f:sub(-4) == ".lua" then
@@ -97,9 +161,10 @@ local boot_cmd_stub
 function M.boot()
 	local cfg = cfg_path()
 	vim.opt.packpath:prepend(cfg)
-	-- make pack/*/start visible even before packadd (harmless if empty)
-	vim.opt.rtp:append(cfg .. "/pack/distro/start/*")
-	vim.opt.rtp:append(cfg .. "/pack/distro/opt/*")
+	-- NOTE: без wildcard (rtp:append(".../*") замедлял каждый :runtime-поиск);
+	-- packadd сам правит rtp при загрузке, eager-старту хватает packpath.
+	-- short requires used across configs: require("completion.lsp"),
+	-- require("editor.treesitter"), etc. (was append_nativertp in core/pack.lua)
 
 	-- short requires used across configs: require("completion.lsp"),
 	-- require("editor.treesitter"), etc. (was append_nativertp in core/pack.lua)

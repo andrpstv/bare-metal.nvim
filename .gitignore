@@ -5,8 +5,7 @@ result
 .DS_Store
 profile.log
 *.log
-# distroManager staging & artifacts (never commit)
-tmp/distro/
+# distroManager artifacts (never commit; staging lives in stdpath cache)
 distro-mirror.local.json
 distro-lock.json.bak
 *.tar.gz

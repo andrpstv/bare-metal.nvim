@@ -85,8 +85,17 @@ local function check_go_env()
         return
     end
 
+    -- sys() с таймаутом: висящий go (нет сети, прокси) вешал :checkhealth намертво.
+    local function sys(cmd)
+        local obj = vim.system(cmd, { text = true, timeout = 5000 }):wait()
+        if not obj or obj.code ~= 0 then
+            return ""
+        end
+        return obj.stdout or ""
+    end
+
     -- GOPATH
-    local gopath = vim.fn.system("go env GOPATH 2>&1"):match("^%S+")
+    local gopath = sys({ "go", "env", "GOPATH" }):match("^%S+")
     if gopath and gopath ~= "" then
         vim.health.ok("GOPATH: " .. gopath)
     else
@@ -95,7 +104,7 @@ local function check_go_env()
     end
 
     -- GOROOT
-    local goroot = vim.fn.system("go env GOROOT 2>&1"):match("^%S+")
+    local goroot = sys({ "go", "env", "GOROOT" }):match("^%S+")
     if goroot and goroot ~= "" then
         vim.health.ok("GOROOT: " .. goroot)
     else
@@ -103,13 +112,13 @@ local function check_go_env()
     end
 
     -- Go version
-    local goversion = vim.fn.system("go version 2>&1"):match("go(%S+)")
+    local goversion = sys({ "go", "version" }):match("go(%S+)")
     if goversion then
         vim.health.ok("version: " .. goversion)
     end
 
     -- GOPROXY (important for China/behind firewall)
-    local goproxy = vim.fn.system("go env GOPROXY 2>&1"):match("^%S+")
+    local goproxy = sys({ "go", "env", "GOPROXY" }):match("^%S+")
     if goproxy and goproxy ~= "https://proxy.golang.org,direct" then
         vim.health.info("GOPROXY: " .. goproxy)
     end
@@ -297,8 +306,8 @@ local function check_providers()
     -- Python
     local python_cmd = has("python3") and "python3" or (has("python") and "python" or nil)
     if python_cmd then
-        local redirect = is_windows and "2>NUL" or "2>&1"
-        local out = vim.fn.system(python_cmd .. " -c 'import pynvim' " .. redirect)
+        local obj = vim.system({ python_cmd, "-c", "import pynvim" }, { text = true, timeout = 5000 }):wait()
+        local out = (obj and obj.stdout or "") .. (obj and obj.stderr or "")
         if not out:match("No module") and not out:match("ModuleNotFoundError") then
             vim.health.ok(python_cmd .. " + pynvim")
         else
@@ -352,9 +361,15 @@ local function check_git_config()
         return
     end
 
-    local redirect = is_windows and "2>NUL" or "2>/dev/null"
-    local diff_old = vim.fn.system("git config --global color.diff.old " .. redirect):match("^%S+")
-    local diff_new = vim.fn.system("git config --global color.diff.new " .. redirect):match("^%S+")
+    local function gitcfg(key)
+        local obj = vim.system({ "git", "config", "--global", key }, { text = true, timeout = 5000 }):wait()
+        if not obj or obj.code ~= 0 then
+            return nil
+        end
+        return (obj.stdout or ""):match("^%S+")
+    end
+    local diff_old = gitcfg("color.diff.old")
+    local diff_new = gitcfg("color.diff.new")
 
     if diff_old and diff_new then
         vim.health.ok("diff colors: " .. diff_new .. " / " .. diff_old)

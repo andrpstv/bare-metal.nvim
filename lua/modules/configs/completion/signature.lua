@@ -136,6 +136,10 @@ end
 -- Запрос + отрисовка (асинхронно, ввод не блокируем).
 local function refresh()
 	local bufnr = vim.api.nvim_get_current_buf()
+	if vim.b[bufnr].large_file then
+		close()
+		return
+	end
 	if #sig_clients(bufnr) == 0 then
 		close()
 		return
@@ -257,12 +261,18 @@ function M.setup()
 
 	-- Движение в инсерте: обновляем (debounce) или гасим вне вызова.
 	-- Всё тело под pcall: любая ошибка обязана гасить окно, а не сиротить его.
+	-- Один uv-таймер вместо роя defer_fn: на каждый CursorMovedI только stop+start.
+	local sig_timer = vim.uv.new_timer()
 	vim.api.nvim_create_autocmd("CursorMovedI", {
 		group = group,
 		callback = function()
 			state.gen = state.gen + 1
 			local g = state.gen
-			vim.defer_fn(function()
+			if not sig_timer then
+				return
+			end
+			sig_timer:stop()
+			sig_timer:start(200, 0, vim.schedule_wrap(function()
 				if g ~= state.gen then
 					return
 				end
@@ -283,7 +293,7 @@ function M.setup()
 				elseif res == "refresh" then
 					refresh()
 				end
-			end, 200)
+			end))
 		end,
 	})
 

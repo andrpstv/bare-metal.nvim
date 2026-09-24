@@ -9,8 +9,8 @@ Create without touching boot path:
 - [ ] `lua/distro/{init,manifest,lock,install,loader,ui,tools,treesitter}.lua`
 - [ ] `lua/core/distro.lua` (requires loader, exposes `setup()`, NOT wired into `core/init.lua` yet)
 - [ ] `distro-lock.json` seeded from `lazy-lock.json`
-- [ ] `pack/distro/{start,opt,parser}/.gitkeep`, `tools/.gitkeep`, `tmp/distro/.gitkeep`(gitignored)
-- [ ] `.gitignore`: add `tmp/distro/`, `*.tar.gz`, `pack/distro/parser/*.so`, `distro/.lock`
+- [ ] `pack/distro/{start,opt,parser}/.gitkeep`, `tools/.gitkeep` (staging lives in stdpath cache)
+- [ ] `.gitignore`: add `*.tar.gz`, `pack/distro/parser/*.so`
 
 Verify: `nvim --headless -c "lua require('distro.manifest'); require('distro.lock')" -c "qa"` → no errors; `git status` shows only new files.
 
@@ -125,4 +125,4 @@ Full spec: [`07-catalog-binaries.md`](07-catalog-binaries.md).
 
 ## Rollback plan (any step)
 
-- Loader flag back to `core.pack`; `git checkout -- distro-lock.json`; `rm -rf pack/distro tmp/distro`. Boot path untouched until Step 8, so rollback is one env var + checkout.
+- Loader flag back to `core.pack`; `git checkout -- distro-lock.json`; `rm -rf pack/distro <cache>/distro`. Boot path untouched until Step 8, so rollback is one env var + checkout.

@@ -16,10 +16,19 @@ function M.read()
 	local raw = f:read("*a")
 	f:close()
 	local ok, data = pcall(vim.json.decode, raw)
-	if not ok or type(data) ~= "table" then
-		return {}, "invalid"
+	if ok and type(data) == "table" then
+		return data
 	end
-	return data
+	-- corrupted main file: fall back to the backup written before every write
+	local bf = io.open(p .. ".bak", "r")
+	if bf then
+		local bok, bdata = pcall(vim.json.decode, bf:read("*a"))
+		bf:close()
+		if bok and type(bdata) == "table" then
+			return bdata, "recovered"
+		end
+	end
+	return {}, "invalid"
 end
 
 function M.write(tbl)
@@ -36,12 +45,17 @@ function M.write(tbl)
 			b:close()
 		end
 	end
-	local f = io.open(p, "w")
+	-- atomic: tmp file + rename, so a crash can never leave a half-written lock
+	local tmp = p .. ".tmp"
+	local f = io.open(tmp, "w")
 	if not f then
 		return false, "Cannot write to " .. p .. " (permission denied). Check ownership. No changes made."
 	end
 	f:write(vim.json.encode(tbl))
 	f:close()
+	if vim.uv.fs_stat(tmp) and not os.rename(tmp, p) then
+		return false, "Cannot replace " .. p .. " (permission denied). No changes made."
+	end
 	return true
 end
 
@@ -72,7 +86,15 @@ end
 ---@return table<string,string> map name -> installed|missing|outdated|corrupted|build-needed
 function M.status()
 	local manifest = require("distro.manifest")
-	local lock = M.read()
+	local lock, lock_err = M.read()
+	if lock_err == "invalid" then
+		-- lock unreadable AND backup unreadable: everything is suspect, say so loudly
+		local out = {}
+		for _, p in ipairs(manifest.plugins) do
+			out[p.name] = "corrupted"
+		end
+		return out
+	end
 	local cfg = vim.fn.stdpath("config")
 	local out = {}
 	for _, p in ipairs(manifest.plugins) do
@@ -100,9 +122,15 @@ function M.build_done(p)
 		local dir = cfg .. "/pack/distro/opt/LuaSnip"
 		return dir_exists(dir .. "/deps/luasnip-jsregexp.so") or dir_exists(dir .. "/lua/luasnip-jsregexp.lua")
 	elseif p.name == "nvim-treesitter" then
-		-- old-arch nvim-treesitter keeps compiled parsers in its own parser/ dir
-		-- (mirrors the previous working lazy setup; see Step 6 for relocation)
-		return dir_exists(cfg .. "/pack/distro/opt/nvim-treesitter/parser/go.so")
+		-- old-arch nvim-treesitter keeps compiled parsers in its own parser/ dir.
+		-- ALL settings.treesitter_deps must be present, not just go.
+		local dir = cfg .. "/pack/distro/opt/nvim-treesitter/parser"
+		for _, lang in ipairs(require("core.settings").treesitter_deps or {}) do
+			if not dir_exists(dir .. "/" .. lang .. ".so") then
+				return false
+			end
+		end
+		return true
 	end
 	return true
 end

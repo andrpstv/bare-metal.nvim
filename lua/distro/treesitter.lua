@@ -66,6 +66,8 @@ local function cc()
 		return "gcc"
 	elseif vim.fn.executable("clang") == 1 then
 		return "clang"
+	elseif vim.fn.executable("cl") == 1 then
+		return "cl" -- MSVC (Windows): flags below are gcc-style, may need tuning per setup
 	end
 	return nil
 end
@@ -136,7 +138,7 @@ function M.install_lang(lang, opts, skip_preview)
 	require("distro.install").require_consent(opts)
 	local compiler = cc()
 	if not compiler then
-		return false, "Tool missing: a C compiler (cc/gcc/clang) is needed to build Treesitter parsers. Open :DistroTools to install it. No changes made."
+		return false, "Tool missing: a C compiler (cc/gcc/clang/cl) is needed to build Treesitter parsers. Open :DistroTools to install it. No changes made."
 	end
 	local src, err = M.resolve_parser_source(lang)
 	if not src then
@@ -173,11 +175,7 @@ function M.install_lang(lang, opts, skip_preview)
 	else
 		ucmd = { "tar", "xzf", archive, "-C", stage, "--strip-components=1" }
 	end
-	local q = {}
-	for _, a in ipairs(ucmd) do
-		q[#q + 1] = install.Q(a)
-	end
-	if os.execute(table.concat(q, " ")) ~= 0 then
+	if install.run_argv(ucmd, "unpack parser " .. lang, 60000) ~= 0 then
 		return false, "Unpack failed for parser '" .. lang .. "'. No changes made."
 	end
 	-- compile listed sources (usually src/parser.c [+ src/scanner.c])
@@ -192,16 +190,18 @@ function M.install_lang(lang, opts, skip_preview)
 	end
 	vim.fn.mkdir(M.parser_dir(), "p")
 	local out = M.parser_dir() .. "/" .. lang .. ".so"
-	local argv = { compiler, "-O2", "-shared", "-fPIC", "-I", stage .. "/src", "-o", out }
+	-- .so name is nvim-treesitter convention on all OSes (PE/ELF both load via libuv).
+	-- MSVC uses its own flags; mingw-gcc (w64devkit, see :DistroTools) is preferred on Windows.
+	local argv
+	if compiler == "cl" then
+		argv = { compiler, "/nologo", "/O2", "/LD", "/I" .. stage .. "/src", "/Fe" .. out }
+	else
+		argv = { compiler, "-O2", "-shared", "-fPIC", "-I", stage .. "/src", "-o", out }
+	end
 	for _, f in ipairs(files) do
 		argv[#argv + 1] = f
 	end
-	local cq = {}
-	for _, a in ipairs(argv) do
-		cq[#cq + 1] = install.Q(a)
-	end
-	install.log("build parser " .. lang .. " :: " .. mirror.redact(table.concat(argv, " ")))
-	if os.execute(table.concat(cq, " ")) ~= 0 or not vim.uv.fs_stat(out) then
+	if install.run_argv(argv, "build parser " .. lang, 120000) ~= 0 or not vim.uv.fs_stat(out) then
 		return false, "Compiler failed for parser '" .. lang .. "'. Previous parser (if any) kept. See :Distro log."
 	end
 	vim.fn.delete(archive)

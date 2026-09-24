@@ -92,7 +92,13 @@ function M.format(opts)
 		clients = opts.filter(clients)
 	end
 	clients = vim.tbl_filter(function(client)
-		return client.supports_method and client.supports_method("textDocument/formatting")
+		if client:is_stopped() then
+			return false
+		end
+		local ok, supported = pcall(function()
+			return client.supports_method("textDocument/formatting")
+		end)
+		return ok and supported
 	end, clients)
 	if #clients == 0 then
 		if not opts.quiet then
@@ -102,13 +108,15 @@ function M.format(opts)
 	end
 
 	local params = vim.lsp.util.make_formatting_params()
+	local tick = vim.api.nvim_buf_get_changedtick(bufnr)
 	for _, client in pairs(clients) do
 		if block_list[vim.bo.filetype] then return end
 
-		-- Асинхронное форматирование
+		-- Асинхронное форматирование c guard changedtick (как в Go-пути):
+		-- правки, прилетевшие после новых изменений, не накладываем.
 		client.request("textDocument/formatting", params, function(err, result)
-			if result then
-				vim.lsp.util.apply_text_edits(result, bufnr, client.offset_encoding)
+			if result and vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_get_changedtick(bufnr) == tick then
+				pcall(vim.lsp.util.apply_text_edits, result, bufnr, client.offset_encoding)
 			end
 		end, bufnr)
 	end

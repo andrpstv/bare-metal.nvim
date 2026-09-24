@@ -71,6 +71,7 @@ Cursor row (a plugin line):
   d / Enter . details: pin, upstream, deps, config, triggers, source
   r ......... revert this entry to its previous version
   x ......... check upstream HEAD of this entry (1 API call)
+  o ......... open repo page in browser
 
 Whole distro (anywhere):
   I ......... install all missing        U .. sync all outdated to pins
@@ -79,6 +80,10 @@ Whole distro (anywhere):
   R ......... revert all with previous   B .. binaries menu (LSP/tools)
   M ......... corporate mirror menu      ? .. this help   q .. close
 ```
+
+Layout: dynamic grid (name column sized to content), `─` section separators,
+status-colored dots (green/yellow/red), cursorline, live float title
+(`Distro — <plugin>` follows the cursor), width clamped to the terminal.
 
 ```
 Distro — self-contained plugin manager (curl-only, confirm-gated)

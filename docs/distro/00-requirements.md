@@ -37,7 +37,7 @@ nvim   # works offline, zero downloads
 - Corporate environments: same flow against an internal mirror instead of codeload —
   templated URL (`{owner}{repo}{ref}{branch}{token}`), `.zip` support, token from env only,
   `--insecure` explicit with TLS warning. Full spec: `06-corporate-mirror.md` (Step 10).
-- Atomic install: `tmp/distro/<name>.tar.gz` → unpack to `tmp/distro/<name>.unpacked` → `tar xzf --strip-components=1` → sweep `/.git*`, `tests/`, `docs/` (optional per manifest `strip`) → `rename tmp → pack/distro/{start,opt}/<name>`. Old working dir untouched until success.
+- Atomic install: `<cache>/distro/<name>.tar.gz` (stdpath cache, outside the repo) → unpack to `<cache>/distro/<name>.unpacked` → `tar xzf --strip-components=1` → sweep `/.git*`, `tests/`, `docs/` (optional per manifest `strip`) → `rename tmp → pack/distro/{start,opt}/<name>`. Old working dir untouched until success.
 - Every install/update writes `distro-lock.json` (see §5).
 
 ## 4. Scope: all plugins at once (26 vendored + manager itself)
@@ -101,7 +101,7 @@ Rollback: `previous_ref` powers `R revert`.
 ## 9. Repo hygiene
 
 - Commit `pack/distro/{start,opt}/*` working trees (no `.git` inside).
-- Do NOT commit: `tmp/distro/`, `*.tar.gz`, `.so` (default), `distro/.lock`, logs (`*.log` already ignored? verify).
+- Do NOT commit: staging (now under stdpath cache, nothing to ignore), `*.tar.gz`, `.so` (default), logs (`*.log` already ignored? verify).
 - Keep `lazy-lock.json` as migration reference until green offline test, then delete.
 - Delete `core/pack.lua` lazy bootstrap at the end (replaced by `core/distro.lua`).
 
