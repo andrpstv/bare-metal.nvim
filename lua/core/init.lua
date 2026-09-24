@@ -241,7 +241,7 @@ local load_core = function()
 
 	require("core.options")
 	require("core.event")
-	require("core.pack")
+	require("core.distro").setup()
 	require("keymap")
 	-- pairs СТРОГО после keymap: <C-h> и <BS> делят поведение стирания,
 	-- наш хендлер должен побеждать `i|<C-h> -> <Left>` из keymap/editor.lua.

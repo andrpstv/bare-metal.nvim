@@ -388,11 +388,8 @@ You must install Git before installing this Nvim config. See:
 		}
 	}
 
-	info -Msg "Spawning Neovim and fetching plugins... (You'll be redirected shortly)"
-	info -Msg 'Please make sure you have a Rust Toolchain installed via `rustup`! Otherwise, unexpected things may'
-	info_ext -Msg 'happen. See: https://www.rust-lang.org/tools/install.¯¯¯¯¯¯¯¯¯¯¯¯'
-	info_ext -Msg '             ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯'
-	info -Msg 'If lazy.nvim failed to fetch any plugin(s), maunally execute `:Lazy sync` until everything is up-to-date.'
+	info -Msg "Spawning Neovim... (plugins are vendored inside the repo, no download needed)"
+	info -Msg 'If a plugin is missing, open Neovim and run `:Distro` (downloads only after your confirmation).'
 	Write-Host @'
 
 Thank you for using this set of configuration!

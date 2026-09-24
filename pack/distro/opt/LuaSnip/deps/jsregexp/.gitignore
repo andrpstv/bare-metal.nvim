@@ -1,0 +1,8 @@
+*.o
+*.so
+.ccls
+.ccls-cache
+tags
+tags.lock
+tags.temp
+*.src.rock

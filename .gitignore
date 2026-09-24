@@ -4,3 +4,24 @@ lua/user
 result
 .DS_Store
 profile.log
+*.log
+# distroManager staging & artifacts (never commit)
+tmp/distro/
+distro-mirror.local.json
+distro-lock.json.bak
+*.tar.gz
+pack/distro/parser/*.so
+pack/distro/.lock
+tmp/distro/.lock
+# platform-specific build outputs inside vendored plugins (rebuilt on demand)
+pack/distro/opt/nvim-treesitter/parser/*.so
+pack/distro/opt/nvim-treesitter/parser-info/*.revision
+pack/distro/opt/LuaSnip/deps/jsregexp/*.so
+pack/distro/opt/LuaSnip/deps/jsregexp005/*.so
+pack/distro/opt/LuaSnip/deps/jsregexp006/*.so
+pack/distro/opt/LuaSnip/deps/luasnip-jsregexp.so
+pack/distro/opt/LuaSnip/lua/luasnip-jsregexp.lua
+# config-local tool binaries (platform-specific, install via :DistroTools).
+# NOTE: per-tool .gitkeep files do NOT work under this rule (parent dirs excluded);
+# install_tool creates tools/<name>/ on demand, no placeholders needed.
+tools/*/**

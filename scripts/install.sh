@@ -283,11 +283,8 @@ if [[ "${USE_SSH}" -eq "0" ]]; then
 	execute "perl" "-pi" "-e" "s/\[\"use_ssh\"\] \= true/\[\"use_ssh\"\] \= false/g" "${DEST_DIR}/lua/user/settings.lua"
 fi
 
-info "Spawning Neovim and fetching plugins... (You'll be redirected shortly)"
-info "NOTE: Please make sure you have a Rust Toolchain installed ${tty_underline}via \`rustup\`${tty_reset}${tty_bold}! Otherwise, unexpected things may"
-info_ext "      happen. See: ${tty_underline}https://www.rust-lang.org/tools/install${tty_reset}."
-info_ext ""
-info "If lazy.nvim failed to fetch any plugin(s), manunally execute \`:Lazy sync\` until everything is up-to-date."
+info "Spawning Neovim... (plugins are vendored inside the repo, no download needed)"
+info "NOTE: If a plugin is missing, open Neovim and run \`:Distro\` (downloads only after your confirmation)."
 cat <<EOS
 
 Thank you for using this set of configuration!

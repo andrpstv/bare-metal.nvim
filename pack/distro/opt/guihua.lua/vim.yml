@@ -1,0 +1,76 @@
+---
+base: lua51
+name: vim
+globals:
+  _GH_SETUP:
+    any: true
+  ListView:
+    any: true
+  ListViewCtrl:
+    any: true
+  Panel:
+    any: true
+  TextView:
+    any: true
+  TextViewCtrl:
+    any: true
+  View:
+    any: true
+  ViewCtrl:
+    any: true
+  _G:
+    property: new-fields
+  after_each:
+    args:
+      - type: function
+  assert.are.same:
+    any: true
+  assert.are_not.same:
+    args:
+      - type: any
+      - type: any
+  assert.equals:
+    args:
+      - type: any
+      - type: any
+      - required: false
+        type: any
+  assert.is_true:
+    args:
+      - type: bool
+  assert.is_not:
+    any: true
+  assert.same:
+    args:
+      - type: any
+      - type: any
+  assert.spy:
+    args:
+      - type: any
+  assert.stub:
+    args:
+      - type: any
+  assert.truthy:
+    args:
+      - type: any
+  before_each:
+    args:
+      - type: function
+  bit:
+    any: true
+  debug:
+    any: true
+  describe:
+    args:
+      - type: string
+      - type: function
+  it:
+    args:
+      - type: string
+      - type: function
+  jit:
+    any: true
+  package.config:
+    any: true
+  vim:
+    any: true

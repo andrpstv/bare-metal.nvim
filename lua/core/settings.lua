@@ -112,9 +112,9 @@ settings["background"] = "dark"
 ---@type string
 settings["external_browser"] = "chrome-cli open"
 
--- Set the search backend here (единственный пикер — fzf-lua, нужен бинарник `fzf`).
----@type "fzf"
-settings["search_backend"] = "fzf"
+-- Set the search backend here (единственный пикер — mini.pick, без внешних зависимостей).
+---@type "pick"
+settings["search_backend"] = "pick"
 
 -- Set to false to disable LSP inlay hints.
 ---@type boolean
@@ -207,6 +207,23 @@ settings["dashboard_image"] = {
 	[[⢀⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣀⡆⣠⢀⣴⣏⡀⠀⠀⠀⠉⠀⠀⢀⣠⣰⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿]],
 	[[⠿⠛⠛⠛⠛⠛⠛⠻⢿⣿⣿⣿⣿⣯⣟⠷⢷⣿⡿⠋⠀⠀⠀⠀⣵⡀⢠⡿⠋⢻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿]],
 	[[⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠛⢿⣿⣿⠂⠀⠀⠀⠀⠀⢀⣽⣿⣿⣿⣿⣿⣿⣿⣍⠛⠿⣿⣿⣿⣿⣿⣿]],
+}
+
+-- Self-contained distro source: GitHub codeload by default, corporate mirror when enabled.
+-- Precedence: session (:DistroMirror) > distro-mirror.local.json > env > these defaults.
+-- Env: DISTRO_MIRROR=1, DISTRO_MIRROR_URL (template), DISTRO_MIRROR_ARGS (space-separated),
+--      DISTRO_MIRROR_TOKEN (never logged, never stored on disk).
+-- Template placeholders: {owner} {repo} {ref} {branch} {token}.
+-- Safety: only https:// sources are accepted; if allowed_hosts is non-empty, any
+-- resolved host outside the list is REFUSED (protects against typos/hijacks).
+---@type { enabled: boolean, url_template: string, extra_args: string[], token_env: string, allowed_hosts: string[], allow_http: boolean }
+settings["distro_mirror"] = {
+	enabled = false,
+	url_template = "",
+	extra_args = {},
+	token_env = "DISTRO_MIRROR_TOKEN",
+	allowed_hosts = {},
+	allow_http = false,
 }
 
 -- Set it to false if you don't use AI chat functionality.

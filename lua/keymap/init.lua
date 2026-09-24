@@ -4,33 +4,33 @@ local map_cr = bind.map_cr
 
 local mappings = {
 	core = {
-		-- Package manager: lazy.nvim
-		["n|<leader>ph"] = map_cr("Lazy"):with_silent():with_noremap():with_nowait():with_desc("package: Show"),
-		["n|<leader>ps"] = map_cr("Lazy sync"):with_silent():with_noremap():with_nowait():with_desc("package: Sync"),
-		["n|<leader>pu"] = map_cr("Lazy update")
+		-- Package manager: distroManager (self-contained, curl-only, confirm-gated)
+		["n|<leader>ph"] = map_cr("Distro"):with_silent():with_noremap():with_nowait():with_desc("package: Show"),
+		["n|<leader>ps"] = map_cr("DistroCheck"):with_silent():with_noremap():with_nowait():with_desc("package: Check"),
+		["n|<leader>pu"] = map_cr("DistroUpdate")
 			:with_silent()
 			:with_noremap()
 			:with_nowait()
 			:with_desc("package: Update"),
-		["n|<leader>pi"] = map_cr("Lazy install")
+		["n|<leader>pi"] = map_cr("DistroInstall")
 			:with_silent()
 			:with_noremap()
 			:with_nowait()
 			:with_desc("package: Install"),
-		["n|<leader>pl"] = map_cr("Lazy log"):with_silent():with_noremap():with_nowait():with_desc("package: Log"),
-		["n|<leader>pc"] = map_cr("Lazy check"):with_silent():with_noremap():with_nowait():with_desc("package: Check"),
-		["n|<leader>pd"] = map_cr("Lazy debug"):with_silent():with_noremap():with_nowait():with_desc("package: Debug"),
-		["n|<leader>pp"] = map_cr("Lazy profile")
+		["n|<leader>pl"] = map_cr("DistroParsers"):with_silent():with_noremap():with_nowait():with_desc("package: Parsers"),
+		["n|<leader>pc"] = map_cr("DistroCheck"):with_silent():with_noremap():with_nowait():with_desc("package: Check"),
+		["n|<leader>pd"] = map_cr("DistroTools"):with_silent():with_noremap():with_nowait():with_desc("package: Tools"),
+		["n|<leader>pp"] = map_cr("DistroParsers")
 			:with_silent()
 			:with_noremap()
 			:with_nowait()
-			:with_desc("package: Profile"),
-		["n|<leader>pr"] = map_cr("Lazy restore")
+			:with_desc("package: Parsers"),
+		["n|<leader>pr"] = map_cr("DistroUpdate")
 			:with_silent()
 			:with_noremap()
 			:with_nowait()
-			:with_desc("package: Restore"),
-		["n|<leader>px"] = map_cr("Lazy clean"):with_silent():with_noremap():with_nowait():with_desc("package: Clean"),
+			:with_desc("package: Update"),
+		["n|<leader>px"] = map_cr("DistroClean"):with_silent():with_noremap():with_nowait():with_desc("package: Clean"),
 	},
 }
 
@@ -45,7 +45,7 @@ require("keymap.ui")
 
 -- Сносим ГЛОБАЛЬНЫЕ дефолты 0.11 (vim/_defaults.lua ставит их всегда,
 -- не только в LSP-буферах): grn/grr/gri/gra/grt душат bare `gr`
--- ожиданием timeoutlen. Наши замены: gr/gi/ga/gy (fzf), rename на <leader>rn.
+-- ожиданием timeoutlen. Наши замены: gr/gi/ga/gy (pick), rename на <leader>rn.
 -- Удаляем и сразу, и на VimEnter — порядок загрузки дефолтов не гарантирован.
 local function _del_lsp_defaults()
 	for _, lhs in ipairs({ "grn", "grr", "gri", "gra", "grt" }) do

@@ -18,6 +18,6 @@ return function()
 		word_diff = false,
 		current_line_blame = false,
 		diff_opts = { internal = true },
-		watch_gitdir = { follow_files = true },
+		watch_gitdir = { follow_files = true, interval = 2000 },
 	})
 end

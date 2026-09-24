@@ -1,0 +1,207 @@
+-- log.lua
+--
+-- Inspired by rxi/log.lua
+-- Modified by tjdevries and can be found at github.com/tjdevries/vlog.nvim
+--
+-- This library is free software; you can redistribute it and/or modify it
+-- under the terms of the MIT license. See LICENSE for details.
+-- User configuration section
+local default_config = {
+  -- Name of the plugin. Prepended to log messages
+  plugin = 'gh', -- ',
+  -- Should print the output to neovim while running
+  use_console = false,
+  -- Should highlighting be used in console (using echohl)
+  highlights = true,
+  -- Should write to a file
+  use_file = true,
+  log_file = 'gh2',
+  -- Any messages above this level will be logged.
+  level = 'warn',
+  -- Level configuration
+  log_size = 10000000,
+  modes = {
+    { name = 'trace', hl = 'Comment' },
+    { name = 'debug', hl = 'Comment' },
+    { name = 'info', hl = 'None' },
+    { name = 'warn', hl = 'WarningMsg' },
+    { name = 'error', hl = 'ErrorMsg' },
+    { name = 'fatal', hl = 'ErrorMsg' },
+  },
+  -- Can limit the number of decimals displayed for floats
+  float_precision = 0.01,
+}
+
+-- {{{ NO NEED TO CHANGE
+local log = {}
+
+local unpack = unpack or table.unpack
+
+local uv = vim.uv
+local os_name = uv.os_uname().sysname
+local is_windows = os_name == 'Windows' or os_name == 'Windows_NT'
+-- Check whether current buffer contains main function
+
+local function sep()
+  if is_windows then
+    return '\\'
+  end
+  return '/'
+end
+
+local function fs_write(path, data)
+  -- Open the file in append mode
+  uv.fs_open(path, 'a', tonumber('644', 8), function(open_err, fd)
+    if open_err then
+      -- Handle error in opening file
+      print('Error opening file: ' .. open_err)
+      return
+    end
+
+    -- Write data to the file
+    uv.fs_write(fd, data, -1, function(write_err)
+      if write_err then
+        -- Handle error in writing to file
+        print('Error writing to file: ' .. write_err)
+      end
+
+      -- Close the file descriptor
+      uv.fs_close(fd, function(close_err)
+        if close_err then
+          -- Handle error in closing file
+          print('Error closing file: ' .. close_err)
+        end
+      end)
+    end)
+  end)
+end
+
+log.new = function(config, standalone)
+  config = vim.tbl_deep_extend('force', default_config, config)
+  -- path ~/.local/share/nvim
+
+  local log_dir = vim.fn.stdpath('log')
+  config.log_file = config.log_file or config.plugin or 'gh'
+  local outfile = string.format('%s%s%s.log', log_dir, sep(), config.log_file)
+
+  if config.use_file then
+    local fp = io.open(outfile, 'r')
+    if fp then
+      local size = fp:seek('end')
+      fp:close()
+      if size > config.log_size then
+        os.remove(outfile)
+      end
+    end
+  end
+
+  local obj
+  if standalone then
+    obj = log
+  else
+    obj = {}
+  end
+
+  local levels = {}
+  for i, v in ipairs(config.modes) do
+    levels[v.name] = i
+  end
+
+  local round = function(x, increment)
+    increment = increment or 1
+    x = x / increment
+    return (x > 0 and math.floor(x + 0.5) or math.ceil(x - 0.5)) * increment
+  end
+
+  local make_string = function(...)
+    local t = {}
+    for i = 1, select('#', ...) do
+      local x = select(i, ...)
+
+      if type(x) == 'number' and config.float_precision then
+        x = tostring(round(x, config.float_precision))
+      elseif type(x) == 'table' then
+        x = vim.inspect(x)
+      else
+        x = tostring(x or 'nil')
+      end
+
+      t[#t + 1] = x
+    end
+    return table.concat(t, ' ')
+  end
+
+  local log_at_level = function(level, level_config, message_maker, ...)
+    -- Return early if we're below the config.level
+    if level < levels[config.level] then
+      return
+    end
+    local nameupper = level_config.name:upper()
+
+    local msg = message_maker(...)
+    local info = debug.getinfo(2, 'Sl')
+    local lineinfo = string.format('[%s]%s:%s', level, info.short_src, info.currentline)
+
+    -- Output to console
+    if config.use_console then
+      local console_string = string.format('[%-4s][%s] %s: %s', nameupper, os.date('%H:%M:%S'), lineinfo, msg)
+
+      if config.highlights and level_config.hl then
+        vim.cmd(string.format('echohl %s', level_config.hl))
+      end
+
+      local split_console = vim.split(console_string, '\n')
+      for _, v in ipairs(split_console) do
+        vim.cmd(string.format([[echom "[%s] %s"]], config.plugin, vim.fn.escape(v, '"')))
+      end
+
+      if config.highlights and level_config.hl then
+        vim.cmd('echohl NONE')
+      end
+    end
+
+    -- Output to log file
+    if config.use_file then
+      -- check file size
+
+      local str = string.format('[%-4s][%s] %s: %s\n', nameupper, os.date(), lineinfo, msg)
+      fs_write(outfile, str)
+    end
+  end
+
+  for i, x in ipairs(config.modes) do
+    obj[x.name] = function(...)
+      return log_at_level(i, x, make_string, ...)
+    end
+
+    obj[('fmt_%s'):format(x.name)] = function()
+      return log_at_level(i, x, function(...)
+        local passed = { ... }
+        local fmt = table.remove(passed, 1)
+        local inspected = {}
+        for _, v in ipairs(passed) do
+          table.insert(inspected, vim.inspect(v or 'nil'))
+        end
+        return string.format(fmt, unpack(inspected))
+      end)
+    end
+  end
+
+  obj.config = function()
+    return config
+  end
+  return obj
+end
+
+-- log.new(default_config, true)
+
+-- local l = log.new({ level = 'info' }, true)
+-- l.info('This is an info message')
+if true then
+  -- user do not need to call log.new. I use it to debug guihua.lua
+  default_config.level = 'info'
+  return log.new(default_config, true)
+else
+  -- user need to call log.new in their setup, used in navigator
+  return log
+end

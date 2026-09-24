@@ -48,6 +48,11 @@ vim.api.nvim_create_autocmd("LspAttach", {
 			if not require("modules.utils").is_file_buffer(event.buf) then
 				return
 			end
+			-- Skip large files
+			if vim.b[event.buf].large_file then
+				vim.lsp.buf_detach_client(event.buf, event.data.client_id)
+				return
+			end
 			-- LSP Keymaps
 			mapping.lsp(event.buf)
 
@@ -94,9 +99,50 @@ vim.api.nvim_create_autocmd("DirChanged", {
 	end,
 })
 
+-- Large file detection: disable expensive features for files > 1MB or > 10k lines
+local function is_large_file(bufnr)
+	local max_size = 1024 * 1024 -- 1MB
+	local max_lines = 10000
+	local ok, stats = pcall(vim.uv.fs_stat, vim.api.nvim_buf_get_name(bufnr))
+	if ok and stats and stats.size > max_size then
+		return true
+	end
+	if vim.api.nvim_buf_line_count(bufnr) > max_lines then
+		return true
+	end
+	return false
+end
+
+vim.api.nvim_create_autocmd({ "BufReadPre", "BufNewFile" }, {
+	group = vim.api.nvim_create_augroup("LargeFileDetect", { clear = true }),
+	callback = function(args)
+		if is_large_file(args.buf) then
+			vim.b[args.buf].large_file = true
+			-- Disable expensive features
+			vim.bo[args.buf].syntax = "off"
+			vim.bo[args.buf].filetype = "off"
+			vim.bo[args.buf].swapfile = false
+			vim.bo[args.buf].undofile = false
+			vim.bo[args.buf].foldmethod = "manual"
+			vim.wo[0][0].cursorline = false
+			vim.wo[0][0].cursorcolumn = false
+			vim.wo[0][0].foldenable = false
+			vim.wo[0][0].list = false
+			vim.wo[0][0].spell = false
+			-- Disable LSP for this buffer
+			vim.b[args.buf].lsp_disable = true
+			-- Notify once
+			vim.schedule(function()
+				vim.notify("Large file detected: disabled syntax, LSP, Treesitter, swap, undo", vim.log.levels.WARN, { title = "Large File" })
+			end)
+		end
+	end,
+})
+
 -- Autojump to last edit
 vim.api.nvim_create_autocmd("BufReadPost", {
 	callback = function()
+		if vim.b.large_file then return end
 		local mark = vim.api.nvim_buf_get_mark(0, '"')
 		local lcount = vim.api.nvim_buf_line_count(0)
 		if mark[1] > 0 and mark[1] <= lcount then
@@ -246,6 +292,7 @@ vim.api.nvim_create_autocmd("BufWritePost", {
 	pattern = "*.go",
 	callback = function()
 		local bufnr = vim.api.nvim_get_current_buf()
+		if vim.b[bufnr].large_file then return end
 		local client = go_client(bufnr)
 		if not client or client:is_stopped() then
 			return

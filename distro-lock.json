@@ -1,0 +1,245 @@
+{
+  "nvim-cmp": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "2ffe79f1f021def8dd1fcd81deb16f1bb0d989f3",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "hrsh7th/nvim-cmp",
+    "tarball": "https://codeload.github.com/hrsh7th/nvim-cmp/tar.gz/2ffe79f1f021def8dd1fcd81deb16f1bb0d989f3"
+  },
+  "nvim-treesitter": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "cf12346a3414fa1b06af75c79faebe7f76df080a",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "nvim-treesitter/nvim-treesitter",
+    "tarball": "https://codeload.github.com/nvim-treesitter/nvim-treesitter/tar.gz/cf12346a3414fa1b06af75c79faebe7f76df080a"
+  },
+  "go.nvim": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "f5d1f11d4f616efbe2339286310bb89c4853d769",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "ray-x/go.nvim",
+    "tarball": "https://codeload.github.com/ray-x/go.nvim/tar.gz/f5d1f11d4f616efbe2339286310bb89c4853d769"
+  },
+  "nvim-treesitter-textobjects": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "5ca4aaa6efdcc59be46b95a3e876300cfead05ef",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "nvim-treesitter/nvim-treesitter-textobjects",
+    "tarball": "https://codeload.github.com/nvim-treesitter/nvim-treesitter-textobjects/tar.gz/5ca4aaa6efdcc59be46b95a3e876300cfead05ef"
+  },
+  "LuaSnip": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "0abc8f390b278c3b4aabc4c004ac8a088b65cf24",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "L3MON4D3/LuaSnip",
+    "tarball": "https://codeload.github.com/L3MON4D3/LuaSnip/tar.gz/0abc8f390b278c3b4aabc4c004ac8a088b65cf24"
+  },
+  "cmp_luasnip": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "98d9cb5c2c38532bd9bdb481067b20fea8f32e90",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "saadparwaiz1/cmp_luasnip",
+    "tarball": "https://codeload.github.com/saadparwaiz1/cmp_luasnip/tar.gz/98d9cb5c2c38532bd9bdb481067b20fea8f32e90"
+  },
+  "flash.nvim": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "5f0f270fdc7c5b0c21d903ee85b9cb06f2ac636a",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "folke/flash.nvim",
+    "tarball": "https://codeload.github.com/folke/flash.nvim/tar.gz/5f0f270fdc7c5b0c21d903ee85b9cb06f2ac636a"
+  },
+  "cmp-path": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "c642487086dbd9a93160e1679a1327be111cbc25",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "hrsh7th/cmp-path",
+    "tarball": "https://codeload.github.com/hrsh7th/cmp-path/tar.gz/c642487086dbd9a93160e1679a1327be111cbc25"
+  },
+  "guihua.lua": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "4c513d5dac550af77034cced421967b393261509",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "ray-x/guihua.lua",
+    "tarball": "https://codeload.github.com/ray-x/guihua.lua/tar.gz/4c513d5dac550af77034cced421967b393261509"
+  },
+  "cmp-cmdline": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "d126061b624e0af6c3a556428712dd4d4194ec6d",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "hrsh7th/cmp-cmdline",
+    "tarball": "https://codeload.github.com/hrsh7th/cmp-cmdline/tar.gz/d126061b624e0af6c3a556428712dd4d4194ec6d"
+  },
+  "diffview.nvim": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "4516612fe98ff56ae0415a259ff6361a89419b0a",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "sindrets/diffview.nvim",
+    "tarball": "https://codeload.github.com/sindrets/diffview.nvim/tar.gz/4516612fe98ff56ae0415a259ff6361a89419b0a"
+  },
+  "nvim-lint": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "3d55c8f67c6ae5c15e1042571e107c7a3d5c5f4e",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "mfussenegger/nvim-lint",
+    "tarball": "https://codeload.github.com/mfussenegger/nvim-lint/tar.gz/3d55c8f67c6ae5c15e1042571e107c7a3d5c5f4e"
+  },
+  "cmp-buffer": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "b74fab3656eea9de20a9b8116afa3cfc4ec09657",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "hrsh7th/cmp-buffer",
+    "tarball": "https://codeload.github.com/hrsh7th/cmp-buffer/tar.gz/b74fab3656eea9de20a9b8116afa3cfc4ec09657"
+  },
+  "nvim-dap": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "cfa2d58f4537aca6ca83e2de1a0d9f1491121264",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "mfussenegger/nvim-dap",
+    "tarball": "https://codeload.github.com/mfussenegger/nvim-dap/tar.gz/cfa2d58f4537aca6ca83e2de1a0d9f1491121264"
+  },
+  "cmp-nvim-lsp": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "cbc7b02bb99fae35cb42f514762b89b5126651ef",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "hrsh7th/cmp-nvim-lsp",
+    "tarball": "https://codeload.github.com/hrsh7th/cmp-nvim-lsp/tar.gz/cbc7b02bb99fae35cb42f514762b89b5126651ef"
+  },
+  "plenary.nvim": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "74b06c6c75e4eeb3108ec01852001636d85a932b",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "nvim-lua/plenary.nvim",
+    "tarball": "https://codeload.github.com/nvim-lua/plenary.nvim/tar.gz/74b06c6c75e4eeb3108ec01852001636d85a932b"
+  },
+  "nvim-web-devicons": {
+    "size_kb": 237,
+    "previous_ref": "914decffe650296c87312c53b7933ecb86718499",
+    "kind": "start",
+    "ref": "914decffe650296c87312c53b7933ecb86718499",
+    "installed_at": "2026-09-24T15:11:22Z",
+    "repo": "nvim-tree/nvim-web-devicons",
+    "tarball": "https://codeload.github.com/nvim-tree/nvim-web-devicons/tar.gz/914decffe650296c87312c53b7933ecb86718499"
+  },
+  "nvim-dap-go": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "b4421153ead5d726603b02743ea40cf26a51ed5f",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "leoluz/nvim-dap-go",
+    "tarball": "https://codeload.github.com/leoluz/nvim-dap-go/tar.gz/b4421153ead5d726603b02743ea40cf26a51ed5f"
+  },
+  "nvim-dap-ui": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "cc9dd33aade7f20bae414d0cba163bc60d4d4b43",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "rcarriga/nvim-dap-ui",
+    "tarball": "https://codeload.github.com/rcarriga/nvim-dap-ui/tar.gz/cc9dd33aade7f20bae414d0cba163bc60d4d4b43"
+  },
+  "tools/shfmt": {
+    "size_kb": 3312,
+    "previous_ref": null,
+    "kind": "tool",
+    "ref": "v3.14.1",
+    "installed_at": "2026-09-24T15:49:19Z",
+    "repo": "mvdan/sh",
+    "tarball": "https://github.com/mvdan/sh/releases/download/v3.14.1/shfmt_v3.14.1_darwin_arm64"
+  },
+  "nvim-lspconfig": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "ffd261c09c3dabd0bf1a438f47a8ae3b22f3c3ff",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "neovim/nvim-lspconfig",
+    "tarball": "https://codeload.github.com/neovim/nvim-lspconfig/tar.gz/ffd261c09c3dabd0bf1a438f47a8ae3b22f3c3ff"
+  },
+  "mini.nvim": {
+    "size_kb": 4422,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "561751e839b99a4baca36b9d963166b66d2536a6",
+    "installed_at": "2026-09-24T15:52:22Z",
+    "tarball": "https://codeload.github.com/echasnovski/mini.nvim/tar.gz/561751e839b99a4baca36b9d963166b66d2536a6",
+    "repo": "echasnovski/mini.nvim"
+  },
+  "gitsigns.nvim": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "8d79f2410c76e62b92e51c28c82e28c1c5a3daeb",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "lewis6991/gitsigns.nvim",
+    "tarball": "https://codeload.github.com/lewis6991/gitsigns.nvim/tar.gz/8d79f2410c76e62b92e51c28c82e28c1c5a3daeb"
+  },
+  "nvim-nio": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "edcc181a875301dd21840189aa2f2f9ad69fc172",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "nvim-neotest/nvim-nio",
+    "tarball": "https://codeload.github.com/nvim-neotest/nvim-nio/tar.gz/edcc181a875301dd21840189aa2f2f9ad69fc172"
+  },
+  "trouble.nvim": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "bd67efe408d4816e25e8491cc5ad4088e708a69a",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "folke/trouble.nvim",
+    "tarball": "https://codeload.github.com/folke/trouble.nvim/tar.gz/bd67efe408d4816e25e8491cc5ad4088e708a69a"
+  },
+  "friendly-snippets": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "opt",
+    "ref": "b4d01b0fdf3c9a549961c2f9ffe8dc09be166219",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "rafamadriz/friendly-snippets",
+    "tarball": "https://codeload.github.com/rafamadriz/friendly-snippets/tar.gz/b4d01b0fdf3c9a549961c2f9ffe8dc09be166219"
+  },
+  "black-metal-theme-neovim": {
+    "size_kb": 0,
+    "previous_ref": null,
+    "kind": "start",
+    "ref": "3a5522fbc7127c638ac8a98692cb83bbdf3594a9",
+    "installed_at": "2026-09-24T14:10:44Z",
+    "repo": "metalelf0/black-metal-theme-neovim",
+    "tarball": "https://codeload.github.com/metalelf0/black-metal-theme-neovim/tar.gz/3a5522fbc7127c638ac8a98692cb83bbdf3594a9"
+  }
+}

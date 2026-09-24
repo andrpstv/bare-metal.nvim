@@ -116,7 +116,7 @@ local function check_go_env()
 end
 
 -- Внешние бинарники минимального стека (mason нет — всё системное).
--- Совпадает с гардами в completion/lsp.lua, lang/lint.lua, tool/fzf.lua.
+-- Совпадает с гардами в completion/lsp.lua, lang/lint.lua.
 local function check_tools()
     vim.health.start("External Tools")
     local lsp_bins = { gopls = "gopls", lua_ls = "lua-language-server", bashls = "bash-language-server" }
@@ -143,20 +143,14 @@ local function check_tools()
         add("warn", "missing linter: golangci-lint")
     end
 
-    if has("fzf") then
-        vim.health.ok("picker: fzf")
-    else
-        vim.health.error("fzf missing — fzf-lua picker is dead (brew install fzf)")
-        add("error", "missing picker: fzf")
-    end
     if has("rg") then
-        vim.health.ok("grep: rg")
+        vim.health.ok("picker: mini.pick (+rg for grep/files)")
     else
-        vim.health.warn("rg missing — live grep will fail")
+        vim.health.warn("rg missing — mini.pick grep/files fall back to git/find (slow)")
         add("warn", "missing grep: rg")
     end
     if not has("fd") then
-        vim.health.info("fd not found (files picker falls back to slower find)")
+        vim.health.info("fd not found (files picker uses rg/git fallback)")
     end
 
     -- Компилятор нужен один раз: сборка treesitter-парсеров и LuaSnip jsregexp.
@@ -227,7 +221,7 @@ local function check_keymaps()
         { "n", "<leader>ff",  "Find files" },
         { "n", "<leader>fp",  "Live grep" },
         { "n", "<leader>e",   "File browser" },
-        { "n", "<leader>ph",  "Lazy" },
+        { "n", "<leader>ph",  "Distro" },
         { "n", "<leader>q",   "Quickfix toggle" },
     }
 
@@ -262,29 +256,38 @@ local function check_keymaps()
 end
 
 local function check_plugins()
-    vim.health.start("Plugins")
-    local lazy_ok, lazy = pcall(require, "lazy")
-    if not lazy_ok then
-        vim.health.error("lazy.nvim not available")
-        add("error", "lazy.nvim not available")
+    vim.health.start("Plugins (distro)")
+    local ok, distro_lock = pcall(require, "distro.lock")
+    if not ok then
+        vim.health.error("distro.lock not available")
+        add("error", "distro.lock not available")
         return
     end
 
-    local loaded, errs = 0, {}
-    for _, p in ipairs(lazy.plugins()) do
-        if p._.loaded then
+    local status = distro_lock.status()
+    local loaded, missing, errs = 0, {}, {}
+    for name, st in pairs(status) do
+        if st == "installed" then
             loaded = loaded + 1
-        end
-        if p._.errors and #p._.errors > 0 then
-            table.insert(errs, p.name)
+        elseif st == "missing" then
+            table.insert(missing, name)
+        else
+            table.insert(errs, name .. "(" .. st .. ")")
         end
     end
 
-    if #errs == 0 then
-        vim.health.ok(loaded .. " plugins loaded, no errors")
+    if #missing == 0 and #errs == 0 then
+        vim.health.ok(loaded .. " plugins installed, no errors")
     else
-        vim.health.warn(loaded .. " loaded, errors in: " .. table.concat(errs, ", "))
-        add("warn", "plugin errors: " .. table.concat(errs, ", "))
+        local parts = {}
+        if #missing > 0 then
+            parts[#parts + 1] = "missing: " .. table.concat(missing, ", ")
+        end
+        if #errs > 0 then
+            parts[#parts + 1] = "attention: " .. table.concat(errs, ", ")
+        end
+        vim.health.warn(loaded .. " installed, " .. table.concat(parts, "; ") .. " — open :Distro")
+        add("warn", "plugins: " .. table.concat(parts, "; "))
     end
 end
 

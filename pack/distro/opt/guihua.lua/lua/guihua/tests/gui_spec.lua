@@ -1,0 +1,958 @@
+local eq = assert.are.same
+
+local busted = require('plenary/busted')
+_ = busted
+local cur_dir = vim.fn.expand('%:p:h')
+_ = cur_dir
+
+local function title_text(title)
+  if type(title) == 'string' then
+    return title
+  end
+  if type(title) ~= 'table' then
+    return ''
+  end
+  local parts = {}
+  for _, chunk in ipairs(title) do
+    if type(chunk) == 'table' then
+      table.insert(parts, chunk[1] or '')
+    else
+      table.insert(parts, tostring(chunk))
+    end
+  end
+  return table.concat(parts)
+end
+
+describe('should create view  ', function()
+  package.loaded['guihua.lua'] = nil
+
+  vim.cmd('packadd guihua.lua')
+  -- require("luakit._load")
+  it('should construct a float win ', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    -- package.loaded.packer_plugins['guihua.lua'].loaded = false
+    vim.cmd('packadd guihua.lua')
+    local uri = 'file://' .. vim.fn.expand('%:p')
+    local range = {
+      ['end'] = {
+        line = 16,
+      },
+      start = {
+        line = 16,
+      },
+    }
+
+    local opts = {
+      relative = 'cursor',
+      loc = 'none',
+      uri = uri,
+      lnum = range.start.line,
+      height = 5,
+      range = range,
+      width = 60,
+      edit = true,
+    }
+
+    local view = require('guihua.gui').preview_uri(opts)
+    print(view.buf)
+  end)
+
+  it('should lazy load top-level guihua exports', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.view'] = nil
+    package.loaded['guihua.listview'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local guihua = require('guihua')
+
+    assert.is_nil(package.loaded['guihua.view'])
+    assert.is_nil(package.loaded['guihua.listview'])
+
+    local view = guihua.view
+
+    assert.is_not_nil(view)
+    assert.is_not_nil(package.loaded['guihua.view'])
+    assert.is_nil(package.loaded['guihua.listview'])
+  end)
+
+  it('should lazy load gui submodules until used', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.listview'] = nil
+    package.loaded['guihua.textview'] = nil
+    package.loaded['guihua.input'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local gui = require('guihua.gui')
+
+    assert.is_nil(package.loaded['guihua.listview'])
+    assert.is_nil(package.loaded['guihua.textview'])
+    assert.is_nil(package.loaded['guihua.input'])
+
+    local input_win = gui.input({
+      prompt = 'Rename',
+      placeholder = 'target',
+    }, function(_) end)
+
+    assert.is_not_nil(package.loaded['guihua.input'])
+    assert.is_nil(package.loaded['guihua.listview'])
+    assert.is_nil(package.loaded['guihua.textview'])
+
+    vim.api.nvim_win_close(input_win, true)
+  end)
+
+  it('should restore focus for select popup after focus changes', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.listviewctrl'] = nil
+    package.loaded['guihua.listview'] = nil
+    package.loaded['guihua.view'] = nil
+    vim.cmd('packadd guihua.lua')
+    vim.cmd('new')
+    local other_win = vim.api.nvim_get_current_win()
+
+    local listview = require('guihua.gui').select({ 'tabs', 'spaces', 'enter' }, {
+      prompt = 'Select tabs or spaces',
+      ft = 'guihua',
+    }, function(_) end)
+
+    local ctrl = listview:get_ctrl()
+    local popup_win = listview.win
+
+    assert.is_true(vim.api.nvim_win_is_valid(popup_win))
+    assert.is_true(vim.api.nvim_win_is_valid(other_win))
+    assert.are_not.same(popup_win, other_win)
+    vim.api.nvim_clear_autocmds({ group = ctrl.augroup })
+    vim.api.nvim_set_current_win(other_win)
+    eq(other_win, vim.api.nvim_get_current_win())
+
+    ctrl:on_focus_gained(listview.buf)
+    eq(popup_win, vim.api.nvim_get_current_win())
+
+    vim.api.nvim_win_close(other_win, true)
+    listview:close()
+  end)
+
+  it('should keep select popup open when input popup opens', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.input'] = nil
+    package.loaded['guihua.listviewctrl'] = nil
+    package.loaded['guihua.listview'] = nil
+    package.loaded['guihua.view'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local gui = require('guihua.gui')
+    local listview = gui.select({ 'tabs', 'spaces', 'enter' }, {
+      prompt = 'Select tabs or spaces',
+      ft = 'guihua',
+    }, function(_) end)
+    local ctrl = listview:get_ctrl()
+    local select_win = listview.win
+    local input_win = gui.input({
+      prompt = 'Rename',
+      placeholder = 'target',
+    }, function(_) end)
+
+    assert.is_true(vim.api.nvim_win_is_valid(select_win))
+    assert.is_true(vim.api.nvim_win_is_valid(input_win))
+
+    eq(1, ctrl.selected_line)
+    vim.api.nvim_set_current_win(select_win)
+    ctrl:on_prev()
+    eq(1, ctrl.selected_line)
+
+    vim.api.nvim_win_close(input_win, true)
+    listview:close()
+  end)
+
+  it('should disable strikethrough in select popups only', function()
+    if vim.api.nvim_win_get_hl_ns == nil or vim.api.nvim_get_hl == nil then
+      return
+    end
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.listviewctrl'] = nil
+    package.loaded['guihua.listview'] = nil
+    package.loaded['guihua.view'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    vim.api.nvim_set_hl(0, '@markup.strikethrough', { fg = 0xabcdef, strikethrough = true })
+
+    local gui = require('guihua.gui')
+    local listview = gui.select({ 'one', 'two', 'three' }, {
+      prompt = 'Select ~~value~~',
+      ft = 'markdown',
+    }, function(_) end)
+
+    local ns = vim.api.nvim_win_get_hl_ns(listview.win)
+    local hl = vim.api.nvim_get_hl(ns, { name = '@markup.strikethrough', link = false })
+
+    eq(0xabcdef, hl.fg)
+    assert.is_not_true(hl.strikethrough)
+
+    listview:close()
+  end)
+
+  it('should disable strikethrough in input popups only', function()
+    if vim.api.nvim_win_get_hl_ns == nil or vim.api.nvim_get_hl == nil then
+      return
+    end
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.input'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    vim.api.nvim_set_hl(0, '@markup.strikethrough', { fg = 0x123456, strikethrough = true })
+
+    local input_win = require('guihua.gui').input({
+      prompt = 'Rename ~~value~~',
+      placeholder = 'target',
+    }, function(_) end)
+
+    local ns = vim.api.nvim_win_get_hl_ns(input_win)
+    local hl = vim.api.nvim_get_hl(ns, { name = '@markup.strikethrough', link = false })
+
+    eq(0x123456, hl.fg)
+    assert.is_not_true(hl.strikethrough)
+
+    vim.api.nvim_win_close(input_win, true)
+  end)
+
+  it('should render a tabbed catalog with local strikethrough disabled', function()
+    if vim.api.nvim_win_get_hl_ns == nil or vim.api.nvim_get_hl == nil then
+      return
+    end
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.catalog'] = nil
+    package.loaded['guihua.session_registry'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    vim.api.nvim_set_hl(0, '@markup.strikethrough', { fg = 0x654321, strikethrough = true })
+
+    local gui = require('guihua.gui')
+    local SessionRegistry = require('guihua.session_registry')
+    _ = SessionRegistry
+    local opened = nil
+    local state = gui.catalog({
+      title = 'Browse',
+      tabs = {
+        agents = {
+          { name = 'grep', description = { 'this is a grep agent' }, path = '/tmp/grep.md' },
+          { name = 'review', description = { 'this is a review agent' }, path = '/tmp/review.md' },
+        },
+        skills = {
+          { name = 'lint', description = 'this is a lint skill', path = '/tmp/lint.md' },
+        },
+        mcp = {
+          { name = 'server', description = 'mcp server', path = '/tmp/server.md' },
+        },
+      },
+      tab_order = { 'agents', 'skills', 'mcp' },
+      on_confirm = function(item)
+        opened = item.path
+      end,
+    })
+
+    local ns = vim.api.nvim_win_get_hl_ns(state.win)
+    local hl = vim.api.nvim_get_hl(ns, { name = '@markup.strikethrough', link = false })
+    eq(0x654321, hl.fg)
+    assert.is_not_true(hl.strikethrough)
+    assert.is_true(vim.api.nvim_get_hl(0, { name = 'GuihuaCatalogTitle', link = false }).bold)
+    assert.is_true(vim.api.nvim_get_hl(0, { name = 'GuihuaCatalogTab', link = false }).bold)
+    assert.is_true(vim.api.nvim_get_hl(0, { name = 'GuihuaCatalogTabActive', link = false }).bold)
+
+    local lines = vim.api.nvim_buf_get_lines(state.buf, 0, -1, false)
+    assert.is_truthy(lines[1]:find('%[a%]gents', 1, false))
+    assert.is_truthy(lines[2]:find('─', 1, false))
+    assert.is_truthy(lines[3]:find('Search:', 1, true))
+
+    local preview = SessionRegistry.get(state.session.id).preview_view
+    assert.is_truthy(preview ~= nil)
+    local preview_text = table.concat(vim.api.nvim_buf_get_lines(preview.buf, 0, -1, false), '\n')
+    assert.is_truthy(preview_text:find('/tmp/grep.md', 1, true))
+
+    state:next_tab()
+    vim.wait(20)
+    eq('lint', state:current_item().name)
+    state:prev_tab()
+    vim.wait(20)
+    eq('grep', state:current_item().name)
+
+    state:move(1)
+    vim.wait(20)
+    preview = SessionRegistry.get(state.session.id).preview_view
+    preview_text = table.concat(vim.api.nvim_buf_get_lines(preview.buf, 0, -1, false), '\n')
+    assert.is_truthy(preview_text:find('/tmp/review.md', 1, true))
+
+    state:set_filter('gr')
+    eq('grep', state:current_item().name)
+    state:confirm()
+    eq('/tmp/grep.md', opened)
+  end)
+
+  it('should expand input popups for long text instead of clipping the tail', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.input'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local long_text = string.rep('segment/', 20) .. 'file.lua'
+    local input_win = require('guihua.gui').input({
+      prompt = 'Rename',
+      placeholder = long_text,
+      width = 20,
+    }, function(_) end)
+
+    local cfg = vim.api.nvim_win_get_config(input_win)
+    local buf = vim.api.nvim_win_get_buf(input_win)
+    local line = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1]
+
+    assert.is_true(cfg.height > 1)
+    assert.is_true(vim.api.nvim_get_option_value('wrap', { win = input_win }))
+    assert.is_truthy(line:find(long_text, 1, true))
+
+    vim.api.nvim_win_close(input_win, true)
+  end)
+
+  it('should render long prompt and title in the same input box', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.input'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local prompt = 'Please enter a value for this very long, multiline prompt that should not be clipped:\n' .. string.rep('prompt ', 8)
+    local title = 'A very long input title that should move into the content pane instead of the border title'
+    local input_win = require('guihua.gui').input({
+      prompt = prompt,
+      placeholder = 'target',
+      title = title,
+      width = 24,
+    }, function(_) end)
+
+    local input_cfg = vim.api.nvim_win_get_config(input_win)
+    eq(title, title_text(input_cfg.title))
+    local buf = vim.api.nvim_win_get_buf(input_win)
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    local text = table.concat(lines, '\n')
+    assert.is_true(#lines > 1)
+    assert.is_truthy(text:find('Please enter a value', 1, true))
+    assert.is_truthy(text:find('─', 1, true))
+
+    vim.api.nvim_win_close(input_win, true)
+  end)
+
+  it('should render long prompts in the popup body instead of the window title', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.input'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local prompt = 'This prompt line should become the title for the popup and then be truncated.\nSecond line'
+    local input_win = require('guihua.gui').input({
+      prompt = prompt,
+      placeholder = 'target',
+      width = 24,
+    }, function(_) end)
+
+    local cfg = vim.api.nvim_win_get_config(input_win)
+    eq('', title_text(cfg.title))
+    local buf = vim.api.nvim_win_get_buf(input_win)
+    local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+    assert.is_truthy(text:find('This prompt line should become the title', 1, true))
+    assert.is_truthy(text:find('Second line', 1, true))
+
+    vim.api.nvim_win_close(input_win, true)
+  end)
+
+  it('should pass multiline input content to the callback', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.input'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local captured = nil
+    local input_win = require('guihua.gui').input({
+      prompt = 'Rename',
+      placeholder = '',
+    }, function(text)
+      captured = text
+    end)
+
+    local buf = vim.api.nvim_win_get_buf(input_win)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { ' first line', 'second line' })
+    vim.api.nvim_set_current_win(input_win)
+    vim.fn.maparg('<CR>', 'n', false, true).callback()
+
+    eq('first line\nsecond line', captured)
+  end)
+
+  it('should confirm empty input as an empty string', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.input'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local captured = 'unset'
+    local canceled = false
+    local input_win = require('guihua.gui').input({
+      prompt = 'Rename',
+      default = '',
+      on_cancel = function()
+        canceled = true
+      end,
+    }, function(text)
+      captured = text
+    end)
+
+    vim.api.nvim_set_current_win(input_win)
+    vim.cmd('stopinsert')
+    vim.fn.maparg('<CR>', 'n', false, true).callback()
+
+    eq('', captured)
+    assert.is_not_true(canceled)
+  end)
+
+  it('should abort input with nil', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.input'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local captured = 'unset'
+    local canceled_text = 'unset'
+    local input_win = require('guihua.gui').input({
+      prompt = 'Rename',
+      default = 'target',
+      on_cancel = function(text)
+        canceled_text = text
+      end,
+    }, function(text)
+      captured = text
+    end)
+
+    vim.api.nvim_set_current_win(input_win)
+    vim.cmd('stopinsert')
+    vim.fn.maparg('<Esc>', 'n', false, true).callback()
+
+    assert.is_nil(captured)
+    eq('target', canceled_text)
+  end)
+
+  it('should preserve multiline default text without trimming', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.input'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local captured = nil
+    local input_win = require('guihua.gui').input({
+      prompt = 'Rename',
+      default = '  first  \r\nsecond  ',
+    }, function(text)
+      captured = text
+    end)
+
+    vim.api.nvim_set_current_win(input_win)
+    vim.cmd('stopinsert')
+    vim.fn.maparg('<CR>', 'n', false, true).callback()
+
+    eq('  first  \nsecond  ', captured)
+  end)
+
+  it('should apply highlight callback ranges to the input text', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.input'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local input_win = require('guihua.gui').input({
+      prompt = 'Rename',
+      default = 'target',
+      highlight = function()
+        return {
+          { start = 0, ['end'] = 6, hl_group = 'ErrorMsg' },
+        }
+      end,
+    }, function(_) end)
+
+    local buf = vim.api.nvim_win_get_buf(input_win)
+    local marks = vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })
+    local found = false
+    for _, mark in ipairs(marks) do
+      if mark[4] and mark[4].hl_group == 'ErrorMsg' then
+        found = true
+        break
+      end
+    end
+
+    assert.is_true(found)
+    vim.api.nvim_win_close(input_win, true)
+  end)
+
+  it('should place the cursor at the end of the placeholder text', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.input'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local input_win = require('guihua.gui').input({
+      prompt = 'Rename',
+      placeholder = 'target',
+      width = 24,
+    }, function(_) end)
+
+    local row, col = unpack(vim.api.nvim_win_get_cursor(input_win))
+    local line = vim.api.nvim_get_current_line()
+
+    eq(#line, col)
+    assert.is_true(row >= 1)
+
+    vim.api.nvim_win_close(input_win, true)
+  end)
+
+  it('should preselect the first item when prompt text is rendered in the popup', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.listviewctrl'] = nil
+    package.loaded['guihua.listview'] = nil
+    package.loaded['guihua.view'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local choice, choice_idx = nil, nil
+    local gui = require('guihua.gui')
+    local listview = gui.select({ 'one', 'two', 'three' }, {
+      prompt = 'Select the first item from this popup even when the prompt is long enough to wrap into the popup body.',
+      ft = 'guihua',
+    }, function(item, idx)
+      choice = item
+      choice_idx = idx
+    end)
+
+    vim.wait(20)
+    eq(listview:get_ctrl().state:cursor_line(), vim.api.nvim_win_get_cursor(listview.win)[1])
+    vim.api.nvim_set_current_win(listview.win)
+    vim.fn.maparg('<CR>', 'n', false, true).callback()
+
+    eq('one', choice.value)
+    eq(1, choice_idx)
+  end)
+
+  it('should render tuple-style select labels and return their payloads', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.listviewctrl'] = nil
+    package.loaded['guihua.listview'] = nil
+    package.loaded['guihua.view'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local choice, choice_idx = nil, nil
+    local gui = require('guihua.gui')
+    local payload = { kind = 'codeAction' }
+    local listview = gui.select({
+      { 'apply fix', payload },
+      { 'apply patch', { kind = 'other' } },
+    }, {
+      prompt = 'Select code action',
+      ft = 'guihua',
+    }, function(item, idx)
+      choice = item
+      choice_idx = idx
+    end)
+
+    local lines = vim.api.nvim_buf_get_lines(listview.buf, 0, -1, false)
+    local text = table.concat(lines, '\n')
+    assert.is_truthy(text:find('apply fix', 1, true))
+    assert.is_truthy(text:find('apply patch', 1, true))
+
+    vim.api.nvim_set_current_win(listview.win)
+    vim.fn.maparg('<CR>', 'n', false, true).callback()
+
+    eq(payload, choice.value)
+    eq(1, choice_idx)
+  end)
+
+  it('should render nested codeaction titles from action.command.title', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.listviewctrl'] = nil
+    package.loaded['guihua.listview'] = nil
+    package.loaded['guihua.view'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local choice, choice_idx = nil, nil
+    local gui = require('guihua.gui')
+    local action = {
+      command = {
+        title = 'Copilot: Fix code',
+        command = 'copilot.fix',
+      },
+    }
+    local listview = gui.select({
+      { action = action, ctx = { id = 1 } },
+      { action = { command = { title = 'Copilot: Apply patch' } }, ctx = { id = 2 } },
+    }, {
+      prompt = 'Select code action',
+      ft = 'guihua',
+    }, function(item, idx)
+      choice = item
+      choice_idx = idx
+    end)
+
+    local lines = vim.api.nvim_buf_get_lines(listview.buf, 0, -1, false)
+    local text = table.concat(lines, '\n')
+    assert.is_truthy(text:find('Copilot: Fix code', 1, true))
+    assert.is_truthy(text:find('Copilot: Apply patch', 1, true))
+
+    vim.api.nvim_set_current_win(listview.win)
+    vim.fn.maparg('<CR>', 'n', false, true).callback()
+
+    -- on_choice receives the full row: .value is the action, and sibling fields
+    -- like .ctx must survive so LSP code-action callbacks can index them
+    -- (regression guard for https://github.com/ray-x/go.nvim/issues/621).
+    eq(action, choice.value)
+    eq({ id = 1 }, choice.ctx)
+    eq(1, choice_idx)
+  end)
+
+  it('should honor a custom format_item for code actions', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.listviewctrl'] = nil
+    package.loaded['guihua.listview'] = nil
+    package.loaded['guihua.view'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local gui = require('guihua.gui')
+    local listview = gui.select({
+      {
+        action = {
+          kind = 'quickfix',
+          command = { title = 'Copilot: Fix code' },
+        },
+      },
+    }, {
+      prompt = 'Select code action',
+      ft = 'guihua',
+      format_item = function(item)
+        local action = item.action or item
+        local kind = action.kind and ('[' .. action.kind .. '] ') or ''
+        local title = action.command and action.command.title or ''
+        return kind .. title
+      end,
+    }, function(_) end)
+
+    local lines = vim.api.nvim_buf_get_lines(listview.buf, 0, -1, false)
+    local text = table.concat(lines, '\n')
+    assert.is_truthy(text:find('[quickfix] Copilot: Fix code', 1, true))
+  end)
+
+  it('should edit a custom select option inline', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.listviewctrl'] = nil
+    package.loaded['guihua.listview'] = nil
+    package.loaded['guihua.view'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local choice, choice_idx = nil, nil
+    local gui = require('guihua.gui')
+    local listview = gui.select({
+      'update fileA',
+      'remove fileA and write to fileB',
+      { text = 'Custom option:', value = '', editable = true },
+    }, {
+      prompt = 'Choose action',
+      ft = 'guihua',
+    }, function(item, idx)
+      choice = item
+      choice_idx = idx
+    end)
+
+    local ctrl = listview:get_ctrl()
+    local enter = vim.fn.maparg('<CR>', 'n', false, true).callback
+
+    ctrl:on_item(3)
+    vim.api.nvim_set_current_win(listview.win)
+    enter()
+    assert.is_true(listview._inline_editing)
+
+    local item = ctrl.state:current_item()
+    local icon = item.current_icon or item.icon or ''
+    local line_no = ctrl.state:cursor_line()
+    vim.api.nvim_buf_set_lines(listview.buf, line_no - 1, line_no, false, { icon .. '  [3] Custom option: write fileA to fileB' })
+
+    enter()
+
+    eq('write fileA to fileB', choice.value)
+    eq(3, choice_idx)
+    listview:close()
+  end)
+
+  it('should keep concurrent select popups independent', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.listviewctrl'] = nil
+    package.loaded['guihua.listview'] = nil
+    package.loaded['guihua.view'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local gui = require('guihua.gui')
+    local listview1 = gui.select({ 'one', 'two', 'three' }, {
+      prompt = 'First select',
+      ft = 'guihua',
+    }, function(_) end)
+    local listview2 = gui.select({ 'alpha', 'beta', 'gamma' }, {
+      prompt = 'Second select',
+      ft = 'guihua',
+    }, function(_) end)
+
+    local ctrl1 = listview1:get_ctrl()
+    local ctrl2 = listview2:get_ctrl()
+    local ctrl1_line = ctrl1.selected_line
+    local ctrl2_line = ctrl2.selected_line
+
+    eq(1, ctrl1_line)
+    eq(1, ctrl2_line)
+
+    assert.is_true(vim.api.nvim_win_is_valid(listview1.win))
+    assert.is_true(vim.api.nvim_win_is_valid(listview2.win))
+
+    ctrl1:on_next()
+    eq(ctrl1_line + 1, ctrl1.selected_line)
+    eq(ctrl2_line, ctrl2.selected_line)
+
+    ctrl2:on_next()
+    eq(ctrl1_line + 1, ctrl1.selected_line)
+    eq(ctrl2_line + 1, ctrl2.selected_line)
+
+    listview1:close()
+    listview2:close()
+  end)
+
+  it('should confirm the first select popup while another select is open', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.listviewctrl'] = nil
+    package.loaded['guihua.listview'] = nil
+    package.loaded['guihua.view'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local gui = require('guihua.gui')
+    local SessionRegistry = require('guihua.session_registry')
+    _ = SessionRegistry
+    local choice1, choice1_idx = nil, nil
+    local choice2 = nil
+    local listview1 = gui.select({ 'one', 'two', 'three' }, {
+      prompt = 'First select',
+      ft = 'guihua',
+    }, function(choice, idx)
+      choice1 = choice
+      choice1_idx = idx
+    end)
+    local listview2 = gui.select({ 'alpha', 'beta', 'gamma' }, {
+      prompt = 'Second select',
+      ft = 'guihua',
+    }, function(choice)
+      choice2 = choice
+    end)
+
+    vim.api.nvim_set_current_win(listview1.win)
+    vim.fn.maparg('<CR>', 'n', false, true).callback()
+
+    eq('one', choice1.value)
+    eq(1, choice1_idx)
+    eq(nil, choice2)
+    assert.is_true(listview1.win == nil or not vim.api.nvim_win_is_valid(listview1.win))
+    assert.is_true(vim.api.nvim_win_is_valid(listview2.win))
+    eq(listview2, SessionRegistry.get_active().list_view)
+
+    listview2:close()
+  end)
+
+  it('should not clear active view from a stale deferred leave', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.listviewctrl'] = nil
+    package.loaded['guihua.listview'] = nil
+    package.loaded['guihua.view'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local gui = require('guihua.gui')
+    local SessionRegistry = require('guihua.session_registry')
+    _ = SessionRegistry
+    local listview1 = gui.select({ 'one', 'two', 'three' }, {
+      prompt = 'First select',
+      ft = 'guihua',
+    }, function(_) end)
+    local ctrl1 = listview1:get_ctrl()
+
+    ctrl1:on_leave()
+    ctrl1:on_close()
+
+    local listview2 = gui.select({ 'alpha', 'beta', 'gamma' }, {
+      prompt = 'Second select',
+      ft = 'guihua',
+    }, function(_) end)
+
+    vim.wait(20)
+
+    assert.is_true(vim.api.nvim_win_is_valid(listview2.win))
+    eq(listview2, SessionRegistry.get_active().list_view)
+
+    listview2:close()
+  end)
+
+  it('should close the preview when the listview closes', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.view'] = nil
+    package.loaded['guihua.viewctrl'] = nil
+    package.loaded['guihua.listview'] = nil
+    package.loaded['guihua.listviewctrl'] = nil
+    package.loaded['guihua.textview'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local ListView = require('guihua.listview')
+    local TextView = require('guihua.textview')
+    local SessionRegistry = require('guihua.session_registry')
+    _ = SessionRegistry
+    local original_win = vim.api.nvim_get_current_win()
+    local listview = ListView:new({
+      loc = 'top_center',
+      border = 'none',
+      prompt = false,
+      rect = { height = 2, width = 40 },
+      data = {
+        {
+          text = 'only item',
+        },
+      },
+      on_confirm = function(_) end,
+      on_move = function(_)
+        return TextView:new({
+          loc = 'top_center',
+          rect = { height = 2, width = 20 },
+          data = { 'preview line' },
+        })
+      end,
+    })
+
+    local ctrl = listview:get_ctrl()
+    ctrl:on_prev()
+
+    local preview = TextView.ActiveTextView
+    assert.is_true(preview ~= nil)
+    assert.is_true(vim.api.nvim_win_is_valid(preview.win))
+
+    if vim.api.nvim_win_is_valid(original_win) then
+      vim.api.nvim_set_current_win(original_win)
+    end
+    vim.api.nvim_win_close(listview.win, true)
+    vim.wait(20)
+    if vim.api.nvim_win_is_valid(original_win) then
+      vim.api.nvim_set_current_win(original_win)
+    end
+
+    assert.is_true(listview.win == nil or not vim.api.nvim_win_is_valid(listview.win))
+    assert.is_true(preview.win == nil or not vim.api.nvim_win_is_valid(preview.win))
+    assert.is_true(TextView.ActiveTextView == nil or TextView.ActiveTextView.win == nil)
+  end)
+
+  it('should close a reused preview when the listview closes from the second item', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.view'] = nil
+    package.loaded['guihua.viewctrl'] = nil
+    package.loaded['guihua.listview'] = nil
+    package.loaded['guihua.listviewctrl'] = nil
+    package.loaded['guihua.textview'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local ListView = require('guihua.listview')
+    local TextView = require('guihua.textview')
+    local SessionRegistry = require('guihua.session_registry')
+    local original_win = vim.api.nvim_get_current_win()
+    local listview = ListView:new({
+      loc = 'top_center',
+      border = 'none',
+      prompt = true,
+      enter = true,
+      ft = 'go',
+      rect = { height = 2, width = 40 },
+      data = {
+        { text = 'one' },
+        { text = 'two' },
+      },
+      on_confirm = function(_) end,
+      on_move = function(item)
+        return TextView.preview_spec({
+          loc = 'top_center',
+          rect = { height = 3, width = 20 },
+          data = { 'local x = 1', item.text },
+          syntax = 'lua',
+        })
+      end,
+    })
+
+    local ctrl = listview:get_ctrl()
+    ctrl:on_item(1)
+    local first_preview = SessionRegistry.get(listview.session.id).preview_view
+    ctrl:on_item(2)
+
+    local preview = SessionRegistry.get(listview.session.id).preview_view
+    eq(first_preview, preview)
+    assert.is_true(preview ~= nil)
+    assert.is_true(vim.api.nvim_win_is_valid(preview.win))
+
+    if vim.api.nvim_win_is_valid(original_win) then
+      vim.api.nvim_set_current_win(original_win)
+    end
+    vim.api.nvim_win_close(listview.win, true)
+    vim.wait(20)
+    if vim.api.nvim_win_is_valid(original_win) then
+      vim.api.nvim_set_current_win(original_win)
+    end
+
+    assert.is_true(preview.win == nil or not vim.api.nvim_win_is_valid(preview.win))
+    assert.is_true(TextView.ActiveTextView == nil or TextView.ActiveTextView.win == nil)
+  end)
+
+  it('should build select previews from item preview content', function()
+    package.loaded['guihua'] = nil
+    package.loaded['guihua.gui'] = nil
+    package.loaded['guihua.listview'] = nil
+    package.loaded['guihua.listviewctrl'] = nil
+    package.loaded['guihua.textview'] = nil
+    package.loaded['guihua.session_registry'] = nil
+    vim.cmd('packadd guihua.lua')
+
+    local gui = require('guihua.gui')
+    local SessionRegistry = require('guihua.session_registry')
+    local listview = gui.select({
+      { text = 'alpha', value = 'alpha', preview = '# Alpha\nfirst line' },
+      { text = 'beta', value = 'beta', preview = { '# Beta', 'second line' } },
+    }, {
+      prompt = 'Choose item',
+      ft = 'guihua',
+      preview_ft = 'markdown',
+    }, function(_) end)
+
+    local ctrl = listview:get_ctrl()
+    ctrl:on_item(1)
+
+    local preview = SessionRegistry.get(listview.session.id).preview_view
+    assert.is_truthy(preview ~= nil)
+    local lines = vim.api.nvim_buf_get_lines(preview.buf, 0, -1, false)
+    assert.is_truthy(table.concat(lines, '\n'):find('# Alpha', 1, true))
+    assert.is_truthy(table.concat(lines, '\n'):find('first line', 1, true))
+
+    ctrl:on_item(2)
+    preview = SessionRegistry.get(listview.session.id).preview_view
+    lines = vim.api.nvim_buf_get_lines(preview.buf, 0, -1, false)
+    assert.is_truthy(table.concat(lines, '\n'):find('# Beta', 1, true))
+    assert.is_truthy(table.concat(lines, '\n'):find('second line', 1, true))
+
+    listview:close()
+  end)
+end)

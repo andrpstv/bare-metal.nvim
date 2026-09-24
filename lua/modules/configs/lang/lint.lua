@@ -5,6 +5,24 @@ return function()
 		go = { "golangcilint" },
 	}
 
+	-- PERF: ленивая загрузка golangcilint линтера только при первом запуске.
+	-- Это избегает 150ms require('lint.linters.golangcilint') при открытии файла.
+	local golangcilint_loaded = false
+	local original_try_lint = lint.try_lint
+	lint.try_lint = function(...)
+		local args = { ... }
+		if not golangcilint_loaded and vim.fn.executable("golangci-lint") == 1 then
+			-- Загружаем конфиг линтера асинхронно при первом вызове
+			vim.schedule(function()
+				lint.linters.golangcilint.ignore_exitcode = true
+				golangcilint_loaded = true
+				original_try_lint(unpack(args))
+			end)
+			return
+		end
+		return original_try_lint(unpack(args))
+	end
+
 	-- Без mason: golangci-lint ставится системно (go install / brew).
 	-- Нет бинарника — нет линта, молча.
 	if vim.fn.executable("golangci-lint") ~= 1 then
@@ -15,8 +33,6 @@ return function()
 		)
 		return
 	end
-
-	lint.linters.golangcilint.ignore_exitcode = true
 
 	-- PERF: линт только по сохранению. BufEnter/InsertLeave устраивали
 	-- 1-2 конкурентных golangci-lint на каждое открытие (включая stdlib).

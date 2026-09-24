@@ -1,24 +1,112 @@
 _G._command_panel = function()
-	_G._fzf("commands")
+	_G._pick_extra("commands")
 end
 
--- Безопасный вызов fzf-lua: догружает плагин через lazy, если он ещё спит.
--- Без этого require("fzf-lua") падает с "module not found" до первой загрузки.
----@param fn string @имя пикера, например "files"
----@param opts table|fun(fzf: table):table|nil
-_G._fzf = function(fn, opts)
+-- Безопасный вызов mini.pick / mini.extra: догружает mini.nvim через distro loader.
+-- Ноль внешних зависимостей (rg/git опционально ускоряют builtin-пикеры).
+local function _pick_ensure()
 	pcall(function()
-		require("lazy").load({ plugins = { "fzf-lua" } })
+		require("distro.loader").load("mini.nvim")
 	end)
-	local ok, fzf = pcall(require, "fzf-lua")
-	if not ok or type(fzf[fn]) ~= "function" then
-		vim.notify("[fzf] picker unavailable: " .. fn, vim.log.levels.ERROR, { title = "fzf" })
+	local ok, pick = pcall(require, "mini.pick")
+	if not ok then
+		vim.notify("[pick] mini.pick unavailable", vim.log.levels.ERROR, { title = "pick" })
+		return nil
+	end
+	return pick
+end
+
+---Builtin-пикер mini.pick: files, grep_live, buffers, help, oldfiles, resume.
+---@param fn string
+---@param opts table|nil
+_G._pick = function(fn, opts)
+	local pick = _pick_ensure()
+	if not pick then
 		return
 	end
-	if type(opts) == "function" then
-		opts = opts(fzf)
+	if type(pick.builtin[fn]) ~= "function" then
+		vim.notify("[pick] unknown builtin picker: " .. fn, vim.log.levels.ERROR, { title = "pick" })
+		return
 	end
-	fzf[fn](opts)
+	pick.builtin[fn](opts)
+end
+
+---Пикеры mini.extra (тот же монорепо): commands, buf_lines, git_branches, history...
+---@param fn string
+---@param opts table|nil
+_G._pick_extra = function(fn, opts)
+	if not _pick_ensure() then
+		return
+	end
+	local ok, extra = pcall(require, "mini.extra")
+	if not ok or type(extra.pickers[fn]) ~= "function" then
+		vim.notify("[pick] unknown extra picker: " .. fn, vim.log.levels.ERROR, { title = "pick" })
+		return
+	end
+	extra.pickers[fn](opts)
+end
+
+---LSP через mini.extra: definition|references|implementation|type_definition|
+---document_symbol|workspace_symbol_live. opts.jump1: один результат — прыгнуть сразу.
+---@param scope string
+---@param opts table|nil
+_G._pick_lsp = function(scope, opts)
+	opts = opts or {}
+	if not _pick_ensure() then
+		return
+	end
+	if opts.jump1 then
+		local method = "textDocument/" .. (scope == "type_definition" and "typeDefinition" or scope == "references" and "references" or scope == "implementation" and "implementation" or "definition")
+		local params = vim.lsp.util.make_position_params(0, "utf-16")
+		local resp = vim.lsp.buf_request_sync(0, method, params, 2000)
+		local locs = {}
+		for _, res in pairs(resp or {}) do
+			local r = res.result
+			if r then
+				if r.uri then
+					locs[#locs + 1] = r
+				else
+					vim.list_extend(locs, r)
+				end
+			end
+		end
+		if #locs == 1 then
+			local item = vim.lsp.util.locations_to_items(locs, "utf-16")[1]
+			if item then
+				vim.cmd.edit(vim.fn.fnameescape(item.filename))
+				pcall(vim.api.nvim_win_set_cursor, 0, { item.lnum, item.col - 1 })
+				return
+			end
+		elseif #locs == 0 then
+			vim.notify("[lsp] no results for " .. scope, vim.log.levels.INFO, { title = "lsp" })
+			return
+		end
+		-- 2+ результатов: падаем в пикер ниже
+	end
+	local ok, extra = pcall(require, "mini.extra")
+	if not ok then
+		vim.notify("[pick] mini.extra unavailable", vim.log.levels.ERROR, { title = "pick" })
+		return
+	end
+	extra.pickers.lsp({ scope = scope })
+end
+
+---Grep по визуальному выделению (первая строка, буквально).
+_G._pick_grep_visual = function()
+	local pick = _pick_ensure()
+	if not pick then
+		return
+	end
+	local a = vim.fn.getpos("v")
+	local b = vim.fn.getpos(".")
+	local ok, lines = pcall(vim.fn.getregion, a, b, { type = vim.fn.visualmode() })
+	local text = ok and lines and lines[1] or nil
+	text = text and text:match("^%s*(.-)%s*$") or ""
+	if text == "" then
+		vim.notify("[pick] select text first", vim.log.levels.WARN, { title = "pick" })
+		return
+	end
+	pick.builtin.grep({ pattern = text, method = "plain" })
 end
 
 _G._flash_esc_or_noh = function()
@@ -358,6 +446,9 @@ local _stl_mode_hl = {
 }
 
 local _stl_size_cache = {}
+local _stl_lsp_cache = {}
+local _stl_git_cache = {}
+
 local function _stl_human_size()
 	local bufname = vim.api.nvim_buf_get_name(0)
 	-- Кэш на BufEnter/BufWritePost: getfsize = stat syscall на каждый redraw.
@@ -381,10 +472,60 @@ local function _stl_human_size()
 	_stl_size_cache = { [key] = out }
 	return out
 end
--- Инвалидация кэша размера на входе/записи буфера.
+
+local function _stl_get_lsp_names(bufnr)
+	bufnr = bufnr or 0
+	local cached = _stl_lsp_cache[bufnr]
+	if cached then
+		return cached
+	end
+	local names = {}
+	for _, c in ipairs(vim.lsp.get_clients({ bufnr = bufnr })) do
+		names[#names + 1] = c.name
+	end
+	_stl_lsp_cache[bufnr] = names
+	return names
+end
+
+local function _stl_get_git_status(bufnr)
+	bufnr = bufnr or 0
+	local cached = _stl_git_cache[bufnr]
+	if cached then
+		return cached
+	end
+	local gsd = vim.b[bufnr].gitsigns_status_dict
+	if not (gsd and gsd.head and gsd.head ~= "") then
+		_stl_git_cache[bufnr] = nil
+		return nil
+	end
+	local g = { "  " .. gsd.head }
+	local a, r, ch = gsd.added or 0, gsd.removed or 0, gsd.changed or 0
+	if a + r + ch > 0 then
+		local cnt = {}
+		if a > 0 then cnt[#cnt + 1] = "+" .. a end
+		if r > 0 then cnt[#cnt + 1] = "-" .. r end
+		if ch > 0 then cnt[#cnt + 1] = "~" .. ch end
+		g[#g + 1] = " (%#Comment#" .. table.concat(cnt, " ") .. "%*)"
+	end
+	local result = table.concat(g) .. " "
+	_stl_git_cache[bufnr] = result
+	return result
+end
+
+-- Инвалидация кэшей.
 pcall(vim.api.nvim_create_autocmd, { "BufEnter", "BufWritePost" }, {
 	callback = function()
 		vim.b.stl_size_tick = (vim.b.stl_size_tick or 0) + 1
+	end,
+})
+pcall(vim.api.nvim_create_autocmd, { "LspAttach", "LspDetach" }, {
+	callback = function(args)
+		_stl_lsp_cache[args.buf] = nil
+	end,
+})
+pcall(vim.api.nvim_create_autocmd, { "BufWritePost", "FocusGained", "BufEnter" }, {
+	callback = function(args)
+		_stl_git_cache[args.buf] = nil
 	end,
 })
 
@@ -443,35 +584,17 @@ _G._statusline = function()
 			d[#d + 1] = " ]"
 			parts[#parts + 1] = " " .. table.concat(d)
 		end
-		-- LSP-серверы.
-		local names = {}
-		for _, c in ipairs(vim.lsp.get_clients({ bufnr = 0 })) do
-			names[#names + 1] = c.name
-		end
+		-- LSP-серверы (cached).
+		local names = _stl_get_lsp_names(0)
 		if #names > 0 then
 			parts[#parts + 1] = " [" .. table.concat(names, " ") .. "]"
 		end
 		parts[#parts + 1] = "%="
-		-- Ruler + git + meta.
+		-- Ruler + git (cached) + meta.
 		parts[#parts + 1] = "%5(%l:%c%) "
-		local gsd = vim.b.gitsigns_status_dict
-		if gsd and gsd.head and gsd.head ~= "" then
-			local g = { "  " .. gsd.head }
-			local a, r, ch = gsd.added or 0, gsd.removed or 0, gsd.changed or 0
-			if a + r + ch > 0 then
-				local cnt = {}
-				if a > 0 then
-					cnt[#cnt + 1] = "+" .. a
-				end
-				if r > 0 then
-					cnt[#cnt + 1] = "-" .. r
-				end
-				if ch > 0 then
-					cnt[#cnt + 1] = "~" .. ch
-				end
-				g[#g + 1] = " (%#Comment#" .. table.concat(cnt, " ") .. "%*)"
-			end
-			parts[#parts + 1] = table.concat(g) .. " "
+		local git_status = _stl_get_git_status(0)
+		if git_status then
+			parts[#parts + 1] = git_status
 		end
 		parts[#parts + 1] = "(%L " .. _stl_human_size() .. ")"
 		return table.concat(parts, " ")
