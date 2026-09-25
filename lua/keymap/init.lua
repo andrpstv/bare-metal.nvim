@@ -1,4 +1,7 @@
 require("keymap.helpers")
+require("keymap.pick")
+require("keymap.go_assign")
+require("keymap.statusline")
 
 local map = vim.keymap.set
 local cr = function(cmd)
