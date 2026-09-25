@@ -120,6 +120,15 @@ settings["search_backend"] = "pick"
 ---@type boolean
 settings["lsp_inlayhints"] = true
 
+-- Signature help window, codelens setup, treesitter indent.
+-- NVIM_MINIMAL=1 forces all three off (see bottom overrides).
+---@type boolean
+settings["signature_enabled"] = true
+---@type boolean
+settings["codelens_enabled"] = true
+---@type boolean
+settings["treesitter_indent"] = true
+
 -- LSPs to enable. Бинарники ставятся системно (go install / brew), без mason.
 -- Full list: https://github.com/neovim/nvim-lspconfig/tree/master/lua/lspconfig/configs
 ---@type string[]
@@ -136,6 +145,32 @@ settings["gopls_debounce"] = 150
 -- gopls: fieldalignment analysis (memory-layout holes). Expensive on weak PCs.
 ---@type boolean
 settings["gopls_fieldalignment"] = true
+
+-- gopls: codelens set. Disable unused ones on weak PCs (faster initialize,
+-- fewer background requests). Keys: generate, gc_details, test, tidy, vendor,
+-- regenerate_cgo, upgrade_dependency, organizeImports.
+---@type table<string, boolean>
+settings["gopls_codelenses"] = {
+	generate = true,
+	gc_details = true,
+	test = true,
+	tidy = true,
+	vendor = true,
+	regenerate_cgo = true,
+	upgrade_dependency = true,
+	organizeImports = true,
+}
+
+-- gopls: semantic tokens (overlaps treesitter highlight) and unimported
+-- completion. Disabling either lightens gopls on weak PCs.
+---@type boolean
+settings["gopls_semantic_tokens"] = true
+---@type boolean
+settings["gopls_complete_unimported"] = true
+
+-- Minimal mode (NVIM_MINIMAL=1 env): pager-like nvim. Disables inlay hints,
+-- codelens setup, signature window and treesitter indent. Highlight stays.
+-- Applied as overrides below (after user.settings merge).
 
 -- Treesitter tiers (perf): full below full_lines, highlight-only below
 -- lite_lines (vim indent, manual folds), off above. Override per buffer
@@ -283,4 +318,13 @@ settings["chat_models"] = {
 	"anthropic/claude-sonnet-4",
 }
 
-return require("modules.utils").extend_config(settings, "user.settings")
+return (function()
+	local merged = require("modules.utils").extend_config(settings, "user.settings")
+	if vim.env.NVIM_MINIMAL == "1" then
+		merged.lsp_inlayhints = false
+		merged.signature_enabled = false
+		merged.codelens_enabled = false
+		merged.treesitter_indent = false
+	end
+	return merged
+end)()

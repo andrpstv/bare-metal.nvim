@@ -55,5 +55,8 @@ return function()
 	pcall(require, "user.configs.lsp")
 
 	-- Липкая сигнатура без плагинов (своя, см. completion.signature).
-	require("completion.signature").setup()
+	-- NVIM_MINIMAL=1 выключает (см. низ core/settings.lua).
+	if require("core.settings").signature_enabled ~= false then
+		require("completion.signature").setup()
+	end
 end

@@ -187,3 +187,15 @@ per `neovim-tui-qa` skill. No `--headless` for interactive checks.
   `__call`-table setup; LuaJIT `table.unpack`; nvim-lint opts shape; kill-probe;
   manifest python-edit commas; `ver_args` for go tools.
 - `NVIM_DISTRO_SYNC=1` added (deterministic sync override for CI/scripts).
+
+## Round 12 (2026-09-24, medium package: gopls flags, NVIM_MINIMAL, :DistroBench)
+
+- 1.1 theme split SKIPPED honestly: black-metal setup costs 2.6ms and is
+  inseparable from the colorscheme itself (setup == colors). No code change.
+- gopls diet flags added (codelenses table, semanticTokens, completeUnimported,
+  debounce, fieldalignment) — all default to current behavior (verified headless).
+- NVIM_MINIMAL=1 verified: inlay/signature/codelens/indent off, clean boot.
+- :DistroBench (pure Lua, Windows-safe): session age, child-process open times
+  (clean vs ours, .txt to avoid gopls noise), in-session gd/gr RTT. TUI-verified
+  with screenshot (small +84ms, big +88ms vs clean; RTT 0/0ms).
+- sh bench gained --cold (Linux drop_caches, degrades honestly without sudo).

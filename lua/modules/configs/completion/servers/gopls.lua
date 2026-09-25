@@ -1,5 +1,6 @@
 -- https://github.com/neovim/nvim-lspconfig/blob/master/lua/lspconfig/configs/gopls.lua
 local settings = require("core.settings")
+local cl = settings.gopls_codelenses or {}
 return {
 	-- PERF: штатный root_dir lspconfig дергает `go env` 2-4 раза на каждый аттач;
 	-- заменяем чистым поиском маркеров без внешних процессов.
@@ -39,9 +40,9 @@ return {
 			gofumpt = true,
 			-- PERF: staticcheck на больших файлах заметно утяжеляет диагностику gopls.
 			staticcheck = false,
-			semanticTokens = true,
+			semanticTokens = settings.gopls_semantic_tokens ~= false,
 			usePlaceholders = true,
-			completeUnimported = true,
+			completeUnimported = settings.gopls_complete_unimported ~= false,
 			symbolMatcher = "Fuzzy",
 			buildFlags = { "-tags", "integration" },
 			semanticTokenTypes = { string = false },
@@ -56,14 +57,14 @@ return {
 				httpresponse = true, -- незакрытые http response body
 			},
 			codelenses = {
-				generate = true,
-				gc_details = true,
-				test = true,
-				tidy = true,
-				vendor = true,
-				regenerate_cgo = true,
-				upgrade_dependency = true,
-				organizeImports = true,
+				generate = cl.generate ~= false,
+				gc_details = cl.gc_details ~= false,
+				test = cl.test ~= false,
+				tidy = cl.tidy ~= false,
+				vendor = cl.vendor ~= false,
+				regenerate_cgo = cl.regenerate_cgo ~= false,
+				upgrade_dependency = cl.upgrade_dependency ~= false,
+				organizeImports = cl.organizeImports ~= false,
 			},
 		},
 	},

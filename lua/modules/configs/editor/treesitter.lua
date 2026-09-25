@@ -67,7 +67,7 @@ return vim.schedule_wrap(function()
 		indent = {
 			enable = true,
 			disable = function(_, bufnr)
-				return ts_tier(bufnr) ~= "full"
+				return settings.treesitter_indent == false or ts_tier(bufnr) ~= "full"
 			end,
 		},
 	}, false, require("nvim-treesitter.configs").setup)

@@ -211,7 +211,8 @@ function M.lsp(buf)
 	-- Codelens gopls (run test, generate, tidy...): обновляем тихо,
 	-- показываются виртуал-текстом над функциями.
 	-- Гард от дублей на :LspRestart (каждый LspAttach звал бы setup заново).
-	if not vim.b[buf].codelens_setup then
+	-- NVIM_MINIMAL=1 пропускает целиком.
+	if require("core.settings").codelens_enabled ~= false and not vim.b[buf].codelens_setup then
 		vim.b[buf].codelens_setup = true
 		local codelens_group = vim.api.nvim_create_augroup("LspCodelensRefresh", { clear = false })
 		-- Один таймер на буфер: шторм BufEnter/InsertLeave не должен слать

@@ -126,6 +126,10 @@ function M.setup()
 		vim.notify(msg, ok and vim.log.levels.INFO or vim.log.levels.WARN)
 	end, { nargs = "?", desc = "distro: parsers (confirm-gated)" })
 
+	vim.api.nvim_create_user_command("DistroBench", function()
+		require("distro.bench").run()
+	end, { desc = "distro: benchmark this machine (open times, gd/gr RTT)" })
+
 	vim.api.nvim_create_user_command("DistroBinaries", function()
 		require("distro.tools").open_binaries()
 	end, { desc = "distro: binaries menu (LSP, linters, formatters)" })
