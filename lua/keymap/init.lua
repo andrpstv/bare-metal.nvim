@@ -46,14 +46,14 @@ require("keymap.ui")
 -- Сносим ГЛОБАЛЬНЫЕ дефолты 0.11 (vim/_defaults.lua ставит их всегда,
 -- не только в LSP-буферах): grn/grr/gri/gra/grt душат bare `gr`
 -- ожиданием timeoutlen. Наши замены: gr/gi/ga/gy (pick), rename на <leader>rn.
--- Удаляем и сразу, и на VimEnter — порядок загрузки дефолтов не гарантирован.
+-- Только на VimEnter: порядок загрузки дефолтов не гарантирован, ранний вызов
+-- молча ничего не удаляет и лишь дублирует работу.
 local function _del_lsp_defaults()
 	for _, lhs in ipairs({ "grn", "grr", "gri", "gra", "grt" }) do
 		pcall(vim.keymap.del, "n", lhs)
 	end
 	pcall(vim.keymap.del, "x", "gra")
 end
-_del_lsp_defaults()
 vim.api.nvim_create_autocmd("VimEnter", {
 	once = true,
 	callback = _del_lsp_defaults,

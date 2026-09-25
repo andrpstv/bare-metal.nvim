@@ -53,6 +53,14 @@ function M.write(tbl)
 	end
 	f:write(vim.json.encode(tbl))
 	f:close()
+	-- fsync before rename: crash between write and rename must not leave a torn lock
+	pcall(function()
+		local fd = vim.uv.fs_open(tmp, "r", 438)
+		if fd then
+			vim.uv.fs_fsync(fd)
+			vim.uv.fs_close(fd)
+		end
+	end)
 	if vim.uv.fs_stat(tmp) and not os.rename(tmp, p) then
 		return false, "Cannot replace " .. p .. " (permission denied). No changes made."
 	end
