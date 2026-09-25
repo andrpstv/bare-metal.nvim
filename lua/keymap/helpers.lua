@@ -64,7 +64,10 @@ _G._pick_lsp = function(scope, opts)
 		local params = vim.lsp.util.make_position_params(0, "utf-16")
 		-- Async: никогда не фризим UI (раньше buf_request_sync(2000) висел на висящем gopls).
 		-- Сторож: если ответа нет 2с — предупреждаем (раньше это делал сам timeout sync).
+		-- Анти-телепорт: прыгаем только если курсор не ушёл (холодный gopls на
+		-- внешних либах отвечает через секунды); иначе — в пикер, без сюрпризов.
 		local req_buf = vim.api.nvim_get_current_buf()
+		local req_pos = vim.api.nvim_win_get_cursor(0)
 		local responded = false
 		vim.defer_fn(function()
 			if not responded and vim.api.nvim_buf_is_valid(req_buf) then
@@ -89,9 +92,14 @@ _G._pick_lsp = function(scope, opts)
 				local ok_item, item = pcall(vim.lsp.util.locations_to_items, locs, "utf-16")
 				item = ok_item and item[1] or nil
 				if item then
-					vim.cmd.edit(vim.fn.fnameescape(item.filename))
-					pcall(vim.api.nvim_win_set_cursor, 0, { item.lnum, item.col - 1 })
-					return
+					local cur = vim.api.nvim_win_get_cursor(0)
+					if vim.api.nvim_get_current_buf() == req_buf and cur[1] == req_pos[1] and cur[2] == req_pos[2] then
+						vim.cmd.edit(vim.fn.fnameescape(item.filename))
+						pcall(vim.api.nvim_win_set_cursor, 0, { item.lnum, item.col - 1 })
+						return
+					end
+					-- Курсор ушёл, пока gopls думал: не телепортируем, показываем пикер.
+					vim.notify("[lsp] result arrived after you moved — opening picker", vim.log.levels.INFO, { title = "lsp" })
 				end
 			elseif #locs == 0 then
 				vim.notify("[lsp] no results for " .. scope, vim.log.levels.INFO, { title = "lsp" })

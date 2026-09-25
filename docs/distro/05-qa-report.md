@@ -260,3 +260,14 @@ per `neovim-tui-qa` skill. No `--headless` for interactive checks.
   keymaps + hover/definition untouched.
 - Verified TUI: mod-cache file → `inlay_on=false clients=1`, zero metadata
   errors in :messages; normal Go file → `inlay_on=true` (no regression).
+
+## Round 18 (2026-09-24, gd on external libs + anti-teleport)
+
+- Report: `gd` on mod-cache files (mongo-driver, temporal .pb.go) hangs with
+  "slow response / gopls busy" — cold gopls without package metadata is slow
+  there (message.pb.go is only 2246 lines: under large-file guard by design).
+- Fix (`keymap/helpers.lua` jump1): capture cursor at request; late single
+  result jumps ONLY if cursor unmoved, else notify + picker (no teleport).
+- Note: first garbled message in the report was the old InlayHint bug —
+  already fixed in 26d6764 (pull master).
+- Verified TUI: warm `gd` 10:16 → 5:6 still jumps instantly.
