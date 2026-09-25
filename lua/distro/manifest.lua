@@ -11,7 +11,7 @@ M.plugins = {
 	{ name = "black-metal-theme-neovim", repo = "metalelf0/black-metal-theme-neovim", ref = "3a5522fbc7127c638ac8a98692cb83bbdf3594a9", branch = "main", kind = "start", config = "themes.black-metal-khold", strip = true },
 	{ name = "nvim-web-devicons", repo = "nvim-tree/nvim-web-devicons", ref = "914decffe650296c87312c53b7933ecb86718499", branch = "master", kind = "start", strip = true },
 	-- UI: lazy
-	{ name = "gitsigns.nvim", repo = "lewis6991/gitsigns.nvim", ref = "8d79f2410c76e62b92e51c28c82e28c1c5a3daeb", branch = "main", kind = "opt", event = { "CursorHold", "CursorHoldI" }, config = "ui.gitsigns", strip = true },
+	{ name = "gitsigns.nvim", repo = "lewis6991/gitsigns.nvim", ref = "8d79f2410c76e62b92e51c28c82e28c1c5a3daeb", branch = "main", kind = "opt", defer_idle = true, event = { "BufReadPost" }, config = "ui.gitsigns", strip = true },
 	-- Completion
 	{ name = "nvim-lspconfig", repo = "neovim/nvim-lspconfig", ref = "ffd261c09c3dabd0bf1a438f47a8ae3b22f3c3ff", branch = "master", kind = "opt", defer_idle = true, event = { "BufReadPre", "BufNewFile" }, config = "completion.lsp", strip = true },
 	{
