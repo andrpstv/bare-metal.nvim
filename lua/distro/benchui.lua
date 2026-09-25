@@ -127,6 +127,90 @@ function M.run()
 	end)
 	lines[#lines + 1] = string.format(" float render+open (x3 best):   %s", fmt(float_ms))
 
+	-- 7. file open render: :edit + :redraw!, cold (bwipeout first) vs warm.
+	-- Cold pays disk read + FileType chain; warm pays re-read + redraw.
+	-- Compares directly against clean nvim (there: read + redraw only).
+	local function test_file(name, nlines)
+		local dir = vim.fn.stdpath("cache") .. "/distro-bench"
+		vim.fn.mkdir(dir, "p")
+		local p = dir .. "/" .. name
+		if vim.fn.filereadable(p) ~= 1 then
+			local f = assert(io.open(p, "w"))
+			for i = 1, nlines do
+				f:write(string.format("line %06d " .. string.rep("x", 40) .. "\n", i))
+			end
+			f:close()
+		end
+		return p
+	end
+	local function wipe_by_name(path)
+		for _, b in ipairs(vim.api.nvim_list_bufs()) do
+			if vim.api.nvim_buf_get_name(b) == path then
+				pcall(vim.cmd, "bwipeout! " .. b)
+			end
+		end
+	end
+	local function open_render(path, cold)
+		if cold then
+			wipe_by_name(path)
+		end
+		local t0 = vim.uv.hrtime()
+		local ok = pcall(vim.cmd, "edit " .. vim.fn.fnameescape(path))
+		if not ok then
+			return nil
+		end
+		pcall(vim.cmd, "redraw!")
+		return ms(t0)
+	end
+	for _, item in ipairs({ { "open small cold", "open-small.txt", 100, true }, { "open small warm", "open-small.txt", 100, false }, { "open big cold", "open-big.txt", 20000, true }, { "open big warm", "open-big.txt", 20000, false } }) do
+		local label, fname, nlines, cold = item[1], item[2], item[3], item[4]
+		local p = test_file(fname, nlines)
+		local best = nil
+		for _ = 1, cold and 1 or 3 do
+			local dt = open_render(p, cold)
+			if dt and (not best or dt < best) then
+				best = dt
+			end
+		end
+		lines[#lines + 1] = string.format(" %-28s %s", label .. ":", best and fmt(best) or "n/a")
+	end
+
+	-- 8. buffer switch render: alternate two loaded buffers + redraw.
+	do
+		local f1 = test_file("open-small.txt", 100)
+		local f2 = test_file("open-big.txt", 20000)
+		pcall(vim.cmd, "edit " .. vim.fn.fnameescape(f1))
+		pcall(vim.cmd, "edit " .. vim.fn.fnameescape(f2))
+		local best = avg(3, function()
+			pcall(vim.cmd, "bprev")
+			pcall(vim.cmd, "redraw!")
+			pcall(vim.cmd, "bnext")
+			pcall(vim.cmd, "redraw!")
+		end)
+		-- avg wraps the pair; halve for per-switch
+		lines[#lines + 1] = string.format(" buffer switch + redraw:        %s", best and fmt(best / 2) or "n/a")
+	end
+
+	-- 9. hotkey-to-picker: <leader>ff equivalent, time until picker visible.
+	-- MiniPick.builtin.* is a BLOCKING modal loop, so a plain call would hang
+	-- the bench: queue <Esc> into typeahead first; the loop consumes it right
+	-- after first render and aborts. Measured ~= open + first draw + abort.
+	do
+		local pick_ms = nil
+		if _G._pick ~= nil then
+			local t0 = vim.uv.hrtime()
+			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "t", false)
+			local ok = pcall(_G._pick, "files")
+			if ok then
+				pick_ms = ms(t0)
+			end
+			pcall(function()
+				require("mini.pick").stop()
+			end)
+		end
+		lines[#lines + 1] = string.format(" hotkey files-picker visible:   %s", pick_ms and fmt(pick_ms) or "n/a (pick unavailable)")
+	end
+
 	-- restore layout
 	pcall(vim.api.nvim_set_current_win, cur_win)
 	if vim.api.nvim_buf_is_valid(cur_buf) then

@@ -236,3 +236,16 @@ per `neovim-tui-qa` skill. No `--headless` for interactive checks.
 - Found & fixed: `:Distro` render did full `lock.read + status()` scan PER ROW
   (O(n²), ~5ms float). Now single pass threaded through (lock/status/remote).
 - Precision: µs display under 0.01ms; splits test uses `redraw!` (no early-out).
+
+## Round 16 (2026-09-24, :DistroBenchUI open-render + hotkeys)
+
+- Added open-render section: cold/warm :edit+:redraw! (small 100 lines, big 20k),
+  buffer switch, hotkey-to-picker. Numbers (this box): small 11.4/3.1ms,
+  big 11.8/8.7ms (large-file path exercised for real), switch 0.25ms,
+  files-picker visible 10.2ms.
+- Found & fixed (bench caught real bugs): MiniPick.builtin is a BLOCKING modal
+  loop — first version hung the bench until manual Esc; fixed by pre-feeding
+  <Esc> into typeahead (measured ~= open + first draw + abort).
+- Fixed: stale-session confusion during QA (typed cmdline vs picker focus);
+  bench now uses files only, no interactive typing.
+- Layout restore verified post-run (main.go buffer back, session closable).
