@@ -130,6 +130,10 @@ function M.setup()
 		require("distro.bench").run()
 	end, { desc = "distro: benchmark this machine (open times, gd/gr RTT)" })
 
+	vim.api.nvim_create_user_command("DistroBenchUI", function()
+		require("distro.benchui").run()
+	end, { desc = "distro: benchmark live UI render (statusline, redraw, splits, parse, folds, float)" })
+
 	vim.api.nvim_create_user_command("DistroBinaries", function()
 		require("distro.tools").open_binaries()
 	end, { desc = "distro: binaries menu (LSP, linters, formatters)" })

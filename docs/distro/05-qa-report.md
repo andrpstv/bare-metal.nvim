@@ -224,3 +224,15 @@ per `neovim-tui-qa` skill. No `--headless` for interactive checks.
   file events), manifest parse (needed), ShaDa limits (behavior price).
 - TUI paint: 152ms vs 151ms previous (within noise) — remaining sync costs are
   individually sub-noise; further wins need weaker hardware to matter.
+
+## Round 15 (2026-09-24, :DistroBenchUI + UI render O(n²) fix)
+
+- New `:DistroBenchUI` (pure Lua, Windows-safe): statusline/100, redraw!,
+  4-split redraw, TS parse, zx folds, :Distro float — best-of-N in a report float.
+  TUI-verified: statusline ~1–20µs (cached), redraw! 0.03–0.46ms, float ~3–5ms.
+- Honest scope stated in UI: Lua-side only, no GPU/vsync from inside.
+- Fixed Bentley: float/context restore hardened (splits closed selectively,
+  context restored before later tests); report buffer explains its own [No Name].
+- Found & fixed: `:Distro` render did full `lock.read + status()` scan PER ROW
+  (O(n²), ~5ms float). Now single pass threaded through (lock/status/remote).
+- Precision: µs display under 0.01ms; splits test uses `redraw!` (no early-out).

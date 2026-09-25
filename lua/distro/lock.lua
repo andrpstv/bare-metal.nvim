@@ -83,10 +83,16 @@ local function sentinel_ok(dir)
 end
 
 --- Fast local status. Never touches network.
+---@param pre_read table? optional lock.read() result (avoids double parse)
 ---@return table<string,string> map name -> installed|missing|outdated|corrupted|build-needed
-function M.status()
+function M.status(pre_read)
 	local manifest = require("distro.manifest")
-	local lock, lock_err = M.read()
+	local lock, lock_err
+	if pre_read then
+		lock, lock_err = pre_read, nil
+	else
+		lock, lock_err = M.read()
+	end
 	if lock_err == "invalid" then
 		-- lock unreadable AND backup unreadable: everything is suspect, say so loudly
 		local out = {}

@@ -23,9 +23,9 @@ local function ensure_hl()
 end
 M.ensure_hl = ensure_hl
 
-local function groups()
+local function groups(status)
 	local manifest = require("distro.manifest")
-	local status = require("distro.lock").status()
+	status = status or require("distro.lock").status()
 	local g = { missing = {}, outdated = {}, installed = {}, order = {} }
 	for _, p in ipairs(manifest.plugins) do
 		local st = status[p.name] or "missing"
@@ -42,13 +42,21 @@ local function groups()
 end
 
 --- Build one grid row. Returns text + highlight spans ({col0, col1, group}, byte cols).
+--- ctx = { lock = <lock.read() once>, remote = <read_remote_cache() once> }.
 ---@return string, table
-local function build_row(p, st, extra, NW, suffix)
+local function build_row(p, st, extra, NW, suffix, ctx)
+	ctx = ctx or {}
 	local short = p.ref:sub(1, 7)
-	local lock = require("distro.lock").read()[p.name]
+	local lock = (ctx.lock or require("distro.lock").read())[p.name]
 	-- "up to date" means: matches the pinned distro version (lock == manifest).
 	-- Upstream may still be ahead — that is shown as ↑<sha> (press X to refresh).
-	local up = require("distro.install").remote_newer(p.name, p.ref)
+	local up = nil
+	do
+		local e = (ctx.remote or require("distro.install").read_remote_cache())[p.name]
+		if e and e.remote_sha and e.remote_sha ~= p.ref then
+			up = e.remote_sha:sub(1, 7)
+		end
+	end
 	local label = st == "missing" and "not installed"
 		or st == "outdated" and "differs from pin — press U"
 		or st == "corrupted" and "corrupted — press R"
@@ -80,10 +88,11 @@ local function build_row(p, st, extra, NW, suffix)
 end
 
 --- Count of rows whose cached X-check found a newer upstream HEAD.
-local function upstream_count()
+local function upstream_count(cache)
 	local n = 0
 	for _, p in ipairs(require("distro.manifest").plugins) do
-		if require("distro.install").remote_newer(p.name, p.ref) then
+		local e = cache[p.name]
+		if e and e.remote_sha and e.remote_sha ~= p.ref then
 			n = n + 1
 		end
 	end
@@ -92,9 +101,14 @@ end
 
 function M.render()
 	local manifest = require("distro.manifest")
-	local g = groups()
+	-- single pass: lock + status + remote cache read ONCE (was: per row, O(n²))
+	local lock_tbl = require("distro.lock").read()
+	local status_tbl = require("distro.lock").status(lock_tbl)
+	local remote_tbl = require("distro.install").read_remote_cache()
+	local ctx = { lock = lock_tbl, remote = remote_tbl }
+	local g = groups(status_tbl)
 	local mirror = require("distro.mirror")
-	local up_n = upstream_count()
+	local up_n = upstream_count(remote_tbl)
 	-- line -> { type = "header"|"entry"|"catalog"|"text", section = ..., entry = ... }
 	-- Cursor-aware keys (i/u/d/r/x/Enter) resolve through this map.
 	local map = {}
@@ -140,19 +154,19 @@ function M.render()
 	sep()
 	header(string.format("Missing (%d)   [I] Install", #g.missing), "missing")
 	for _, p in ipairs(g.missing) do
-		local text, spans = build_row(p, (require("distro.lock").status()[p.name]), nil, NW)
+		local text, spans = build_row(p, status_tbl[p.name], nil, NW, nil, ctx)
 		add(text, { type = "entry", section = "missing", entry = p }, spans)
 	end
 	sep()
 	header(string.format("Needs attention (%d)   [U] Sync to pin  [R] Revert", #g.outdated), "outdated")
 	for _, p in ipairs(g.outdated) do
-		local text, spans = build_row(p, (require("distro.lock").status()[p.name]), nil, NW)
+		local text, spans = build_row(p, status_tbl[p.name], nil, NW, nil, ctx)
 		add(text, { type = "entry", section = "outdated", entry = p }, spans)
 	end
 	sep()
 	header(string.format("Installed (%d)", #g.installed), "installed")
 	for _, p in ipairs(g.installed) do
-		local text, spans = build_row(p, "installed", nil, NW)
+		local text, spans = build_row(p, "installed", nil, NW, nil, ctx)
 		add(text, { type = "entry", section = "installed", entry = p }, spans)
 	end
 	sep()
@@ -160,7 +174,7 @@ function M.render()
 	local loader = require("distro.loader")
 	for _, p in ipairs(manifest.catalog or {}) do
 		local present = loader.is_present(p)
-		local text, spans = build_row(p, present and "installed" or "missing", nil, NW, p.desc)
+		local text, spans = build_row(p, present and "installed" or "missing", nil, NW, p.desc, ctx)
 		add(text, { type = "catalog", section = "catalog", entry = p }, spans)
 	end
 	sep()
