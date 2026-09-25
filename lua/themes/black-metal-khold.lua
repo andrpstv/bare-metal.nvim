@@ -3,6 +3,30 @@ local M = {}
 M.plugin = "metalelf0/black-metal-theme-neovim"
 
 M.setup = function()
+	-- Paint-критично: только базовая colorscheme (быстро, без кастомной таблицы) —
+	-- первый кадр тёмный и корректный, без белого флэша.
+	-- Вся кастомизация ниже едет scheduled следом (1-2 кадра базовых цветов,
+	-- незаметно; headless — синхронно для детерминизма скриптов).
+	if pcall(vim.cmd, "colorscheme khold") then
+		vim.g.colors_name = vim.g.colors_name or "khold"
+	else
+		vim.notify("[theme] colorscheme khold failed — fallback habamax", vim.log.levels.ERROR)
+		pcall(vim.cmd, "colorscheme habamax")
+		return
+	end
+	local function apply_custom()
+		M.apply_custom()
+	end
+	if #vim.api.nvim_list_uis() == 0 then
+		apply_custom()
+	else
+		vim.schedule(apply_custom)
+	end
+end
+
+--- Полная кастомизация поверх базы (дорогая часть: ~90 highlights + load).
+--- Вызывается из setup() scheduled; напрямую — только из тестов/дебага.
+M.apply_custom = function()
 	-- Бленды в эстетике темы (считаем её же Util; фолбэк — руками).
 	local blend_ok, Util = pcall(require, "black-metal.util")
 	local function blend(fg, coeff, bg, fallback)

@@ -224,6 +224,14 @@ function M.boot()
 	vim.opt.packpath:prepend(cfg)
 	-- NOTE: без wildcard (rtp:append(".../*") замедлял каждый :runtime-поиск);
 	-- packadd сам правит rtp при загрузке, eager-старту хватает packpath.
+	-- Отключаем неиспользуемые builtin runtime-плагины (порт lazy.nvim
+	-- performance.rtp.disabled_plugins; сверено с кодом — ничего их не требует):
+	-- gzip/tarPlugin/zipPlugin (правка внутри архивов), tohtml (:TOhtml),
+	-- matchit (расширенный %; обычный matchparen жив и нужен).
+	-- netrw/spell/tutor/matchparen НЕ трогаем (используются).
+	for _, name in ipairs({ "gzip", "tarPlugin", "zipPlugin", "tohtml", "matchit" }) do
+		vim.g["loaded_" .. name] = 1
+	end
 	-- short requires used across configs: require("completion.lsp"),
 	-- require("editor.treesitter"), etc. (was append_nativertp in core/pack.lua)
 

@@ -199,3 +199,28 @@ per `neovim-tui-qa` skill. No `--headless` for interactive checks.
   (clean vs ours, .txt to avoid gopls noise), in-session gd/gr RTT. TUI-verified
   with screenshot (small +84ms, big +88ms vs clean; RTT 0/0ms).
 - sh bench gained --cold (Linux drop_caches, degrades honestly without sudo).
+
+## Round 13 (2026-09-24, "стало хуже?" — разбор)
+
+- Жалоба: headless wall вырос (48→75, 136→155) после рефактора.
+- Расследование: clean замедлился ровно так же (+24мс), loadavg ~4, висячие
+  tui-test демоны (убиты). Per-item self в startuptime идентичны или лучше.
+- Честный A/B: baseline e4d738b в git worktree vs main, подряд, одна нагрузка:
+  empty 119→77мс (-35%), go-file 293→164мс (-44%). Регрессии нет — наоборот.
+- Вывод: ранние цифры были шумом нагруженной машины + холодного кэша.
+  Для слабых ПК добавлен совет мерить через scripts/startup-bench.sh --cold.
+
+## Round 14 (2026-09-24, closing the clean gap: theme split + builtin disables)
+
+- Profiled phase-0 top sync costs (headless): core 4.6ms, event 0.84ms, manifest
+  0.76ms, distro.init 0.70ms, theme 0.87ms, keymaps ~0.9ms, ShaDa 1.45ms.
+- Theme split: `colorscheme khold` sync (no flash), ~90 custom highlights via
+  `M.apply_custom()` scheduled (headless: sync). Verified TUI: khold +
+  GitSignsAdd=#5f8787 after streaming.
+- Disabled unused builtins in loader.boot: gzip, tarPlugin, zipPlugin, tohtml,
+  matchit (netrw/spell/tutor/matchparen kept — verified in use).
+- Deliberately NOT touched (negative ROI, measured or reasoned): keymap/options
+  registration defer (~1ms, ordering risks), event autocmd defer (must predate
+  file events), manifest parse (needed), ShaDa limits (behavior price).
+- TUI paint: 152ms vs 151ms previous (within noise) — remaining sync costs are
+  individually sub-noise; further wins need weaker hardware to matter.
