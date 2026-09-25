@@ -55,6 +55,45 @@ _G._pick_lsp = function(scope, opts)
 	if not _pick_ensure() then
 		return
 	end
+	-- Честный текст ошибки сервера одной строкой (не "busy", если сервер ответил).
+	local function err_text(err)
+		local m = err and (err.message or (err.code and ("code " .. tostring(err.code)) or nil)) or nil
+		m = tostring(m or "unknown error"):gsub("%s+", " ")
+		return m:sub(1, 140)
+	end
+	-- Фолбэк для внешних либ (go/pkg/mod, GOROOT): gopls там часто отвечает
+	-- "no package metadata". Тогда ищем символ текстовым rg по пакету в quickfix.
+	-- Только для lib-буферов; в обычных файлах поведение прежнее.
+	local function lib_grep_fallback(bufnr, symbol)
+		if not symbol or symbol == "" then
+			return false
+		end
+		if vim.fn.executable("rg") ~= 1 then
+			return false
+		end
+		local fname = vim.api.nvim_buf_get_name(bufnr)
+		if not require("modules.utils").is_go_lib(fname) then
+			return false
+		end
+		local dir = vim.fn.fnamemodify(fname, ":p:h")
+		local out = vim.fn.systemlist({ "rg", "--vimgrep", "--no-heading", "-F", symbol, dir })
+		if vim.v.shell_error ~= 0 or #out == 0 then
+			return false
+		end
+		local items = {}
+		for _, line in ipairs(out) do
+			local f, l, c, text = line:match("^(.-):(%d+):(%d+):(.*)$")
+			if f then
+				items[#items + 1] = { filename = f, lnum = tonumber(l), col = tonumber(c), text = text }
+			end
+		end
+		if #items == 0 then
+			return false
+		end
+		vim.fn.setqflist({}, " ", { title = "lib refs: " .. symbol, items = items })
+		vim.cmd("copen")
+		return true
+	end
 	if opts.jump1 then
 		local method = "textDocument/" .. (scope == "type_definition" and "typeDefinition" or scope == "references" and "references" or scope == "implementation" and "implementation" or "definition")
 		if #vim.lsp.get_clients({ bufnr = 0, method = method }) == 0 then
@@ -68,6 +107,7 @@ _G._pick_lsp = function(scope, opts)
 		-- внешних либах отвечает через секунды); иначе — в пикер, без сюрпризов.
 		local req_buf = vim.api.nvim_get_current_buf()
 		local req_pos = vim.api.nvim_win_get_cursor(0)
+		local req_symbol = vim.fn.expand("<cword>")
 		local responded = false
 		vim.defer_fn(function()
 			if not responded and vim.api.nvim_buf_is_valid(req_buf) then
@@ -77,7 +117,11 @@ _G._pick_lsp = function(scope, opts)
 		vim.lsp.buf_request(0, method, params, function(err, result)
 			responded = true
 			if err then
-				vim.notify("[lsp] gopls busy (" .. scope .. ")", vim.log.levels.WARN, { title = "lsp" })
+				-- Сервер ответил ошибкой (не висение!): показываем её текст,
+				-- а для внешних либ пробуем текстовый фолбэк вместо пустоты.
+				if not lib_grep_fallback(req_buf, req_symbol) then
+					vim.notify("[lsp] " .. scope .. " failed: " .. err_text(err), vim.log.levels.WARN, { title = "lsp" })
+				end
 				return
 			end
 			local locs = {}
@@ -102,7 +146,9 @@ _G._pick_lsp = function(scope, opts)
 					vim.notify("[lsp] result arrived after you moved — opening picker", vim.log.levels.INFO, { title = "lsp" })
 				end
 			elseif #locs == 0 then
-				vim.notify("[lsp] no results for " .. scope, vim.log.levels.INFO, { title = "lsp" })
+				if not lib_grep_fallback(req_buf, req_symbol) then
+					vim.notify("[lsp] no results for " .. scope, vim.log.levels.INFO, { title = "lsp" })
+				end
 				return
 			end
 			-- 2+ результатов: падаем в пикер ниже
@@ -464,7 +510,9 @@ _G._go_assign_vars = function()
 		vim.lsp.buf_request(bufnr, "textDocument/hover", params, function(err, result)
 			responded = true
 			if err then
-				vim.notify("[go] gopls busy, try again", vim.log.levels.WARN, { title = "go" })
+				local m = err and (err.message or (err.code and ("code " .. tostring(err.code)) or nil)) or nil
+				m = tostring(m or "unknown error"):gsub("%s+", " "):sub(1, 140)
+				vim.notify("[go] hover failed: " .. m, vim.log.levels.WARN, { title = "go" })
 				return
 			end
 			local sig = sig_of(result)

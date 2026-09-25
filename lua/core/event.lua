@@ -44,15 +44,8 @@ local mapping = require("keymap.completion")
 -- Go module/stdlib files (pkg/mod, GOROOT): gopls attaches for goto-def/hover,
 -- but has NO package metadata there — inlayHint requests fail loudly.
 -- Defined early: used by LspAttach below AND by readonly guards at the bottom.
-local function is_go_lib(file)
-	return file:match("/go/pkg/mod/")
-		or file:match("/opt/homebrew/Cellar/go/")
-		or file:match("/opt/homebrew/opt/go/")
-		or file:match("/usr/local/go/")
-		or file:match("/usr/lib/go")
-		or file:match("\\go\\pkg\\mod\\")
-		or file:match("Program Files\\Go\\")
-end
+-- (Implementation lives in modules.utils so keymaps can share it.)
+local is_go_lib = require("modules.utils").is_go_lib
 vim.api.nvim_create_autocmd("LspAttach", {
 	group = vim.api.nvim_create_augroup("LspKeymapLoader", { clear = true }),
 	callback = function(event)

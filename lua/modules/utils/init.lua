@@ -332,6 +332,21 @@ function M.is_file_buffer(bufnr)
 	return scheme == nil or scheme == "file"
 end
 
+---True if the file lives in the Go module cache or toolchain (read-only libs).
+---gopls attaches there for goto-def/hover but has no package metadata.
+---@param file string
+---@return boolean
+function M.is_go_lib(file)
+	file = file or ""
+	return file:match("/go/pkg/mod/")
+		or file:match("/opt/homebrew/Cellar/go/")
+		or file:match("/opt/homebrew/opt/go/")
+		or file:match("/usr/local/go/")
+		or file:match("/usr/lib/go")
+		or file:match("\\go\\pkg\\mod\\")
+		or file:match("Program Files\\Go\\")
+end
+
 ---Convert number (0/1) to boolean
 ---@param value number @The value to check
 ---@return boolean|nil @Returns nil if failed

@@ -289,3 +289,16 @@ per `neovim-tui-qa` skill. No `--headless` for interactive checks.
   (didOpen/didChange/didSave flow normally).
 - Verified TUI, same repro: 0 watch errors (was 2), gopls attached (c=1),
   diagnostics flow.
+
+## Round 20 (2026-09-24, gd in mod-cache: misleading "busy" + lib fallback)
+
+- Root cause (measured): gopls answers definition INSIDE mod-cache files with a
+  FAST error (`no package metadata`, ~100ms) — not a hang. Old code reported
+  every error as "[lsp] gopls busy", hiding the reason.
+- `is_go_lib()` shared into `modules/utils` (was local dup in event.lua).
+- `_pick_lsp` jump1: truthful server message on error; on total failure inside
+  a go-lib buffer → rg textual search scoped to the package dir, results into
+  quickfix (`lib refs: <sym>`), auto-opened. Normal files unchanged.
+- Hover errors (`_go_assign_vars`) also show the server message now.
+- Verified: project→dep jump works (545ms); inside mod-cache, `gd` on
+  ClientOptions → quickfix with 270 usable entries (buflisted, jumpable).
