@@ -12,6 +12,14 @@ return {
 	filetypes = { "go", "gomod", "gosum", "gotmpl", "gohtmltmpl", "gotexttmpl" },
 	flags = { allow_incremental_sync = true, debounce_text_changes = settings.gopls_debounce or 150 },
 	capabilities = {
+		-- gopls шлёт client/registerCapability для didChangeWatchedFiles порой
+		-- на несуществующие пути (неразрешённые модули без go.sum): nvim тогда
+		-- падает в watch.watch ENOENT-нотифай. Отказываемся штатным путём —
+		-- рантайм сам игнорирует такие регистрации (см. _watchfiles.lua:50).
+		-- Цена: gopls не узнает о внешних изменениях файлов (git checkout,
+		-- go generate) до взаимодействия с буфером; открытые файлы шлют
+		-- didOpen/didChange/didSave как обычно.
+		workspace = { didChangeWatchedFiles = { dynamicRegistration = false } },
 		textDocument = {
 			completion = {
 				contextSupport = true,

@@ -271,3 +271,21 @@ per `neovim-tui-qa` skill. No `--headless` for interactive checks.
 - Note: first garbled message in the report was the old InlayHint bug —
   already fixed in 26d6764 (pull master).
 - Verified TUI: warm `gd` 10:16 → 5:6 still jumps instantly.
+
+## Round 19 (2026-09-24, watch.watch ENOENT on unresolved Go modules)
+
+- Report: `watch.watch: ENOENT: no such file or directory` (+ `[gopls] ?`) when
+  jumping into dependencies of a module without go.sum (also on direct open
+  of mod-cache files).
+- Root cause: gopls sends `client/registerCapability` for
+  `workspace/didChangeWatchedFiles` rooted at a nonexistent path; nvim runtime
+  (`vim/lsp/_watchfiles.lua` → `vim/_watch.lua:103`) fails `fs_event_start`
+  and notifies. Reproduced reliably: /tmp module without go.sum + `gd`.
+- Fix (`servers/gopls.lua` preset only): advertise
+  `workspace.didChangeWatchedFiles.dynamicRegistration = false` — the exact
+  opt-out the runtime honors (registrations ignored, no watch attempted).
+  Price: gopls won't learn about external file changes (git checkout,
+  go generate) until buffer interaction; open buffers unaffected
+  (didOpen/didChange/didSave flow normally).
+- Verified TUI, same repro: 0 watch errors (was 2), gopls attached (c=1),
+  diagnostics flow.
