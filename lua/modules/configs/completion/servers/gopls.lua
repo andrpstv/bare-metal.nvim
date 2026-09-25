@@ -1,4 +1,5 @@
 -- https://github.com/neovim/nvim-lspconfig/blob/master/lua/lspconfig/configs/gopls.lua
+local settings = require("core.settings")
 return {
 	-- PERF: штатный root_dir lspconfig дергает `go env` 2-4 раза на каждый аттач;
 	-- заменяем чистым поиском маркеров без внешних процессов.
@@ -8,7 +9,7 @@ return {
 	end,
 	cmd = { "gopls" },
 	filetypes = { "go", "gomod", "gosum", "gotmpl", "gohtmltmpl", "gotexttmpl" },
-	flags = { allow_incremental_sync = true, debounce_text_changes = 150 },
+	flags = { allow_incremental_sync = true, debounce_text_changes = settings.gopls_debounce or 150 },
 	capabilities = {
 		textDocument = {
 			completion = {
@@ -50,7 +51,8 @@ return {
 				unusedparams = true,
 				unusedwrite = true,
 				useany = true,
-				fieldalignment = true, -- структуры с дырками в памяти
+				-- Дорогой memory-анализ: выключается через settings.gopls_fieldalignment.
+				fieldalignment = settings.gopls_fieldalignment ~= false,
 				httpresponse = true, -- незакрытые http response body
 			},
 			codelenses = {

@@ -129,6 +129,22 @@ settings["lsp_deps"] = {
 	"gopls",
 }
 
+-- gopls: debounce text changes (ms). 150 default; 250+ on weak PCs / huge repos.
+---@type number
+settings["gopls_debounce"] = 150
+
+-- gopls: fieldalignment analysis (memory-layout holes). Expensive on weak PCs.
+---@type boolean
+settings["gopls_fieldalignment"] = true
+
+-- Treesitter tiers (perf): full below full_lines, highlight-only below
+-- lite_lines (vim indent, manual folds), off above. Override per buffer
+-- with :TreesitterTier (cycles full/lite/off). See 09-async-startup.md B1.
+---@type number
+settings["treesitter_full_lines"] = 2000
+---@type number
+settings["treesitter_lite_lines"] = 10000
+
 -- Treesitter parsers to install during bootstrap.
 -- Full list: https://github.com/nvim-treesitter/nvim-treesitter#supported-languages
 ---@type string[]
@@ -225,6 +241,11 @@ settings["distro_mirror"] = {
 	allowed_hosts = {},
 	allow_http = false,
 }
+
+-- Async startup streaming (variant A): heavy plugins load after first paint
+-- (scheduled) + idle preload. `false` restores byte-identical synchronous boot.
+---@type boolean
+settings["distro_defer"] = true
 
 -- Set it to false if you don't use AI chat functionality.
 ---@type boolean

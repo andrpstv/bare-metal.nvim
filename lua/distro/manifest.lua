@@ -13,13 +13,14 @@ M.plugins = {
 	-- UI: lazy
 	{ name = "gitsigns.nvim", repo = "lewis6991/gitsigns.nvim", ref = "8d79f2410c76e62b92e51c28c82e28c1c5a3daeb", branch = "main", kind = "opt", event = { "CursorHold", "CursorHoldI" }, config = "ui.gitsigns", strip = true },
 	-- Completion
-	{ name = "nvim-lspconfig", repo = "neovim/nvim-lspconfig", ref = "ffd261c09c3dabd0bf1a438f47a8ae3b22f3c3ff", branch = "master", kind = "opt", event = { "BufReadPre", "BufNewFile" }, config = "completion.lsp", strip = true },
+	{ name = "nvim-lspconfig", repo = "neovim/nvim-lspconfig", ref = "ffd261c09c3dabd0bf1a438f47a8ae3b22f3c3ff", branch = "master", kind = "opt", defer_idle = true, event = { "BufReadPre", "BufNewFile" }, config = "completion.lsp", strip = true },
 	{
 		name = "nvim-cmp",
 		repo = "hrsh7th/nvim-cmp",
 		ref = "2ffe79f1f021def8dd1fcd81deb16f1bb0d989f3",
 		branch = "main",
 		kind = "opt",
+		defer_idle = true,
 		event = { "InsertEnter", "CmdlineEnter" },
 		config = "completion.cmp",
 		strip = true,
@@ -30,15 +31,15 @@ M.plugins = {
 	-- jsregexp=558d5b567a8a6a391ec578f3e763f43fd4126abc,
 	-- jsregexp005=dd65498ae2c29b882d6c02c0a30577b08d660b94,
 	-- jsregexp006=b5a81e21d0875667ba2458ac8ae903afd5568698 (+ `make install_jsregexp`).
-	{ name = "LuaSnip", repo = "L3MON4D3/LuaSnip", ref = "0abc8f390b278c3b4aabc4c004ac8a088b65cf24", branch = "master", kind = "opt", build = "make install_jsregexp", config = "completion.luasnip", strip = false, needs = { bins = { "make", "cc" } }, deps = { "friendly-snippets" } },
-	{ name = "friendly-snippets", repo = "rafamadriz/friendly-snippets", ref = "b4d01b0fdf3c9a549961c2f9ffe8dc09be166219", branch = "main", kind = "opt", strip = true },
-	{ name = "cmp_luasnip", repo = "saadparwaiz1/cmp_luasnip", ref = "98d9cb5c2c38532bd9bdb481067b20fea8f32e90", branch = "master", kind = "opt", strip = true },
-	{ name = "cmp-nvim-lsp", repo = "hrsh7th/cmp-nvim-lsp", ref = "cbc7b02bb99fae35cb42f514762b89b5126651ef", branch = "main", kind = "opt", strip = true },
-	{ name = "cmp-path", repo = "hrsh7th/cmp-path", ref = "c642487086dbd9a93160e1679a1327be111cbc25", branch = "main", kind = "opt", strip = true },
-	{ name = "cmp-buffer", repo = "hrsh7th/cmp-buffer", ref = "b74fab3656eea9de20a9b8116afa3cfc4ec09657", branch = "main", kind = "opt", strip = true },
-	{ name = "cmp-cmdline", repo = "hrsh7th/cmp-cmdline", ref = "d126061b624e0af6c3a556428712dd4d4194ec6d", branch = "main", kind = "opt", strip = true },
+	{ name = "LuaSnip", repo = "L3MON4D3/LuaSnip", ref = "0abc8f390b278c3b4aabc4c004ac8a088b65cf24", branch = "master", kind = "opt", defer_idle = true, build = "make install_jsregexp", config = "completion.luasnip", strip = false, needs = { bins = { "make", "cc" } }, deps = { "friendly-snippets" } },
+	{ name = "friendly-snippets", repo = "rafamadriz/friendly-snippets", ref = "b4d01b0fdf3c9a549961c2f9ffe8dc09be166219", branch = "main", kind = "opt", defer_idle = true, strip = true },
+	{ name = "cmp_luasnip", repo = "saadparwaiz1/cmp_luasnip", ref = "98d9cb5c2c38532bd9bdb481067b20fea8f32e90", branch = "master", kind = "opt", defer_idle = true, strip = true },
+	{ name = "cmp-nvim-lsp", repo = "hrsh7th/cmp-nvim-lsp", ref = "cbc7b02bb99fae35cb42f514762b89b5126651ef", branch = "main", kind = "opt", defer_idle = true, strip = true },
+	{ name = "cmp-path", repo = "hrsh7th/cmp-path", ref = "c642487086dbd9a93160e1679a1327be111cbc25", branch = "main", kind = "opt", defer_idle = true, strip = true },
+	{ name = "cmp-buffer", repo = "hrsh7th/cmp-buffer", ref = "b74fab3656eea9de20a9b8116afa3cfc4ec09657", branch = "main", kind = "opt", defer_idle = true, strip = true },
+	{ name = "cmp-cmdline", repo = "hrsh7th/cmp-cmdline", ref = "d126061b624e0af6c3a556428712dd4d4194ec6d", branch = "main", kind = "opt", defer_idle = true, strip = true },
 	-- Editor
-	{ name = "nvim-treesitter", repo = "nvim-treesitter/nvim-treesitter", ref = "cf12346a3414fa1b06af75c79faebe7f76df080a", branch = "master", kind = "opt", event = { "BufReadPre" }, build = "treesitter", config = "editor.treesitter", strip = false, needs = { bins = { "cc" } }, deps = { "nvim-treesitter-textobjects" } },
+	{ name = "nvim-treesitter", repo = "nvim-treesitter/nvim-treesitter", ref = "cf12346a3414fa1b06af75c79faebe7f76df080a", branch = "master", kind = "opt", defer_idle = true, defer_until_idle = true, event = { "BufReadPre" }, build = "treesitter", config = "editor.treesitter", strip = false, needs = { bins = { "cc" } }, deps = { "nvim-treesitter-textobjects" } },
 	{ name = "nvim-treesitter-textobjects", repo = "nvim-treesitter/nvim-treesitter-textobjects", ref = "5ca4aaa6efdcc59be46b95a3e876300cfead05ef", branch = "master", kind = "opt", strip = true },
 	{ name = "flash.nvim", repo = "folke/flash.nvim", ref = "5f0f270fdc7c5b0c21d903ee85b9cb06f2ac636a", branch = "main", kind = "opt", event = { "CursorHold", "CursorHoldI" }, config = "editor.flash", strip = true },
 	{ name = "diffview.nvim", repo = "sindrets/diffview.nvim", ref = "4516612fe98ff56ae0415a259ff6361a89419b0a", branch = "main", kind = "opt", cmd = { "DiffviewOpen", "DiffviewClose", "DiffviewFileHistory", "DiffviewRefresh" }, config = "editor.diffview", strip = true, deps = { "plenary.nvim" } },
@@ -47,13 +48,13 @@ M.plugins = {
 	{ name = "mini.nvim", provides = { "mini.pick", "mini.extra" }, repo = "echasnovski/mini.nvim", ref = "561751e839b99a4baca36b9d963166b66d2536a6", branch = "main", kind = "opt", config = "tool.mini_pick", strip = true },
 	{ name = "trouble.nvim", repo = "folke/trouble.nvim", ref = "bd67efe408d4816e25e8491cc5ad4088e708a69a", branch = "main", kind = "opt", cmd = { "Trouble", "TroubleToggle", "TroubleRefresh" }, config = "tool.trouble", strip = true, deps = { "nvim-web-devicons" } },
 	-- Lang (Go)
-	{ name = "go.nvim", repo = "ray-x/go.nvim", ref = "f5d1f11d4f616efbe2339286310bb89c4853d769", branch = "master", kind = "opt", ft = { "go", "gomod", "gosum" }, build = ":GoInstallBinaries", config = "lang.go", strip = true, deps = { "guihua.lua" } },
-	{ name = "guihua.lua", repo = "ray-x/guihua.lua", ref = "4c513d5dac550af77034cced421967b393261509", branch = "master", kind = "opt", strip = true },
-	{ name = "nvim-lint", repo = "mfussenegger/nvim-lint", ref = "3d55c8f67c6ae5c15e1042571e107c7a3d5c5f4e", branch = "master", kind = "opt", ft = { "go", "gomod", "gosum", "tmpl" }, config = "lang.lint", strip = true },
-	{ name = "nvim-dap", repo = "mfussenegger/nvim-dap", ref = "cfa2d58f4537aca6ca83e2de1a0d9f1491121264", branch = "master", kind = "opt", ft = { "go", "gomod" }, config = "lang.dap", strip = true, deps = { "nvim-dap-go", "nvim-dap-ui" } },
-	{ name = "nvim-dap-go", repo = "leoluz/nvim-dap-go", ref = "b4421153ead5d726603b02743ea40cf26a51ed5f", branch = "main", kind = "opt", strip = true },
-	{ name = "nvim-dap-ui", repo = "rcarriga/nvim-dap-ui", ref = "cc9dd33aade7f20bae414d0cba163bc60d4d4b43", branch = "master", kind = "opt", strip = true, deps = { "nvim-nio" } },
-	{ name = "nvim-nio", repo = "nvim-neotest/nvim-nio", ref = "edcc181a875301dd21840189aa2f2f9ad69fc172", branch = "master", kind = "opt", strip = true },
+	{ name = "go.nvim", repo = "ray-x/go.nvim", ref = "f5d1f11d4f616efbe2339286310bb89c4853d769", branch = "master", kind = "opt", defer_idle = true, ft = { "go", "gomod", "gosum" }, build = ":GoInstallBinaries", config = "lang.go", strip = true, deps = { "guihua.lua" } },
+	{ name = "guihua.lua", repo = "ray-x/guihua.lua", ref = "4c513d5dac550af77034cced421967b393261509", branch = "master", kind = "opt", defer_idle = true, strip = true },
+	{ name = "nvim-lint", repo = "mfussenegger/nvim-lint", ref = "3d55c8f67c6ae5c15e1042571e107c7a3d5c5f4e", branch = "master", kind = "opt", defer_idle = true, ft = { "go", "gomod", "gosum", "tmpl" }, config = "lang.lint", strip = true },
+	{ name = "nvim-dap", repo = "mfussenegger/nvim-dap", ref = "cfa2d58f4537aca6ca83e2de1a0d9f1491121264", branch = "master", kind = "opt", defer_idle = true, ft = { "go", "gomod" }, config = "lang.dap", strip = true, deps = { "nvim-dap-go", "nvim-dap-ui" } },
+	{ name = "nvim-dap-go", repo = "leoluz/nvim-dap-go", ref = "b4421153ead5d726603b02743ea40cf26a51ed5f", branch = "main", kind = "opt", defer_idle = true, strip = true },
+	{ name = "nvim-dap-ui", repo = "rcarriga/nvim-dap-ui", ref = "cc9dd33aade7f20bae414d0cba163bc60d4d4b43", branch = "master", kind = "opt", defer_idle = true, strip = true, deps = { "nvim-nio" } },
+	{ name = "nvim-nio", repo = "nvim-neotest/nvim-nio", ref = "edcc181a875301dd21840189aa2f2f9ad69fc172", branch = "master", kind = "opt", defer_idle = true, strip = true },
 }
 
 --- Binaries managed via Tools section (same confirm pipeline).

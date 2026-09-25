@@ -170,3 +170,20 @@ per `neovim-tui-qa` skill. No `--headless` for interactive checks.
 - Lock crash matrix: single-corrupt recovers from .bak; double-corrupt → 26 `corrupted`;
   20-min stale `.lock` reclaimed + removed on release.
 - Open: Windows execution (code-reviewed only), `go`-method installs live, corp URLs live.
+
+## Round 11 (2026-09-24, async streaming A + B1/B2/B3/B5/B6)
+
+- TUI time-to-content (daemon-restarted A/B, 2 runs each): clean 157/157ms,
+  ours-deferred 151/151ms, ours-forced-sync 218/213ms. Paint at parity with clean.
+- Headless wall (sync path by design): clean 40/43/45 vs ours 71/152/132
+  (empty/go/big). NVIM STARTED 102ms (was 148).
+- LSP (cold gopls, best-of-3 RTT): attach ours 53ms vs clean+minimal 32ms
+  (+21ms one-time LspAttach chain); definition/references RTT 0/0ms both.
+- Races: cold `:w` + `gd` within 2s — graceful, zero tracebacks; STOPped gopls
+  + `gd` → responsive UI + `[lsp] slow response` watchdog at 2s (async + defer).
+- TUI flicker: highlight + gopls present by ~600ms; save storm 0 errors;
+  diag cache shows `●[ 1 ]` post-InsertLeave; picker/binaries/resize green.
+- Found & fixed live: `loading[]` short-circuit skipped ALL packadd (nothing on rtp);
+  `__call`-table setup; LuaJIT `table.unpack`; nvim-lint opts shape; kill-probe;
+  manifest python-edit commas; `ver_args` for go tools.
+- `NVIM_DISTRO_SYNC=1` added (deterministic sync override for CI/scripts).

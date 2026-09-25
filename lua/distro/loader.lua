@@ -157,6 +157,67 @@ end
 --- Forward-declared: stub creator (defined below, used on load-failure restore).
 local boot_cmd_stub
 
+-- Variant A streaming: deferred-load queue. Triggers don't load synchronously —
+-- they kick a deduped scheduled M.load, so first paint is never blocked.
+local pending = {}
+
+local function defer_enabled()
+	-- NVIM_DISTRO_SYNC=1: принудительно синхронно (CI, скрипты, детерминизм)
+	if vim.env.NVIM_DISTRO_SYNC == "1" then
+		return false
+	end
+	if require("core.settings").distro_defer == false then
+		return false
+	end
+	-- headless/scripts: fully synchronous for determinism
+	return #vim.api.nvim_list_uis() > 0
+end
+
+local function kick_deferred(name)
+	if M.loaded[name] or pending[name] then
+		return
+	end
+	pending[name] = true
+	vim.schedule(function()
+		pending[name] = nil
+		M.load(name)
+	end)
+end
+
+--- Trigger entry point for event/ft paths (cmd stubs call M.load directly:
+--- an explicit user command loads NOW, not scheduled).
+---
+--- B2: entries with `defer_until_idle` wait for the first idle moment
+--- (CursorHold/InsertLeave/VimEnter-timer) — never parse mid-typing.
+local idle_queue = {}
+local idle_fired = false
+
+local function drain_idle()
+	if idle_fired then
+		return
+	end
+	idle_fired = true
+	for name in pairs(idle_queue) do
+		idle_queue[name] = nil
+		M.load(name)
+	end
+end
+
+function M.kick(p)
+	if p.catalog and not M.is_present(p) then
+		return
+	end
+	if p.defer_until_idle and defer_enabled() and not idle_fired then
+		idle_queue[p.name] = true
+		return
+	end
+	if p.defer_idle and defer_enabled() then
+		kick_deferred(p.name)
+	else
+		M.load(p.name)
+	end
+end
+
 --- Boot: rtp + eager start plugins + lazy autocmds/commands. No network.
 function M.boot()
 	local cfg = cfg_path()
@@ -201,11 +262,7 @@ function M.boot()
 					group = group,
 					once = false,
 					callback = function()
-						-- catalog items stay silent until explicitly installed
-						if p.catalog and not M.is_present(p) then
-							return
-						end
-						M.load(p.name)
+						M.kick(p)
 					end,
 					desc = "distro: lazy-load " .. p.name,
 				})
@@ -215,10 +272,7 @@ function M.boot()
 					group = group,
 					pattern = p.ft,
 					callback = function()
-						if p.catalog and not M.is_present(p) then
-							return
-						end
-						M.load(p.name)
+						M.kick(p)
 					end,
 					desc = "distro: ft-load " .. p.name,
 				})
@@ -231,6 +285,49 @@ function M.boot()
 			end
 		end
 	end
+
+	-- Phase 2 (variant A): one-shot idle preload. Warms the cmp chain ~300ms
+	-- after startup so the first InsertEnter is instant. Invisible if unused.
+	local idle_timer = vim.uv.new_timer()
+	vim.api.nvim_create_autocmd("VimEnter", {
+		group = group,
+		once = true,
+		callback = function()
+			idle_timer:start(300, 0, vim.schedule_wrap(function()
+				if not defer_enabled() then
+					return
+				end
+				M.load("nvim-cmp")
+				-- watchdog: anything still pending gets flushed synchronously
+				for name in pairs(pending) do
+					pending[name] = nil
+					M.load(name)
+				end
+				drain_idle()
+			end))
+		end,
+		desc = "distro: idle preload",
+	})
+	-- B2: first idle moment drains the idle queue (highlight attach etc.).
+	-- CursorHold/InsertLeave = user paused/typed-done; never mid-keystroke.
+	vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI", "InsertLeave" }, {
+		group = group,
+		once = true,
+		callback = function()
+			vim.schedule(drain_idle)
+		end,
+		desc = "distro: idle drain",
+	})
+	vim.api.nvim_create_autocmd("VimLeavePre", {
+		group = group,
+		once = true,
+		callback = function()
+			pcall(function()
+				idle_timer:stop()
+			end)
+		end,
+		desc = "distro: cancel idle preload",
+	})
 end
 
 --- Create (or recreate) a lazy stub user command for a plugin command.

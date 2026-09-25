@@ -382,6 +382,9 @@ end
 
 local function check_startup()
     vim.health.start("Startup")
+    local mode = require("core.settings").distro_defer == false and "eager (sync)"
+        or "deferred (streaming, variant A)"
+    vim.health.info("loader mode: " .. mode)
     local t = vim.g.start_time
     if t then
         local ms = vim.fn.reltimefloat(vim.fn.reltime(t)) * 1000
@@ -397,6 +400,28 @@ local function check_startup()
     end
 end
 
+local function check_ts_tier()
+    vim.health.start("Treesitter tier")
+    local bufnr = vim.api.nvim_get_current_buf()
+    local st = require("core.settings")
+    local tier = vim.b[bufnr].ts_tier
+    if not tier then
+        if vim.b[bufnr].large_file then
+            tier = "off (large file)"
+        else
+            local n = pcall(vim.api.nvim_buf_line_count, bufnr) and vim.api.nvim_buf_line_count(bufnr) or 0
+            if n > (st.treesitter_lite_lines or 10000) then
+                tier = "off"
+            elseif n > (st.treesitter_full_lines or 2000) then
+                tier = "lite (highlight only)"
+            else
+                tier = "full"
+            end
+        end
+    end
+    vim.health.info("current buffer: " .. tier .. " (override: :TreesitterTier)")
+end
+
 M.check = function()
     results = { errors = {}, warnings = {}, infos = {} }
     vim.health.start("=== MyConfig ===")
@@ -406,6 +431,7 @@ M.check = function()
     check_tools()
     check_lsp()
     check_theme()
+    check_ts_tier()
     check_keymaps()
     check_plugins()
     check_providers()
