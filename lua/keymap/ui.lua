@@ -1,57 +1,42 @@
-local bind = require("keymap.bind")
-local map_cr = bind.map_cr
-local map_cu = bind.map_cu
-local map_cmd = bind.map_cmd
-local map_callback = bind.map_callback
+local map = vim.keymap.set
 
-local mappings = {
-	builtins = {
-		-- Builtins: Buffer
-		["n|<leader>bn"] = map_cu("enew"):with_noremap():with_silent():with_desc("buffer: New"),
+-- Builtins: Buffer
+map("n", "<leader>bn", ":<C-u>enew<CR>", { noremap = true, silent = true, desc = "buffer: New" })
 
-		-- Builtins: Quickfix (пара к LSP-флоу на встроенке: gr/gi)
-		["n|]q"] = map_cr("cnext"):with_noremap():with_silent():with_desc("quickfix: Next"),
-		["n|[q"] = map_cr("cprev"):with_noremap():with_silent():with_desc("quickfix: Previous"),
-		["n|<leader>q"] = map_callback(function()
-				_toggle_qf()
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("quickfix: Toggle"),
-		["n|[b"] = map_cr("bprevious"):with_noremap():with_silent():with_desc("buffer: Previous"),
-		["n|]b"] = map_cr("bnext"):with_noremap():with_silent():with_desc("buffer: Next"),
+-- Builtins: Quickfix (пара к LSP-флоу на встроенке: gr/gi)
+map("n", "]q", ":cnext<CR>", { noremap = true, silent = true, desc = "quickfix: Next" })
+map("n", "[q", ":cprev<CR>", { noremap = true, silent = true, desc = "quickfix: Previous" })
+map("n", "<leader>q", function()
+	_toggle_qf()
+end, { noremap = true, silent = true, desc = "quickfix: Toggle" })
+map("n", "[b", ":bprevious<CR>", { noremap = true, silent = true, desc = "buffer: Previous" })
+map("n", "]b", ":bnext<CR>", { noremap = true, silent = true, desc = "buffer: Next" })
 
-		-- Builtins: Split
-		["n|<leader>sv"] = map_cr("vsplit"):with_noremap():with_silent():with_desc("split: Vertical"),
-		["n|<leader>sh"] = map_cr("split"):with_noremap():with_silent():with_desc("split: Horizontal"),
-		["n|<leader>sc"] = map_cr("close"):with_noremap():with_silent():with_desc("split: Close"),
+-- Builtins: Split
+map("n", "<leader>sv", ":vsplit<CR>", { noremap = true, silent = true, desc = "split: Vertical" })
+map("n", "<leader>sh", ":split<CR>", { noremap = true, silent = true, desc = "split: Horizontal" })
+map("n", "<leader>sc", ":close<CR>", { noremap = true, silent = true, desc = "split: Close" })
 
-		-- Builtins: Terminal
-		["t|<C-w>h"] = map_cmd("<Cmd>wincmd h<CR>"):with_silent():with_noremap():with_desc("window: Focus left"),
-		["t|<C-w>l"] = map_cmd("<Cmd>wincmd l<CR>"):with_silent():with_noremap():with_desc("window: Focus right"),
-		["t|<C-w>j"] = map_cmd("<Cmd>wincmd j<CR>"):with_silent():with_noremap():with_desc("window: Focus down"),
-		["t|<C-w>k"] = map_cmd("<Cmd>wincmd k<CR>"):with_silent():with_noremap():with_desc("window: Focus up"),
+-- Builtins: Terminal
+map("t", "<C-w>h", "<Cmd>wincmd h<CR>", { noremap = true, silent = true, desc = "window: Focus left" })
+map("t", "<C-w>l", "<Cmd>wincmd l<CR>", { noremap = true, silent = true, desc = "window: Focus right" })
+map("t", "<C-w>j", "<Cmd>wincmd j<CR>", { noremap = true, silent = true, desc = "window: Focus down" })
+map("t", "<C-w>k", "<Cmd>wincmd k<CR>", { noremap = true, silent = true, desc = "window: Focus up" })
 
-		-- Builtins: Tabpage
-		["n|tn"] = map_cr("tabnew"):with_noremap():with_silent():with_desc("tab: Create a new tab"),
-		["n|tk"] = map_cr("tabnext"):with_noremap():with_silent():with_desc("tab: Move to next tab"),
-		["n|tj"] = map_cr("tabprevious"):with_noremap():with_silent():with_desc("tab: Move to previous tab"),
-		["n|to"] = map_cr("tabonly"):with_noremap():with_silent():with_desc("tab: Only keep current tab"),
-	},
-	plugins = {
-		-- Буферы: встроенные :bnext/:bprevious/:bd (barbar удалён)
-		["n|<A-q>"] = map_cr("bd"):with_noremap():with_silent():with_desc("buffer: Close current"),
+-- Builtins: Tabpage
+map("n", "tn", ":tabnew<CR>", { noremap = true, silent = true, desc = "tab: Create a new tab" })
+map("n", "tk", ":tabnext<CR>", { noremap = true, silent = true, desc = "tab: Move to next tab" })
+map("n", "tj", ":tabprevious<CR>", { noremap = true, silent = true, desc = "tab: Move to previous tab" })
+map("n", "to", ":tabonly<CR>", { noremap = true, silent = true, desc = "tab: Only keep current tab" })
 
-		-- Окна: встроенные <C-w> (smart-splits удалён)
-		["n|<C-h>"] = map_cmd("<C-w>h"):with_silent():with_noremap():with_desc("window: Focus left"),
-		["n|<C-j>"] = map_cmd("<C-w>j"):with_silent():with_noremap():with_desc("window: Focus down"),
-		["n|<C-k>"] = map_cmd("<C-w>k"):with_silent():with_noremap():with_desc("window: Focus up"),
-		["n|<C-l>"] = map_cmd("<C-w>l"):with_silent():with_noremap():with_desc("window: Focus right"),
-	},
-}
+-- Буферы: встроенные :bnext/:bprevious/:bd (barbar удалён)
+map("n", "<A-q>", ":bd<CR>", { noremap = true, silent = true, desc = "buffer: Close current" })
 
-bind.nvim_load_mapping(mappings.builtins)
-bind.nvim_load_mapping(mappings.plugins)
+-- Окна: встроенные <C-w> (smart-splits удалён)
+map("n", "<C-h>", "<C-w>h", { noremap = true, silent = true, desc = "window: Focus left" })
+map("n", "<C-j>", "<C-w>j", { noremap = true, silent = true, desc = "window: Focus down" })
+map("n", "<C-k>", "<C-w>k", { noremap = true, silent = true, desc = "window: Focus up" })
+map("n", "<C-l>", "<C-w>l", { noremap = true, silent = true, desc = "window: Focus right" })
 
 --- The following code enables this file to be exported ---
 ---  for use with gitsigns lazy-loaded keymap bindings  ---
@@ -60,83 +45,49 @@ local M = {}
 
 function M.gitsigns(bufnr)
 	local gitsigns = require("gitsigns")
-	local map = {
-		["n|]g"] = map_callback(function()
-				if vim.wo.diff then
-					return "]g"
-				end
-				vim.schedule(function()
-					gitsigns.nav_hunk("next")
-				end)
-				return "<Ignore>"
-			end)
-			:with_buffer(bufnr)
-			:with_noremap()
-			:with_expr()
-			:with_desc("git: Goto next hunk"),
-		["n|[g"] = map_callback(function()
-				if vim.wo.diff then
-					return "[g"
-				end
-				vim.schedule(function()
-					gitsigns.nav_hunk("prev")
-				end)
-				return "<Ignore>"
-			end)
-			:with_buffer(bufnr)
-			:with_noremap()
-			:with_expr()
-			:with_desc("git: Goto prev hunk"),
-		["n|<leader>gs"] = map_callback(function()
-				gitsigns.stage_hunk()
-			end)
-			:with_buffer(bufnr)
-			:with_noremap()
-			:with_desc("git: Toggle staging/unstaging of hunk"),
-		["v|<leader>gs"] = map_callback(function()
-				gitsigns.stage_hunk({ vim.fn.line("."), vim.fn.line("v") })
-			end)
-			:with_buffer(bufnr)
-			:with_noremap()
-			:with_desc("git: Toggle staging/unstaging of selected hunk"),
-		["n|<leader>gr"] = map_callback(function()
-				gitsigns.reset_hunk()
-			end)
-			:with_buffer(bufnr)
-			:with_noremap()
-			:with_desc("git: Reset hunk"),
-		["v|<leader>gr"] = map_callback(function()
-				gitsigns.reset_hunk({ vim.fn.line("."), vim.fn.line("v") })
-			end)
-			:with_buffer(bufnr)
-			:with_noremap()
-			:with_desc("git: Reset hunk"),
-		["n|<leader>gR"] = map_callback(function()
-				gitsigns.reset_buffer()
-			end)
-			:with_buffer(bufnr)
-			:with_noremap()
-			:with_desc("git: Reset buffer"),
-		["n|<leader>gp"] = map_callback(function()
-				gitsigns.preview_hunk()
-			end)
-			:with_buffer(bufnr)
-			:with_noremap()
-			:with_desc("git: Preview hunk"),
-		["n|<leader>gb"] = map_callback(function()
-				gitsigns.blame_line({ full = true })
-			end)
-			:with_buffer(bufnr)
-			:with_noremap()
-			:with_desc("git: Blame line"),
-		-- Text objects
-		["ox|ih"] = map_callback(function()
-				gitsigns.select_hunk()
-			end)
-			:with_buffer(bufnr)
-			:with_noremap(),
-	}
-	bind.nvim_load_mapping(map)
+	map("n", "]g", function()
+		if vim.wo.diff then
+			return "]g"
+		end
+		vim.schedule(function()
+			gitsigns.nav_hunk("next")
+		end)
+		return "<Ignore>"
+	end, { buffer = bufnr, noremap = true, expr = true, desc = "git: Goto next hunk" })
+	map("n", "[g", function()
+		if vim.wo.diff then
+			return "[g"
+		end
+		vim.schedule(function()
+			gitsigns.nav_hunk("prev")
+		end)
+		return "<Ignore>"
+	end, { buffer = bufnr, noremap = true, expr = true, desc = "git: Goto prev hunk" })
+	map("n", "<leader>gs", function()
+		gitsigns.stage_hunk()
+	end, { buffer = bufnr, noremap = true, desc = "git: Toggle staging/unstaging of hunk" })
+	map("v", "<leader>gs", function()
+		gitsigns.stage_hunk({ vim.fn.line("."), vim.fn.line("v") })
+	end, { buffer = bufnr, noremap = true, desc = "git: Toggle staging/unstaging of selected hunk" })
+	map("n", "<leader>gr", function()
+		gitsigns.reset_hunk()
+	end, { buffer = bufnr, noremap = true, desc = "git: Reset hunk" })
+	map("v", "<leader>gr", function()
+		gitsigns.reset_hunk({ vim.fn.line("."), vim.fn.line("v") })
+	end, { buffer = bufnr, noremap = true, desc = "git: Reset hunk" })
+	map("n", "<leader>gR", function()
+		gitsigns.reset_buffer()
+	end, { buffer = bufnr, noremap = true, desc = "git: Reset buffer" })
+	map("n", "<leader>gp", function()
+		gitsigns.preview_hunk()
+	end, { buffer = bufnr, noremap = true, desc = "git: Preview hunk" })
+	map("n", "<leader>gb", function()
+		gitsigns.blame_line({ full = true })
+	end, { buffer = bufnr, noremap = true, desc = "git: Blame line" })
+	-- Text objects
+	map({ "o", "x" }, "ih", function()
+		gitsigns.select_hunk()
+	end, { buffer = bufnr, noremap = true })
 end
 
 return M

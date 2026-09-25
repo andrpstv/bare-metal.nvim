@@ -1,40 +1,21 @@
 require("keymap.helpers")
-local bind = require("keymap.bind")
-local map_cr = bind.map_cr
 
-local mappings = {
-	core = {
-		-- Package manager: distroManager (self-contained, curl-only, confirm-gated)
-		["n|<leader>ph"] = map_cr("Distro"):with_silent():with_noremap():with_nowait():with_desc("package: Show"),
-		["n|<leader>ps"] = map_cr("DistroCheck"):with_silent():with_noremap():with_nowait():with_desc("package: Check"),
-		["n|<leader>pu"] = map_cr("DistroUpdate")
-			:with_silent()
-			:with_noremap()
-			:with_nowait()
-			:with_desc("package: Update"),
-		["n|<leader>pi"] = map_cr("DistroInstall")
-			:with_silent()
-			:with_noremap()
-			:with_nowait()
-			:with_desc("package: Install"),
-		["n|<leader>pl"] = map_cr("DistroParsers"):with_silent():with_noremap():with_nowait():with_desc("package: Parsers"),
-		["n|<leader>pc"] = map_cr("DistroCheck"):with_silent():with_noremap():with_nowait():with_desc("package: Check"),
-		["n|<leader>pd"] = map_cr("DistroTools"):with_silent():with_noremap():with_nowait():with_desc("package: Tools"),
-		["n|<leader>pp"] = map_cr("DistroParsers")
-			:with_silent()
-			:with_noremap()
-			:with_nowait()
-			:with_desc("package: Parsers"),
-		["n|<leader>pr"] = map_cr("DistroUpdate")
-			:with_silent()
-			:with_noremap()
-			:with_nowait()
-			:with_desc("package: Update"),
-		["n|<leader>px"] = map_cr("DistroClean"):with_silent():with_noremap():with_nowait():with_desc("package: Clean"),
-	},
-}
+local map = vim.keymap.set
+local cr = function(cmd)
+	return ":" .. cmd .. "<CR>"
+end
 
-bind.nvim_load_mapping(mappings.core)
+-- Package manager: distroManager (self-contained, curl-only, confirm-gated)
+map("n", "<leader>ph", cr("Distro"), { noremap = true, silent = true, nowait = true, desc = "package: Show" })
+map("n", "<leader>ps", cr("DistroCheck"), { noremap = true, silent = true, nowait = true, desc = "package: Check" })
+map("n", "<leader>pu", cr("DistroUpdate"), { noremap = true, silent = true, nowait = true, desc = "package: Update" })
+map("n", "<leader>pi", cr("DistroInstall"), { noremap = true, silent = true, nowait = true, desc = "package: Install" })
+map("n", "<leader>pl", cr("DistroParsers"), { noremap = true, silent = true, nowait = true, desc = "package: Parsers" })
+map("n", "<leader>pc", cr("DistroCheck"), { noremap = true, silent = true, nowait = true, desc = "package: Check" })
+map("n", "<leader>pd", cr("DistroTools"), { noremap = true, silent = true, nowait = true, desc = "package: Tools" })
+map("n", "<leader>pp", cr("DistroParsers"), { noremap = true, silent = true, nowait = true, desc = "package: Parsers" })
+map("n", "<leader>pr", cr("DistroUpdate"), { noremap = true, silent = true, nowait = true, desc = "package: Update" })
+map("n", "<leader>px", cr("DistroClean"), { noremap = true, silent = true, nowait = true, desc = "package: Clean" })
 
 -- Builtin & Plugin keymaps
 require("keymap.completion")

@@ -1,140 +1,94 @@
-local bind = require("keymap.bind")
-local map_cr = bind.map_cr
-local map_callback = bind.map_callback
+local map = vim.keymap.set
 
-local mappings = {
-	plugins = {
-		-- Проводник: встроенный netrw от папки ТЕКУЩЕГО файла
-		-- (курсор встаёт на файл — удобно создавать соседей через `%`).
-		-- Тоггл: из netrw возвращает ровно в тот файл, откуда открыли
-		-- (буфер запоминаем явно — alternate `#` слишком хрупкий).
-		-- К корню проекта (глобальный pwd) — на <leader>E.
-		["n|<leader>e"] = map_callback(function()
-				if vim.bo.filetype == "netrw" then
-					local back = vim.w.netrw_toggle_from
-					if back and vim.api.nvim_buf_is_valid(back) then
-						vim.cmd.buffer(back)
-					elseif not pcall(vim.cmd, "b#") then
-						vim.cmd("enew")
-					end
-				else
-					vim.w.netrw_toggle_from = vim.api.nvim_get_current_buf()
-					local dir = vim.fn.expand("%:p:h")
-					if dir == "" then
-						dir = vim.fn.getcwd(-1, -1)
-					end
-					local tail = vim.fn.expand("%:t")
-					vim.cmd.edit(vim.fn.fnameescape(dir))
-					if tail ~= "" then
-						-- Откладываем: netrw сам позиционирует курсор после
-						-- отрисовки (особенно в tree-виде), наш поиск должен
-						-- идти строго после него. Регистр `/` не трогаем.
-						local pat = tail:gsub("([^%w])", "%%%1") .. "$"
-						vim.schedule(function()
-							if vim.bo.filetype ~= "netrw" then
-								return
-							end
-							local keep = vim.fn.getreg("/")
-							pcall(vim.fn.search, pat, "w")
-							vim.fn.setreg("/", keep)
-						end)
-					end
+-- Проводник: встроенный netrw от папки ТЕКУЩЕГО файла
+-- (курсор встаёт на файл — удобно создавать соседей через `%`).
+-- Тоггл: из netrw возвращает ровно в тот файл, откуда открыли
+-- (буфер запоминаем явно — alternate `#` слишком хрупкий).
+-- К корню проекта (глобальный pwd) — на <leader>E.
+map("n", "<leader>e", function()
+	if vim.bo.filetype == "netrw" then
+		local back = vim.w.netrw_toggle_from
+		if back and vim.api.nvim_buf_is_valid(back) then
+			vim.cmd.buffer(back)
+		elseif not pcall(vim.cmd, "b#") then
+			vim.cmd("enew")
+		end
+	else
+		vim.w.netrw_toggle_from = vim.api.nvim_get_current_buf()
+		local dir = vim.fn.expand("%:p:h")
+		if dir == "" then
+			dir = vim.fn.getcwd(-1, -1)
+		end
+		local tail = vim.fn.expand("%:t")
+		vim.cmd.edit(vim.fn.fnameescape(dir))
+		if tail ~= "" then
+			-- Откладываем: netrw сам позиционирует курсор после
+			-- отрисовки (особенно в tree-виде), наш поиск должен
+			-- идти строго после него. Регистр `/` не трогаем.
+			local pat = tail:gsub("([^%w])", "%%%1") .. "$"
+			vim.schedule(function()
+				if vim.bo.filetype ~= "netrw" then
+					return
 				end
+				local keep = vim.fn.getreg("/")
+				pcall(vim.fn.search, pat, "w")
+				vim.fn.setreg("/", keep)
 			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("filebrowser: netrw toggle at file"),
-		-- К корню проекта: netrw от глобального pwd.
-		-- getcwd(-1,-1) игнорирует window-local :lcd, которыми netrw сорит.
-		["n|<leader>E"] = map_callback(function()
-				vim.cmd.edit(vim.fn.fnameescape(vim.fn.getcwd(-1, -1)))
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("filebrowser: netrw at pwd"),
+		end
+	end
+end, { noremap = true, silent = true, desc = "filebrowser: netrw toggle at file" })
+-- К корню проекта: netrw от глобального pwd.
+-- getcwd(-1,-1) игнорирует window-local :lcd, которыми netrw сорит.
+map("n", "<leader>E", function()
+	vim.cmd.edit(vim.fn.fnameescape(vim.fn.getcwd(-1, -1)))
+end, { noremap = true, silent = true, desc = "filebrowser: netrw at pwd" })
 
-		-- Plugin: trouble
-		["n|gt"] = map_cr("Trouble diagnostics toggle")
-			:with_noremap()
-			:with_silent()
-			:with_desc("lsp: Toggle trouble list"),
-		["n|<leader>lw"] = map_cr("Trouble diagnostics toggle")
-			:with_noremap()
-			:with_silent()
-			:with_desc("lsp: Show workspace diagnostics"),
-		["n|<leader>ld"] = map_cr("Trouble diagnostics toggle filter.buf=0")
-			:with_noremap()
-			:with_silent()
-			:with_desc("lsp: Show document diagnostics"),
+-- Plugin: trouble
+map("n", "gt", ":Trouble diagnostics toggle<CR>", { noremap = true, silent = true, desc = "lsp: Toggle trouble list" })
+map(
+	"n",
+	"<leader>lw",
+	":Trouble diagnostics toggle<CR>",
+	{ noremap = true, silent = true, desc = "lsp: Show workspace diagnostics" }
+)
+map(
+	"n",
+	"<leader>ld",
+	":Trouble diagnostics toggle filter.buf=0<CR>",
+	{ noremap = true, silent = true, desc = "lsp: Show document diagnostics" }
+)
 
-		-- Plugin: mini.pick / mini.extra (нулевые зависимости, rg ускоряет grep/files)
-		["n|<C-p>"] = map_callback(function()
-				_pick_extra("commands")
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("tool: Command panel"),
-		["n|<leader>fp"] = map_callback(function()
-				_pick("grep_live")
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("tool: Live grep (search in project)"),
-		["n|<leader>ff"] = map_callback(function()
-				_pick("files")
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("tool: Find files"),
-		["n|<leader>fb"] = map_callback(function()
-				_pick("buffers")
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("tool: Find buffers"),
-		["n|<leader>f/"] = map_callback(function()
-				_pick_extra("buf_lines", { scope = "current" })
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("tool: Fuzzy current buffer"),
-		["n|<leader>fo"] = map_callback(function()
-				_pick("oldfiles")
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("tool: Recent files"),
-		["n|<leader>fh"] = map_callback(function()
-				_pick("help")
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("tool: Help tags"),
-		["n|<leader>fg"] = map_callback(function()
-				_pick_extra("git_branches")
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("tool: Git branches"),
-		["n|<leader>fw"] = map_callback(function()
-				_pick_lsp("workspace_symbol_live")
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("tool: Workspace symbols (types/funcs repo-wide)"),
-		["n|<leader>fr"] = map_callback(function()
-				_pick("resume")
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("tool: Resume last search"),
-		["v|<leader>fs"] = map_callback(function()
-				_pick_grep_visual()
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_desc("tool: Find visual selection"),
-	},
-}
-
-bind.nvim_load_mapping(mappings.plugins)
+-- Plugin: mini.pick / mini.extra (нулевые зависимости, rg ускоряет grep/files)
+map("n", "<C-p>", function()
+	_pick_extra("commands")
+end, { noremap = true, silent = true, desc = "tool: Command panel" })
+map("n", "<leader>fp", function()
+	_pick("grep_live")
+end, { noremap = true, silent = true, desc = "tool: Live grep (search in project)" })
+map("n", "<leader>ff", function()
+	_pick("files")
+end, { noremap = true, silent = true, desc = "tool: Find files" })
+map("n", "<leader>fb", function()
+	_pick("buffers")
+end, { noremap = true, silent = true, desc = "tool: Find buffers" })
+map("n", "<leader>f/", function()
+	_pick_extra("buf_lines", { scope = "current" })
+end, { noremap = true, silent = true, desc = "tool: Fuzzy current buffer" })
+map("n", "<leader>fo", function()
+	_pick("oldfiles")
+end, { noremap = true, silent = true, desc = "tool: Recent files" })
+map("n", "<leader>fh", function()
+	_pick("help")
+end, { noremap = true, silent = true, desc = "tool: Help tags" })
+map("n", "<leader>fg", function()
+	_pick_extra("git_branches")
+end, { noremap = true, silent = true, desc = "tool: Git branches" })
+map("n", "<leader>fw", function()
+	_pick_lsp("workspace_symbol_live")
+end, { noremap = true, silent = true, desc = "tool: Workspace symbols (types/funcs repo-wide)" })
+map("n", "<leader>fr", function()
+	_pick("resume")
+end, { noremap = true, silent = true, desc = "tool: Resume last search" })
+map("v", "<leader>fs", function()
+	_pick_grep_visual()
+end, { noremap = true, silent = true, desc = "tool: Find visual selection" })

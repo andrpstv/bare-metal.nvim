@@ -1,14 +1,7 @@
-local bind = require("keymap.bind")
-local map_cr = bind.map_cr
-local map_callback = bind.map_callback
+local map = vim.keymap.set
 
-local mappings = {
-	fmt = {
-		["n|<leader>fm"] = map_cr("Format"):with_noremap():with_silent():with_desc("formatter: Format buffer"),
-		["n|<leader>ft"] = map_cr("FormatToggle"):with_noremap():with_silent():with_desc("formatter: Toggle format on save"),
-	},
-}
-bind.nvim_load_mapping(mappings.fmt)
+map("n", "<leader>fm", ":Format<CR>", { noremap = true, silent = true, desc = "formatter: Format buffer" })
+map("n", "<leader>ft", ":FormatToggle<CR>", { noremap = true, silent = true, desc = "formatter: Toggle format on save" })
 
 --- The following code allows this file to be exported ---
 ---    for use with LSP lazy-loaded keymap bindings    ---
@@ -68,145 +61,90 @@ function M.lsp(buf)
 		pcall(vim.keymap.del, "n", "K", { buffer = buf })
 		return
 	end
-	local map = {
-		-- LSP-related keymaps, ONLY effective in buffers with LSP(s) attached.
-		-- Без префикс-конфликтов: ни один маппинг не является началом другого,
-		-- поэтому всё срабатывает мгновенно, без ожидания timeoutlen.
-		-- Встроенные дефолты grr/gri/gra удаляем ниже (дублируют gr/gi/ga).
-		["n|<leader>li"] = map_cr("LspInfo"):with_silent():with_buffer(buf):with_desc("lsp: Info"),
-		["n|<leader>lr"] = map_cr("LspRestart"):with_silent():with_buffer(buf):with_nowait():with_desc("lsp: Restart"),
-		["n|gO"] = map_callback(function()
-				_pick_lsp("document_symbol")
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Document symbols"),
-		["n|g["] = map_callback(function()
-				vim.diagnostic.jump({ count = -1, float = true })
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Prev diagnostic"),
-		["n|g]"] = map_callback(function()
-				vim.diagnostic.jump({ count = 1, float = true })
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Next diagnostic"),
-		["n|<leader>lx"] = map_callback(function()
-				vim.diagnostic.open_float()
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Line diagnostic"),
-		["n|gs"] = map_callback(function()
-			require("completion.signature").show_smart()
-		end)
-			:with_silent()
-			:with_noremap()
-			:with_buffer(buf)
-			:with_desc("lsp: Signature help (snap to call if in string)"),
-		["n|gr"] = map_callback(function()
-				_pick_lsp("references")
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: References (pick)"),
-		["n|gR"] = map_callback(function()
-				vim.lsp.buf.references()
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: References to quickfix"),
-		["n|K"] = map_callback(function()
-				vim.lsp.buf.hover()
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Show doc"),
-		["nv|ga"] = map_callback(function()
-				vim.lsp.buf.code_action()
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Code action (vim.ui.select)"),
-		["n|gd"] = map_callback(function()
-				_pick_lsp("definition", { jump1 = true })
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Goto definition"),
-		["n|<leader>rn"] = map_callback(function()
-				vim.lsp.buf.rename()
-			end)
-			:with_silent()
-			:with_nowait()
-			:with_buffer(buf)
-			:with_desc("lsp: Rename"),
-		["n|gi"] = map_callback(function()
-				_pick_lsp("implementation")
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Implementations (pick)"),
-		["n|gI"] = map_callback(function()
-				vim.lsp.buf.implementation()
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Implementations to quickfix"),
-		["n|gy"] = map_callback(function()
-				_pick_lsp("type_definition", { jump1 = true })
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Type definition (e.g. return struct)"),
-		["n|gw"] = map_callback(function()
-				type_hierarchy("supertypes")
-			end)
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Supertypes (interfaces it implements)"),
-		["n|<leader>lv"] = map_callback(function()
-				_toggle_virtuallines()
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Toggle virtual lines"),
-		["n|<leader>lh"] = map_callback(function()
-				_toggle_inlayhint()
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Toggle inlay hints"),
-		["n|<leader>cl"] = map_callback(function()
-				-- Линзы могли не успеть подгрузиться: рефрешим и ждём,
-				-- иначе run молча ничего не делает. Курсор — на тест-функции.
-				vim.lsp.codelens.refresh()
-				vim.defer_fn(function()
-					local lenses = vim.lsp.codelens.get(0)
-					if #(lenses or {}) == 0 then
-						vim.notify(
-							"[lsp] no codelens here (cursor on Test func? try :GoTestFunc)",
-							vim.log.levels.WARN,
-							{ title = "lsp" }
-						)
-						return
-					end
-					pcall(vim.lsp.codelens.run)
-				end, 500)
-			end)
-			:with_noremap()
-			:with_silent()
-			:with_buffer(buf)
-			:with_desc("lsp: Run codelens at cursor (test/generate)"),
-	}
-	bind.nvim_load_mapping(map)
-
-	-- NOTE: встроенные дефолты grr/gri/gra/grt сносятся глобально
-	-- в keymap/init.lua (там же grn). Здесь чистить нечего.
+	-- LSP-related keymaps, ONLY effective in buffers with LSP(s) attached.
+	-- Без префикс-конфликтов: ни один маппинг не является началом другого,
+	-- поэтому всё срабатывает мгновенно, без ожидания timeoutlen.
+	-- Встроенные дефолты grr/gri/gra удаляем глобально в keymap/init.lua.
+	map("n", "<leader>li", ":LspInfo<CR>", { buffer = buf, silent = true, desc = "lsp: Info" })
+	map(
+		"n",
+		"<leader>lr",
+		":LspRestart<CR>",
+		{ buffer = buf, silent = true, nowait = true, desc = "lsp: Restart" }
+	)
+	map("n", "gO", function()
+		_pick_lsp("document_symbol")
+	end, { buffer = buf, silent = true, desc = "lsp: Document symbols" })
+	map("n", "g[", function()
+		vim.diagnostic.jump({ count = -1, float = true })
+	end, { buffer = buf, silent = true, desc = "lsp: Prev diagnostic" })
+	map("n", "g]", function()
+		vim.diagnostic.jump({ count = 1, float = true })
+	end, { buffer = buf, silent = true, desc = "lsp: Next diagnostic" })
+	map("n", "<leader>lx", function()
+		vim.diagnostic.open_float()
+	end, { buffer = buf, silent = true, desc = "lsp: Line diagnostic" })
+	map("n", "gs", function()
+		require("completion.signature").show_smart()
+	end, {
+		buffer = buf,
+		silent = true,
+		noremap = true,
+		desc = "lsp: Signature help (snap to call if in string)",
+	})
+	map("n", "gr", function()
+		_pick_lsp("references")
+	end, { buffer = buf, silent = true, desc = "lsp: References (pick)" })
+	map("n", "gR", function()
+		vim.lsp.buf.references()
+	end, { buffer = buf, silent = true, desc = "lsp: References to quickfix" })
+	map("n", "K", function()
+		vim.lsp.buf.hover()
+	end, { buffer = buf, silent = true, desc = "lsp: Show doc" })
+	map({ "n", "v" }, "ga", function()
+		vim.lsp.buf.code_action()
+	end, { buffer = buf, silent = true, desc = "lsp: Code action (vim.ui.select)" })
+	map("n", "gd", function()
+		_pick_lsp("definition", { jump1 = true })
+	end, { buffer = buf, silent = true, desc = "lsp: Goto definition" })
+	map("n", "<leader>rn", function()
+		vim.lsp.buf.rename()
+	end, { buffer = buf, silent = true, nowait = true, desc = "lsp: Rename" })
+	map("n", "gi", function()
+		_pick_lsp("implementation")
+	end, { buffer = buf, silent = true, desc = "lsp: Implementations (pick)" })
+	map("n", "gI", function()
+		vim.lsp.buf.implementation()
+	end, { buffer = buf, silent = true, desc = "lsp: Implementations to quickfix" })
+	map("n", "gy", function()
+		_pick_lsp("type_definition", { jump1 = true })
+	end, { buffer = buf, silent = true, desc = "lsp: Type definition (e.g. return struct)" })
+	map("n", "gw", function()
+		type_hierarchy("supertypes")
+	end, { buffer = buf, silent = true, desc = "lsp: Supertypes (interfaces it implements)" })
+	map("n", "<leader>lv", function()
+		_toggle_virtuallines()
+	end, { buffer = buf, noremap = true, silent = true, desc = "lsp: Toggle virtual lines" })
+	map("n", "<leader>lh", function()
+		_toggle_inlayhint()
+	end, { buffer = buf, noremap = true, silent = true, desc = "lsp: Toggle inlay hints" })
+	map("n", "<leader>cl", function()
+		-- Линзы могли не успеть подгрузиться: рефрешим и ждём,
+		-- иначе run молча ничего не делает. Курсор — на тест-функции.
+		vim.lsp.codelens.refresh()
+		vim.defer_fn(function()
+			local lenses = vim.lsp.codelens.get(0)
+			if #(lenses or {}) == 0 then
+				vim.notify(
+					"[lsp] no codelens here (cursor on Test func? try :GoTestFunc)",
+					vim.log.levels.WARN,
+					{ title = "lsp" }
+				)
+				return
+			end
+			pcall(vim.lsp.codelens.run)
+		end, 500)
+	end, { buffer = buf, noremap = true, silent = true, desc = "lsp: Run codelens at cursor (test/generate)" })
 
 	-- Codelens gopls (run test, generate, tidy...): обновляем тихо,
 	-- показываются виртуал-текстом над функциями.
