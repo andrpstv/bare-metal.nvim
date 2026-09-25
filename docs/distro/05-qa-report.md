@@ -249,3 +249,14 @@ per `neovim-tui-qa` skill. No `--headless` for interactive checks.
 - Fixed: stale-session confusion during QA (typed cmdline vs picker focus);
   bench now uses files only, no interactive typing.
 - Layout restore verified post-run (main.go buffer back, session closable).
+
+## Round 17 (2026-09-24, gopls InlayHint metadata errors in module cache)
+
+- Bug: opening files under `/go/pkg/mod` (e.g. mongo-driver client.go) spammed
+  `getting file for InlayHint: no package metadata` — gopls attaches there for
+  goto-def/hover but has no package metadata for inlayHint requests.
+- Fix (`core/event.lua`): moved `is_go_lib()` above LspAttach (was a forward
+  reference), skip `inlay_hint.enable` for go-lib files (pcall'd); attach +
+  keymaps + hover/definition untouched.
+- Verified TUI: mod-cache file → `inlay_on=false clients=1`, zero metadata
+  errors in :messages; normal Go file → `inlay_on=true` (no regression).

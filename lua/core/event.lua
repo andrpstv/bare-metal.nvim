@@ -41,6 +41,18 @@ vim.api.nvim_create_autocmd("FileType", {
 
 -- Hold off on configuring anything related to the LSP until LspAttach
 local mapping = require("keymap.completion")
+-- Go module/stdlib files (pkg/mod, GOROOT): gopls attaches for goto-def/hover,
+-- but has NO package metadata there — inlayHint requests fail loudly.
+-- Defined early: used by LspAttach below AND by readonly guards at the bottom.
+local function is_go_lib(file)
+	return file:match("/go/pkg/mod/")
+		or file:match("/opt/homebrew/Cellar/go/")
+		or file:match("/opt/homebrew/opt/go/")
+		or file:match("/usr/local/go/")
+		or file:match("/usr/lib/go")
+		or file:match("\\go\\pkg\\mod\\")
+		or file:match("Program Files\\Go\\")
+end
 vim.api.nvim_create_autocmd("LspAttach", {
 	group = vim.api.nvim_create_augroup("LspKeymapLoader", { clear = true }),
 	callback = function(event)
@@ -65,10 +77,14 @@ vim.api.nvim_create_autocmd("LspAttach", {
 				pcall(vim.lsp.completion.enable, false, event.data.client_id, event.buf)
 			end
 
-			-- LSP Inlay Hints
+			-- LSP Inlay Hints (skip for Go lib files: gopls answers inlayHint
+			-- with "no package metadata" errors there — see is_go_lib above)
 			local inlayhints_enabled = require("core.settings").lsp_inlayhints
 			if client and client.server_capabilities.inlayHintProvider ~= nil then
-				vim.lsp.inlay_hint.enable(inlayhints_enabled == true, { bufnr = event.buf })
+				local fname = vim.api.nvim_buf_get_name(event.buf)
+				if inlayhints_enabled == true and not is_go_lib(fname or "") then
+					pcall(vim.lsp.inlay_hint.enable, true, { bufnr = event.buf })
+				end
 			end
 		end
 	end,
@@ -380,16 +396,6 @@ vim.api.nvim_create_autocmd("BufWritePost", {
 })
 
 -- Make Go module/stdlib files readonly (prevent accidental edits)
-local function is_go_lib(file)
-	return file:match("/go/pkg/mod/")
-		or file:match("/opt/homebrew/Cellar/go/")
-		or file:match("/opt/homebrew/opt/go/")
-		or file:match("/usr/local/go/")
-		or file:match("/usr/lib/go")
-		or file:match("\\go\\pkg\\mod\\")
-		or file:match("Program Files\\Go\\")
-end
-
 vim.api.nvim_create_autocmd({ "BufReadPost", "BufEnter" }, {
 	group = vim.api.nvim_create_augroup("GoLibRO", { clear = true }),
 	callback = function()
