@@ -369,18 +369,34 @@ end
 ---@param p table manifest entry
 boot_cmd_stub = function(c, p)
 	pcall(vim.api.nvim_create_user_command, c, function(opts)
-		-- drop the stub so the plugin can register the real command
-		pcall(vim.api.nvim_del_user_command, c)
-		if M.load(p.name) then
-			-- re-dispatch to the real command now provided by the plugin
-			local ok, err = pcall(vim.cmd, c .. " " .. (opts.args or ""))
-			if not ok then
-				vim.notify("[Distro] '" .. c .. "' failed after load: " .. tostring(err), vim.log.levels.ERROR)
-			end
-		else
-			-- load failed (missing): restore stub for next attempt
-			boot_cmd_stub(c, p)
+		-- Drop the stub so the plugin can register the real command.
+		-- Recursion guard: if the re-dispatch below somehow re-enters this
+		-- stub we must not delete-and-recreate forever.
+		if vim.g["_distro_stub_inflight_" .. c] then
+			vim.notify("[Distro] '" .. c .. "' stub re-entered unexpectedly", vim.log.levels.ERROR)
+			return
 		end
+		vim.g["_distro_stub_inflight_" .. c] = true
+		pcall(vim.api.nvim_del_user_command, c)
+		local loaded = M.load(p.name)
+		if not loaded then
+			-- load failed (missing): restore stub for the next attempt.
+			vim.g["_distro_stub_inflight_" .. c] = nil
+			boot_cmd_stub(c, p)
+			return
+		end
+		-- Re-dispatch to the real command now provided by the plugin.
+		-- Any failure (plugin still not registering the name, bad args,
+		-- runtime error inside the plugin) must put the stub back --
+		-- otherwise the second invocation of the command hits a bare E492.
+		local ok, err = pcall(vim.cmd, c .. " " .. (opts.args or ""))
+		vim.g["_distro_stub_inflight_" .. c] = nil
+		if ok then
+			-- success: leave the stub gone for good
+			return
+		end
+		boot_cmd_stub(c, p)
+		vim.notify("[Distro] '" .. c .. "' failed after load: " .. tostring(err), vim.log.levels.ERROR)
 	end, { nargs = "*", bang = true, complete = "command", desc = "distro lazy stub: " .. p.name })
 end
 

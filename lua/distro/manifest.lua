@@ -59,7 +59,13 @@ M.plugins = {
 	-- Раньше стоял ft-триггер: nvim-dap + nvim-dap-go + nvim-dap-ui + nvim-nio
 	-- (~60 модулей) загружались просто при открытии Go-файла, хотя отладка
 	-- нужна на единице открытий из тысячи. deps подтягиваются вместе с nvim-dap.
-	{ name = "nvim-dap", repo = "mfussenegger/nvim-dap", ref = "cfa2d58f4537aca6ca83e2de1a0d9f1491121264", branch = "master", kind = "opt", defer_idle = true, cmd = { "DapContinue", "DapToggleBreakpoint", "DapNew", "DapStepIn", "DapStepOut", "DapStepOver", "DapTerminate", "DapRestart", "DapRunLast", "DapEval", "DapToggleLogPoint", "DapUiOpen", "DapUiClose", "DapUiToggle" }, config = "lang.dap", strip = true, deps = { "nvim-dap-go", "nvim-dap-ui" } },
+	{ name = "nvim-dap", repo = "mfussenegger/nvim-dap", ref = "cfa2d58f4537aca6ca83e2de1a0d9f1491121264", branch = "master", kind = "opt", defer_idle = true, -- Список сверен с pack/distro/opt/nvim-dap/plugin/dap.lua: это все 15 команд,
+-- которые регистрирует плагин. nvim-dap-ui НЕ регистрирует ни одной команды
+-- (все DapUI* вхождения в его исходниках — highlight-группы), поэтому DapUi*
+-- в списке не держат. DapStepIn/DapRestart/DapRunLast/DapToggleLogPoint
+-- не существуют (есть DapStepInto/DapRestartFrame); из-за них 8 реальных
+-- команд оставались без заглушки и падали в голый E492.
+cmd = { "DapContinue", "DapToggleBreakpoint", "DapClearBreakpoints", "DapNew", "DapEval", "DapTerminate", "DapDisconnect", "DapRestartFrame", "DapPause", "DapStepOver", "DapStepInto", "DapStepOut", "DapToggleRepl", "DapShowLog", "DapSetLogLevel" }, config = "lang.dap", strip = true, deps = { "nvim-dap-go", "nvim-dap-ui" } },
 	{ name = "nvim-dap-go", repo = "leoluz/nvim-dap-go", ref = "b4421153ead5d726603b02743ea40cf26a51ed5f", branch = "main", kind = "opt", defer_idle = true, strip = true },
 	{ name = "nvim-dap-ui", repo = "rcarriga/nvim-dap-ui", ref = "cc9dd33aade7f20bae414d0cba163bc60d4d4b43", branch = "master", kind = "opt", defer_idle = true, strip = true, deps = { "nvim-nio" } },
 	{ name = "nvim-nio", repo = "nvim-neotest/nvim-nio", ref = "edcc181a875301dd21840189aa2f2f9ad69fc172", branch = "master", kind = "opt", defer_idle = true, strip = true },
