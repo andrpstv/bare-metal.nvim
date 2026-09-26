@@ -65,9 +65,20 @@ _G._pick_lsp = function(scope, opts)
 	-- Фолбэк для внешних либ (go/pkg/mod, GOROOT): gopls там часто отвечает
 	-- "no package metadata". Тогда ищем символ текстовым rg по пакету в quickfix.
 	-- Только для lib-буферов; в обычных файлах поведение прежнее.
+	--
+	-- ВАЖНО, почему это асинхронно: поиск идёт по КАТАЛОГУ пакета внутри
+	-- go/pkg/mod — на машине потребителя это сотни мегабайт на HDD под
+	-- Defender. Синхронный vim.fn.systemlist тут замораживал редактор на
+	-- сотни мс — единицы секунд: нажатие gd на символе из go/pkg/mod
+	-- (например mongo.Client) подвисало до завершения всего сканирования.
+	-- Теперь UI не блокируется ни на одном этапе.
+	local lib_searching = false
 	local function lib_grep_fallback(bufnr, symbol)
 		if not symbol or symbol == "" then
 			return false
+		end
+		if lib_searching then
+			return false -- не плодим параллельные сканирования кэша модулей
 		end
 		if vim.fn.executable("rg") ~= 1 then
 			return false
@@ -77,22 +88,30 @@ _G._pick_lsp = function(scope, opts)
 			return false
 		end
 		local dir = vim.fn.fnamemodify(fname, ":p:h")
-		local out = vim.fn.systemlist({ "rg", "--vimgrep", "--no-heading", "-F", symbol, dir })
-		if vim.v.shell_error ~= 0 or #out == 0 then
-			return false
-		end
-		local items = {}
-		for _, line in ipairs(out) do
-			local f, l, c, text = line:match("^(.-):(%d+):(%d+):(.*)$")
-			if f then
-				items[#items + 1] = { filename = f, lnum = tonumber(l), col = tonumber(c), text = text }
+		lib_searching = true
+		vim.system(
+			{ "rg", "--vimgrep", "--no-heading", "-F", symbol, dir },
+			{ text = true, timeout = 10000 },
+			function(obj)
+				lib_searching = false
+				if not obj or obj.code ~= 0 or not obj.stdout or obj.stdout == "" then
+					return
+				end
+				local items = {}
+				for _, line in ipairs(vim.split(obj.stdout, "\n", { plain = true })) do
+					local f, l, c, text = line:match("^(.-):(%d+):(%d+):(.*)$")
+					if f then
+						items[#items + 1] = { filename = f, lnum = tonumber(l), col = tonumber(c), text = text }
+					end
+				end
+				if #items == 0 then
+					return
+				end
+				vim.fn.setqflist({}, " ", { title = "lib refs: " .. symbol, items = items })
+				vim.cmd("copen")
 			end
-		end
-		if #items == 0 then
-			return false
-		end
-		vim.fn.setqflist({}, " ", { title = "lib refs: " .. symbol, items = items })
-		vim.cmd("copen")
+		)
+		-- Уже запустили поиск: результат придёт в колбэке, UI свободен.
 		return true
 	end
 	if opts.jump1 then
