@@ -47,6 +47,11 @@ _G._pick_extra = function(fn, opts)
 	extra.pickers[fn](opts)
 end
 
+-- Флаг активного сканирования кэша модулей. Именно module-level: если держать
+-- его внутри _G._pick_lsp, он пересоздаётся на каждом вызове, гард мёртвый, и
+-- N нажатий gd дают N параллельных rg по go/pkg/mod (сотни МБ каждый).
+local lib_searching = false
+
 ---LSP через mini.extra: definition|references|implementation|type_definition|
 ---document_symbol|workspace_symbol_live. opts.jump1: один результат — прыгнуть сразу.
 ---@param scope string
@@ -72,8 +77,8 @@ _G._pick_lsp = function(scope, opts)
 	-- сотни мс — единицы секунд: нажатие gd на символе из go/pkg/mod
 	-- (например mongo.Client) подвисало до завершения всего сканирования.
 	-- Теперь UI не блокируется ни на одном этапе.
-	local lib_searching = false
-	local function lib_grep_fallback(bufnr, symbol)
+	---@return boolean ok true, если сканирование запущено (результат придёт в колбэке)
+	local function lib_grep_fallback(bufnr, symbol, scope)
 		if not symbol or symbol == "" then
 			return false
 		end
@@ -88,27 +93,61 @@ _G._pick_lsp = function(scope, opts)
 			return false
 		end
 		local dir = vim.fn.fnamemodify(fname, ":p:h")
+		-- Снимок позиции пользователя на момент старта: copen не должен вырывать
+		-- фокус, если к моменту ответа пользователь печатал или ушёл курсором.
+		local start_win = vim.api.nvim_get_current_win()
+		local start_pos = vim.api.nvim_win_get_cursor(0)
+		local function user_idle()
+			local m = vim.fn.mode()
+			if m ~= "n" and m ~= "no" and m ~= "v" and m ~= "V" and m ~= "\22" then
+				return false -- insert / cmdline / operator-pending: не перехватываем
+			end
+			if not vim.api.nvim_win_is_valid(start_win) or vim.api.nvim_get_current_win() ~= start_win then
+				return false -- ушёл в другое окно
+			end
+			local cur = vim.api.nvim_win_get_cursor(start_win)
+			return cur[1] == start_pos[1] and cur[2] == start_pos[2]
+		end
 		lib_searching = true
 		vim.system(
 			{ "rg", "--vimgrep", "--no-heading", "-F", symbol, dir },
 			{ text = true, timeout = 10000 },
 			function(obj)
 				lib_searching = false
-				if not obj or obj.code ~= 0 or not obj.stdout or obj.stdout == "" then
+				-- ВСЕ ветки отказа обязаны что-то сказать: потребитель полагается
+				-- на return выше, а раньше тут был голый return — у пользователя не
+				-- было ни перехода, ни quickfix, ни единого сообщения.
+				if not obj then
+					vim.notify("[lsp] text search for '" .. symbol .. "' produced no result", vim.log.levels.WARN, { title = "lsp" })
+					return
+				end
+				if obj.code ~= 0 and obj.code ~= 1 then
+					vim.notify("[lsp] text search failed (rg code " .. tostring(obj.code) .. "): " .. tostring(obj.stderr or ""), vim.log.levels.ERROR, { title = "lsp" })
 					return
 				end
 				local items = {}
-				for _, line in ipairs(vim.split(obj.stdout, "\n", { plain = true })) do
-					local f, l, c, text = line:match("^(.-):(%d+):(%d+):(.*)$")
-					if f then
-						items[#items + 1] = { filename = f, lnum = tonumber(l), col = tonumber(c), text = text }
+				if obj.stdout and obj.stdout ~= "" then
+					for _, line in ipairs(vim.split(obj.stdout, "\n", { plain = true })) do
+						local f, l, c, text = line:match("^(.-):(%d+):(%d+):(.*)$")
+						if f then
+							items[#items + 1] = { filename = f, lnum = tonumber(l), col = tonumber(c), text = text }
+						end
 					end
 				end
+				-- Пустой результат = «ничего не найдено», а не «ошибка»: тот же
+				-- тон, что у "no results for <scope>".
 				if #items == 0 then
+					vim.notify("[lsp] no results for " .. (scope or symbol) .. " (text search in package sources found nothing)", vim.log.levels.INFO, { title = "lsp" })
 					return
 				end
 				vim.fn.setqflist({}, " ", { title = "lib refs: " .. symbol, items = items })
-				vim.cmd("copen")
+				if user_idle() then
+					vim.cmd("copen")
+				else
+					-- Пользователь печатал или курсор ушёл: quickfix заполнен,
+					-- но фокус не забираем.
+					vim.notify("[lsp] " .. #items .. " lib refs in quickfix (not opening — you moved)", vim.log.levels.INFO, { title = "lsp" })
+				end
 			end
 		)
 		-- Уже запустили поиск: результат придёт в колбэке, UI свободен.
@@ -139,7 +178,7 @@ _G._pick_lsp = function(scope, opts)
 			if err then
 				-- Сервер ответил ошибкой (не висение!): показываем её текст,
 				-- а для внешних либ пробуем текстовый фолбэк вместо пустоты.
-				if not lib_grep_fallback(req_buf, req_symbol) then
+				if not lib_grep_fallback(req_buf, req_symbol, scope) then
 					vim.notify("[lsp] " .. scope .. " failed: " .. err_text(err), vim.log.levels.WARN, { title = "lsp" })
 				end
 				return
@@ -166,7 +205,7 @@ _G._pick_lsp = function(scope, opts)
 					vim.notify("[lsp] result arrived after you moved — opening picker", vim.log.levels.INFO, { title = "lsp" })
 				end
 			elseif #locs == 0 then
-				if not lib_grep_fallback(req_buf, req_symbol) then
+				if not lib_grep_fallback(req_buf, req_symbol, scope) then
 					vim.notify("[lsp] no results for " .. scope, vim.log.levels.INFO, { title = "lsp" })
 				end
 				return
