@@ -137,6 +137,7 @@ function M.setup()
 	vim.api.nvim_create_user_command("DistroTrace", function(opts)
 		local a = vim.trim(opts.args or "")
 		local sub = a:match("^%S+") or "toggle"
+		local arg = a:match("^%S+%s+(%S+)")
 		local trace = require("distro.trace")
 		if sub == "on" then
 			local p = trace.enable()
@@ -162,19 +163,29 @@ function M.setup()
 		elseif sub == "report" then
 			vim.notify(require("distro.traceui").report(trace.path), vim.log.levels.INFO, { title = "trace" })
 		elseif sub == "open" then
-			require("distro.traceui").open(trace.path)
+			require("distro.traceui").open(trace.path, arg)
+		elseif sub == "sort" then
+			local mode = arg
+			if mode ~= "time" and mode ~= "seq" then
+				vim.notify("Usage: :DistroTrace sort time|seq  (time = slowest first, seq = chronological)", vim.log.levels.WARN, { title = "trace" })
+				return
+			end
+			require("distro.traceui").open(trace.path, mode)
 		elseif sub == "clear" then
 			trace.flush()
 			local left = trace.clear()
 			vim.notify("DistroTrace: deleted old logs, " .. left .. " remain.", vim.log.levels.INFO, { title = "trace" })
 		else
-			vim.notify("Usage: :DistroTrace on|off|toggle|flush|report|open|clear", vim.log.levels.WARN, { title = "trace" })
+			vim.notify("Usage: :DistroTrace on|off|toggle|flush|report|open [time|seq]|sort <time|seq>|clear", vim.log.levels.WARN, { title = "trace" })
 		end
 	end, {
 		nargs = "*",
-		desc = "distro: action tracing (on|off|toggle|flush|report|open|clear)",
-		complete = function()
-			return { "on", "off", "toggle", "flush", "report", "open", "clear" }
+		desc = "distro: action tracing (on|off|toggle|flush|report|open|sort|clear)",
+		complete = function(lead, cmdline)
+			if cmdline:match("%s%S+%s%S+$") then
+				return { "time", "seq" }
+			end
+			return { "on", "off", "toggle", "flush", "report", "open", "sort", "clear" }
 		end,
 	})
 

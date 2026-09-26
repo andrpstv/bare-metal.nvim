@@ -113,13 +113,22 @@ function M.span(name, fn)
 end
 
 --- Log a pre-measured sub-stage of the currently open span.
+---
+--- The elapsed value goes into the DURATION column, not into a detail string.
+--- That distinction decides everything downstream: the viewer sorts by
+--- duration, so a sub-stage whose timing lives in `detail` has dur=nil and
+--- sorts to the BOTTOM of a "longest first" list, buried under events that
+--- legitimately took no time. That is how a 14 ms hop ended up ranked below a
+--- 0.1 ms dispatch.
 ---@param name string
----@param stage string "keypress", "request", ...
-function M.sub(name, stage, detail)
+---@param stage string "keypress_to_request", "request_to_response", ...
+---@param ms number|nil elapsed ms since the parent span started
+---@param detail string|nil
+function M.sub(name, stage, ms, detail)
 	if not M.enabled then
 		return
 	end
-	M.log(name .. "/" .. stage, nil, detail)
+	M.log(name .. "/" .. stage, ms, detail)
 end
 
 --- Write buffered lines. Async: fs_open + fs_write, never blocking syscalls.

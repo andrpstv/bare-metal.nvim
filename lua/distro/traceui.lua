@@ -91,10 +91,14 @@ local function tail_lines(path, limit)
 end
 M._tail_lines = tail_lines
 
---- Rows of the current log, longest first (sub-stages excluded from the head
---- of the list: they are shown in the detail view of their parent).
+--- Rows of the current log.
+--- sort: "time" (default) — longest duration first, the ordering that answers
+--- "what is slow here"; "seq" — chronological, the ordering that reads as a
+--- flow of events. Both are needed: a slow hop hides in chronological order,
+--- and unrelated background events bury it in duration order.
+---@param sort "time"|"seq"
 ---@return table[]
-function M.rows(path, limit)
+function M.rows(path, limit, sort)
 	local raws = tail_lines(path, limit or 2000)
 	local rows = {}
 	for _, l in ipairs(raws) do
@@ -103,16 +107,49 @@ function M.rows(path, limit)
 			rows[#rows + 1] = r
 		end
 	end
-	table.sort(rows, function(a, b)
-		return (a.dur or -1) > (b.dur or -1)
-	end)
+	if sort == "seq" then
+		table.sort(rows, function(a, b)
+			return a.seq < b.seq
+		end)
+	else
+		table.sort(rows, function(a, b)
+			return (a.dur or -1) > (b.dur or -1)
+		end)
+	end
 	return rows
 end
 
+M.SORTS = { "time", "seq" }
+
+--- Anomaly thresholds, ms. Slow >= SLOW, very slow >= VERY_SLOW.
+local SLOW_MS, VERY_SLOW_MS = 50, 200
+
+--- Highlight groups. Created lazily so importing this module has no side
+--- effect on a session that never opens the viewer.
+local hl_defined = false
+local function ensure_hl()
+	if hl_defined then
+		return
+	end
+	hl_defined = true
+	vim.api.nvim_set_hl(0, "DistroTraceSlow", { fg = "#e0a030", bold = true })
+	vim.api.nvim_set_hl(0, "DistroTraceVerySlow", { fg = "#ff5f5f", bold = true })
+	vim.api.nvim_set_hl(0, "DistroTraceHead", { bold = true, reverse = true })
+	vim.api.nvim_set_hl(0, "DistroTraceSub", { italic = true })
+end
+
+--- One row. Returns the rendered line and the duration in ms (or nil) so the
+--- caller can highlight it. Both `at` (cumulative, ms since process start) and
+--- `dur` (own cost) are shown: sub-stages are cumulative, so the delta between
+--- neighbouring rows is the phase, and hiding `at` made that unreadable.
+---@return string line, number|nil dur
 local function fmt_row(r)
-	local dur = r.dur and string.format("%8.2fms", r.dur) or string.format("%9s", "-")
-	local d = r.detail and ("  " .. r.detail:sub(1, 60)) or ""
-	return string.format("#%-5d %9.2fms  %-28s %-10s %s%s", r.seq, r.dur or 0, r.event, r.ft or "-", r.buf or "", d)
+	local dur = r.dur and string.format("%9.2f", r.dur) or string.format("%9s", "-")
+	local line = string.format("#%-5d %s ms  at %9.2f  %-34s %-6s %s", r.seq, dur, r.at, r.event, r.ft or "-", r.buf or "")
+	if r.detail and r.detail ~= "" then
+		line = line .. "  " .. r.detail:sub(1, 46)
+	end
+	return line, r.dur
 end
 
 local function buf_of(lines, ft)
@@ -138,40 +175,85 @@ local function float(b, title, height)
 	})
 end
 
---- Main view: span list sorted by duration, longest first.
-function M.open(path)
+--- Main view. sort: "time" (longest first) or "seq" (chronological).
+function M.open(path, sort)
+	ensure_hl()
 	path = path or require("distro.trace").path
 	if not path or vim.fn.filereadable(path) == 0 then
 		vim.notify("No trace log yet — :DistroTrace on first", vim.log.levels.WARN, { title = "trace" })
 		return
 	end
-	local rows = M.rows(path, 4000)
-	local lines = {
-		string.format("DistroTrace — %d rows (tail) — longest first", #rows),
-		string.format("file: %s", path),
-		"",
-		"<Enter> — детали спана   <Tab> — предыдущая страница   q — закрыть",
-		"",
-	}
-	if #rows == 0 then
-		lines[#lines + 1] = "(no rows)"
+	sort = sort or "time"
+	local b = vim.api.nvim_create_buf(false, true)
+	local win = vim.api.nvim_open_win(b, true, {
+		relative = "editor",
+		width = math.min(150, vim.o.columns - 6),
+		height = math.min(40, vim.o.lines - 4),
+		row = 1,
+		col = math.max(0, (vim.o.columns - 150) / 2),
+		style = "minimal",
+		border = "rounded",
+		title = " DistroTrace ",
+	})
+	vim.b[win].distro_trace = { path = path }
+
+	local function render()
+		local rows = M.rows(path, 4000, sort)
+		local slowest, total = 0, 0
+		local lines = {
+			string.format("DistroTrace — %d rows (tail) — sort: %s%s", #rows, sort, sort == "time" and "  (slowest first)" or "  (chronological)"),
+			string.format("file: %s", path),
+		}
+		-- Headline numbers: what a consumer actually reports.
+		for _, r in ipairs(rows) do
+			if r.dur and r.dur > 0 then
+				total = total + 1
+				if r.dur > slowest then
+					slowest = r.dur
+				end
+			end
+		end
+		lines[#lines + 1] = string.format("slowest event: %s ms   measured: %d   red >= %d ms, yellow >= %d ms", slowest > 0 and string.format("%.2f", slowest) or "-", total, VERY_SLOW_MS, SLOW_MS)
+		lines[#lines + 1] = ""
+		lines[#lines + 1] = "        duration      at  event                             ft     buffer"
+		if #rows == 0 then
+			lines[#lines + 1] = "(no rows)"
+		end
+		local durs = {}
+		for _, r in ipairs(rows) do
+			local line, dur = fmt_row(r)
+			lines[#lines + 1] = line
+			durs[#durs + 1] = dur
+		end
+		lines[#lines + 1] = ""
+		lines[#lines + 1] = "<Enter> details   s — switch sort (time/seq)   q — close"
+		vim.api.nvim_buf_set_lines(b, 0, -1, false, lines)
+		-- Highlight the duration cell of slow rows, so an anomaly is visible
+		-- without reading numbers.
+		local ns = vim.api.nvim_create_namespace("distro_trace_hl")
+		vim.api.nvim_buf_clear_namespace(b, ns, 0, -1)
+		for i, dur in ipairs(durs) do
+			if dur and dur >= SLOW_MS then
+				vim.api.nvim_buf_add_highlight(b, ns, vim.api.nvim_str_byteindex(b, i, 0, false), vim.api.nvim_str_byteindex(b, i, 0, false), dur >= VERY_SLOW_MS and "DistroTraceVerySlow" or "DistroTraceSlow")
+			end
+		end
+		vim.b[win].distro_trace = { path = path, rows = rows, sort = sort }
 	end
-	for _, r in ipairs(rows) do
-		lines[#lines + 1] = fmt_row(r)
-	end
-	local b = buf_of(lines)
-	local win = float(b, "DistroTrace", #lines)
-	local info = { path = path, rows = rows }
-	vim.b[win].distro_trace = info
+	render()
+
 	local function close()
 		pcall(vim.api.nvim_win_close, win, true)
 	end
 	vim.keymap.set("n", "q", close, { buffer = b, nowait = true })
 	vim.keymap.set("n", "<Esc>", close, { buffer = b, nowait = true })
+	vim.keymap.set("n", "s", function()
+		sort = (sort == "time") and "seq" or "time"
+		render()
+		vim.api.nvim_win_set_cursor(win, { 1, 0 })
+	end, { buffer = b, nowait = true, desc = "trace: toggle sort" })
 	vim.keymap.set("n", "<CR>", function()
-		local ln = vim.api.nvim_win_get_cursor(0)[1]
-		local idx = ln - 6
-		local r = info.rows[idx]
+		local info = vim.b[win].distro_trace
+		local r = info.rows and info.rows[vim.api.nvim_win_get_cursor(0)[1] - 7]
 		if r then
 			M.detail(info.path, r)
 		end
@@ -213,17 +295,27 @@ function M.detail(path, r)
 		string.format("  filetype   %s", r.ft or "-"),
 		string.format("  detail     %s", r.detail or "-"),
 		"",
-		string.format("=== sub-stages in window (%d) ===", #subs),
+		string.format("=== phases in window (%d) ===", #subs),
 	}
 	if #subs == 0 then
 		lines[#lines + 1] = "(none recorded)"
 	end
+	-- Sub-stage rows are CUMULATIVE (ms since the span started), so the phase
+	-- cost is the difference from the previous row — printing the raw value
+	-- made every phase look like it cost the full span. The delta column is
+	-- what actually answers "where did the time go".
+	local prev_at = (r.at - (r.dur or 0))
+	local sub_durs = {}
 	for _, x in ipairs(subs) do
+		local delta = x.at - prev_at
+		prev_at = x.at
+		sub_durs[#sub_durs + 1] = { delta = delta, event = x.event }
 		lines[#lines + 1] = string.format(
-			"  +%7.2fms  %-26s %s",
-			x.at - r.at,
+			"  cum %8.3f  Δ %8.3f ms  %-38s %s",
+			x.at - r.at + (r.dur or 0),
+			delta,
 			x.event,
-			x.dur and string.format("%.2fms", x.dur) or ""
+			x.dur and string.format("(own dur %.3f)" % x.dur) or ""
 		)
 	end
 	lines[#lines + 1] = ""

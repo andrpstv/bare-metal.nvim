@@ -58,20 +58,21 @@ function M.wrap_pick()
 		vim.lsp.buf_request = function(bufnr, method, params, handler, bufnr2)
 			n = n + 1
 			-- 1. keypress -> request
-			trace.sub(ev, "keypress_to_request", string.format("%.3fms", el()))
+			trace.sub(ev, "keypress_to_request", el())
 			vim.lsp.buf_request = orig_req
 			return orig_req(bufnr, method, params, function(...)
 				-- 2. request -> response
-				trace.sub(ev, "request_to_response", string.format("%.3fms", el()))
-				-- 3. response -> cursor placement happens inside the shim's own
-				-- handler, which we only observe AFTER it returns.
-				-- NOTE: table.pack is nil under LuaJIT/5.1 (verified), so use
-				-- select("#") + the 5.1 global unpack. The handler MUST be
-				-- called exactly once, with all args and all returns intact --
-				-- dropping either one breaks gd silently.
+				trace.sub(ev, "request_to_response", el())
 				local nargs = select("#", ...)
 				local res = { handler(...) }
-				trace.sub(ev, "response_to_cursor", string.format("%.3fms", el()))
+				-- 3. response -> cursor placed
+				trace.sub(ev, "response_to_cursor", el())
+				-- The honest end-to-end total, logged HERE rather than after
+				-- pcall(orig): the shim dispatches asynchronously and returns
+				-- immediately, so anything timed after it excludes the server
+				-- round-trip and the jump entirely. Measured at dispatch that
+				-- "total" reads 0.1-0.6 ms while the real hop is 9-14 ms.
+				trace.log(ev, el(), "TOTAL (requests: " .. n .. ")", name, ft)
 				return unpack(res, 1, nargs)
 			end, bufnr2)
 		end
@@ -82,7 +83,9 @@ function M.wrap_pick()
 			trace.log(ev, el(), "error: " .. tostring(r), name, ft)
 			error(r, 0)
 		end
-		trace.log(ev, el(), "total (requests: " .. n .. ")", name, ft)
+		-- Dispatch only: how long the synchronous send took. Deliberately NOT
+		-- called "total" — the real TOTAL is logged from the response handler.
+		trace.log(ev, el(), "dispatch only (requests: " .. n .. ")", name, ft)
 		trace.flush()
 		return r
 	end
