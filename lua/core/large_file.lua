@@ -1,14 +1,40 @@
 -- Large files: detect early, enforce late (filetype is final only on BufReadPost).
+local settings = require("core.settings")
 local M = {}
--- Large file detection: disable expensive features for files > 1MB or > 10k lines
+
+-- Thresholds come from settings so the owner can retune without editing logic.
+-- 0 (or nil) disables that dimension. See lua/core/settings.lua for rationale:
+-- previous hardcoded 10000 lines let ~5000-line Go files through untouched.
+local function max_lines()
+	local n = tonumber(settings.large_file_max_lines)
+	if n and n > 0 then
+		return n
+	end
+	return math.huge
+end
+
+local function max_kb()
+	local n = tonumber(settings.large_file_max_kb)
+	if n and n > 0 then
+		return n
+	end
+	return math.huge
+end
+
+--- Line-count check, shared by detect and enforce so the two never disagree.
+--- >= (not >): a file of exactly the threshold counts as large.
+local function over_line_limit(bufnr)
+	return vim.api.nvim_buf_line_count(bufnr) >= max_lines()
+end
+
+-- Large file detection: disable expensive features over the size OR line limits
 local function is_large_file(bufnr)
-	local max_size = 1024 * 1024 -- 1MB
-	local max_lines = 10000
+	local limit_kb = max_kb()
 	local ok, stats = pcall(vim.uv.fs_stat, vim.api.nvim_buf_get_name(bufnr))
-	if ok and stats and stats.size > max_size then
+	if ok and stats and limit_kb < math.huge and stats.size > limit_kb * 1024 then
 		return true
 	end
-	if vim.api.nvim_buf_line_count(bufnr) > max_lines then
+	if over_line_limit(bufnr) then
 		return true
 	end
 	return false
@@ -47,13 +73,20 @@ vim.api.nvim_create_autocmd({ "BufReadPre", "BufNewFile" }, {
 ---@param buf integer
 ---@return boolean
 function M.enforce(buf)
-	if not (vim.b[buf].large_file or vim.api.nvim_buf_line_count(buf) > 10000) then
+	if not (vim.b[buf].large_file or over_line_limit(buf)) then
 		return false
 	end
 	if not vim.b[buf].large_file then
 		vim.b[buf].large_file = true
 		vim.schedule(function()
-			vim.notify("Large file detected (>10k lines): disabled LSP, Treesitter, undo", vim.log.levels.WARN, { title = "Large File" })
+			-- max_lines() может быть math.huge (порог выключен через 0) —
+			-- %d по inf бросает ошибку, поэтому подставляем только конечное число.
+			local lim = max_lines()
+			local msg = "Large file detected: disabled LSP, Treesitter, undo"
+			if lim < math.huge then
+				msg = string.format("Large file detected (>=%d lines): disabled LSP, Treesitter, undo", lim)
+			end
+			vim.notify(msg, vim.log.levels.WARN, { title = "Large File" })
 		end)
 	end
 	vim.b[buf].lsp_disable = true

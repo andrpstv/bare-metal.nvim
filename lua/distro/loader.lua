@@ -59,10 +59,20 @@ local function pack_subtree(entry)
 		end
 	end
 	if ok then
-		local pok = pcall(vim.cmd, "packadd " .. entry.name)
-		if not pok and entry.kind ~= "start" then
-			-- start/ plugins are already on rtp; treat packadd error as non-fatal
-			ok = false
+		-- kind="start" уже в rtp и его plugin/*.vim уже sourced при старте
+		-- (pack/distro/start подхватывается Neovim автоматически). Повторный
+		-- :packadd ре-источ��л plugin/ — отсюда был 3-й дубль nvim-web-devicons.vim
+		-- (3 x 0.016-0.140 мс тёплых, заметнее на HDD). Пропускаем только
+		-- САМ entry; его deps по-прежнему обходятся и packadd'ятся выше.
+		-- Ошибки логики загрузки не трогаем: start никогда не был fatal
+		-- (см. ветку ниже), поведение ok=false не меняется.
+		if entry.kind == "start" then
+			-- уже на rtp — nothing to do
+		else
+			local pok = pcall(vim.cmd, "packadd " .. entry.name)
+			if not pok then
+				ok = false
+			end
 		end
 	end
 	packing[entry.name] = nil
@@ -216,6 +226,22 @@ function M.kick(p)
 	else
 		M.load(p.name)
 	end
+end
+
+--- Turbo: synchronously drain everything deferred so far (scheduled kicks
+--- + idle queue). Idempotent: M.load short-circuits on M.loaded, and the
+--- still-queued vim.schedule callbacks become no-ops afterwards.
+--- Called by :TurboOff (core.turbo). Zero network by construction.
+function M.drain_all()
+	for name in pairs(pending) do
+		pending[name] = nil
+		M.load(name)
+	end
+	drain_idle()
+	-- Гейт одноразовый только до :TurboOff — возвращаем его в исходное
+	-- «не сработал» состояние, иначе все последующие defer_until_idle
+	-- грузились бы сразу и навсегда мимо очереди «не парсить при наборе».
+	idle_fired = false
 end
 
 --- Boot: rtp + eager start plugins + lazy autocmds/commands. No network.

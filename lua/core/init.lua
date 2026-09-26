@@ -145,95 +145,9 @@ You're recommended to install PowerShell for better experience.]],
 	end
 end
 
-local git_sync_colors = function()
-	if not settings.sync_git_colors then
-		return
-	end
-	if vim.fn.executable("git") ~= 1 then
-		return
-	end
-
-	local green = settings.palette_overwrite.green or "#5f8787"
-	local red = settings.palette_overwrite.red or "#974b46"
-	local is_windows = vim.fn.has("win32") == 1
-
-	-- git config path (expand может вернуть литерал при пустом env — проверяем)
-	local gitconfig
-	if is_windows then
-		gitconfig = vim.fn.expand("$USERPROFILE") .. "/.gitconfig"
-	else
-		gitconfig = vim.fn.expand("~/.gitconfig")
-	end
-	if gitconfig:match("%$") then
-		return
-	end
-
-	local content = ""
-	if vim.fn.filereadable(gitconfig) == 1 then
-		content = vim.fn.readfile(gitconfig, "\n")
-		if type(content) == "table" then
-			content = table.concat(content, "\n")
-		end
-	end
-
-	if not content:match("%[color \"diff\"%]") then
-		local snippet = string.format(
-			'\n[color "diff"]\n\told = %s\n\tnew = %s\n\tfuncold = %s\n\tfuncnew = %s',
-			red, green, red, green
-		)
-		local f = io.open(gitconfig, "a")
-		if f then
-			f:write(snippet)
-			f:close()
-		end
-	end
-
-	-- lazygit config path (тот же гард от пустого env)
-	local lg_dir
-	if is_windows then
-		lg_dir = vim.fn.expand("$APPDATA") .. "/lazygit"
-	else
-		lg_dir = vim.fn.expand("~/.config/lazygit")
-	end
-	if lg_dir:match("%$") then
-		return
-	end
-
-	if vim.fn.isdirectory(lg_dir) == 0 then
-		vim.fn.mkdir(lg_dir, "p")
-	end
-	local lg_config = lg_dir .. "/config.yml"
-	if vim.fn.filereadable(lg_config) == 0 then
-		local yaml = string.format(
-			[[os:
-  editPreset: "nvim-remote"
-gui:
-  theme:
-    activeBorderColor:
-      - "%s"
-      - "bold"
-    inactiveBorderColor:
-      - "#589ed7"
-    selectedLineBgColor:
-      - "#2d3f76"
-    unstagedChangesColor:
-      - "%s"
-  nerdFontsVersion: "3"
-git:
-  diff:
-    colorAdded: "%s"
-    colorModified: "#888888"
-    colorRemoved: "%s"
-]],
-			green, red, green, red
-		)
-		local f = io.open(lg_config, "w")
-		if f then
-			f:write(yaml)
-			f:close()
-		end
-	end
-end
+-- Синхронизация git/lazygit цветов diff вынесена в lua/core/git_colors.lua
+-- (опциональная фича, opt-in; по умолчанию выключена и на старт не влияет).
+-- Чтобы выпилить фичу: удалить этот модуль + вызов в load_core ниже.
 
 local load_core = function()
 	createdir()
@@ -243,7 +157,12 @@ local load_core = function()
 	neovide_config()
 	clipboard_config()
 	shell_config()
-	git_sync_colors()
+	-- Опциональная фича (sync_git_colors, по умолчанию false). Проверка флага
+	-- ЗДЕСЬ: при выключенной фиче модуль вообще не грузится и старт за него
+	-- не платит. Точка удаления фичи — эти 4 строки + lua/core/git_colors.lua.
+	if settings.sync_git_colors then
+		require("core.git_colors").schedule()
+	end
 
 	require("core.options")
 	require("core.event")
@@ -252,8 +171,22 @@ local load_core = function()
 	-- pairs СТРОГО после keymap: <C-h> и <BS> делят поведение стирания,
 	-- наш хендлер должен побеждать `i|<C-h> -> <Left>` из keymap/editor.lua.
 	-- Так же было со старым autoclose: он грузился по InsertEnter, т.е. позже всех.
-	require("core.pairs").setup()
-	require("modules.configs.completion.formatting").configure_format_on_save()
+	-- TURBO (T4): pairs + format_on_save не нужны до первого Insert/Write —
+	-- откладываем на schedule. vim.schedule отрабатывает раньше первого ввода,
+	-- поэтому немедленный :w после open работает. Headless — синхронно
+	-- (:Format команда должна существовать для скриптов). Без флага — как было.
+	local turbo_on = pcall(require, "core.turbo") and require("core.turbo").is_on()
+	if turbo_on and #vim.api.nvim_list_uis() > 0 then
+		vim.schedule(function()
+			require("core.pairs").setup()
+		end)
+		vim.schedule(function()
+			require("modules.configs.completion.formatting").configure_format_on_save()
+		end)
+	else
+		require("core.pairs").setup()
+		require("modules.configs.completion.formatting").configure_format_on_save()
+	end
 	require("modules.configs.ui.theme")()
 	-- khold — dark-only: background=light сносит colors_name в nil.
 	if settings.background == "light" and settings.colorscheme == "khold" then
@@ -262,17 +195,30 @@ local load_core = function()
 	else
 		vim.api.nvim_set_option_value("background", settings.background, {})
 	end
-	-- На тупых терминалах 24-битный цвет ломает вывод — откатываемся ПОСЛЕ темы:
-	-- тема (black-metal) включает termguicolors=true безусловно и затирала ранний гард.
-	-- Плюс screen/tmux без truecolor.
-	local term = vim.env.TERM or ""
-	if term == "dumb" or (vim.env.NO_COLOR or "") ~= "" or term:match("^screen") then
-		vim.api.nvim_set_option_value("termguicolors", false, {})
-	end
+	-- На тупых терминалах 24-битный цвет ломает вывод. Гард обязан отрабатывать
+	-- ПОСЛЕ темы: black-metal включает termguicolors=true безусловно и затирал
+	-- ранний гард (уже чинили один раз). Логика живёт в core.term_guard, потому
+	-- что load() вызывается дважды — на базовой и на кастомной теме — и при
+	-- отложенном применении (settings.defer_theme) событие ColorScheme уже не
+	-- помогает: кастомный проход приезжает позже. Поэтому ниже гард зовётся ещё
+	-- и явно из themes/black-metal-khold.lua после каждого load().
+	require("core.term_guard").enforce()
+	vim.api.nvim_create_autocmd("ColorScheme", {
+		group = vim.api.nvim_create_augroup("TermGuicolorsGuard", { clear = true }),
+		desc = "core: re-apply termguicolors guard on manual :colorscheme",
+		callback = function()
+			require("core.term_guard").enforce()
+		end,
+	})
 
 	vim.api.nvim_create_user_command("ConfigHealth", function()
 		vim.cmd("checkhealth core")
 	end, { desc = "config: environment preflight (binaries, LSP, theme, keys)" })
+	require("core.turbo").setup()
+	-- weak-hw: команды пресета слабого железа (:WeakHwOn/:WeakHwOff/:WeakHwStatus).
+	-- Регистрация не имеет побочных эффектов и ничего не включает: сам пресет
+	-- остаётся opt-in через settings.weak_hw / :WeakHwOn / NVIM_WEAK_HW=1.
+	require("core.weak_hw").setup()
 end
 
 -- netrw НЕ отключаем: встроенный проводник доступен через :Ex / :Vex.

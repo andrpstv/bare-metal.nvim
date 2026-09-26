@@ -1,0 +1,174 @@
+-- distro.tracehooks — installs the instrumentation for :DistroTrace.
+--
+-- Step 3 (the one that matters): in THIS config gd does not go through
+-- vim.lsp.buf.definition. It goes keymap/pick.lua -> _G._pick_lsp(scope, opts),
+-- a hand-written shim that calls vim.lsp.buf_request itself. Wrapping
+-- vim.lsp.buf / buf_request would therefore trace nothing at all. So we wrap
+-- the shim, at the boundary, and time the whole call: keypress -> request ->
+-- response -> cursor placement, with the sub-stages logged as separate rows
+-- inside the parent span's time window.
+--
+-- All hooks early-return on `not M.enabled`. No tracing, no allocations.
+
+local M = {}
+
+local function ctx()
+	local buf = vim.api.nvim_get_current_buf()
+	local ft = vim.bo[buf].filetype
+	local name = vim.api.nvim_buf_get_name(buf)
+	return buf, name, ft
+end
+
+--- Wrap _G._pick_lsp once, idempotently.
+--- The "already wrapped" flag lives on the module, not on the function: a
+--- function value cannot be indexed in Lua (rawset-able, but pointless).
+function M.wrap_pick()
+	if M._pick_wrapped then
+		return false
+	end
+	local orig = _G._pick_lsp
+	if type(orig) ~= "function" then
+		return false
+	end
+	M._pick_wrapped = true
+	local trace = require("distro.trace")
+	local uv = vim.uv or vim.loop
+
+	local function traced(scope, opts)
+		-- ZERO COST GUARD: the whole point of the boolean first line.
+		if not trace.enabled then
+			return orig(scope, opts)
+		end
+		local buf, name, ft = ctx()
+		local t0 = uv.hrtime()
+		local el = function()
+			return (uv.hrtime() - t0) / 1e6
+		end
+		local ev = "pick_lsp/" .. tostring(scope)
+		trace.log(ev, nil, "call", name, ft)
+
+		-- We must not steal the shim's callback: it owns the jump/picker logic.
+		-- So wrap buf_request, hand the original callback a delegating wrapper,
+		-- and restore the original in every exit path. Restoration is done by
+		-- the wrapper's first invocation, not before: the shim calls
+		-- buf_request synchronously, so restoring right after the call is safe
+		-- and avoids leaking a patched global if the shim errors.
+		local orig_req = vim.lsp.buf_request
+		local n = 0
+		vim.lsp.buf_request = function(bufnr, method, params, handler, bufnr2)
+			n = n + 1
+			-- 1. keypress -> request
+			trace.sub(ev, "keypress_to_request", string.format("%.3fms", el()))
+			vim.lsp.buf_request = orig_req
+			return orig_req(bufnr, method, params, function(...)
+				-- 2. request -> response
+				trace.sub(ev, "request_to_response", string.format("%.3fms", el()))
+				-- 3. response -> cursor placement happens inside the shim's own
+				-- handler, which we only observe AFTER it returns.
+				-- NOTE: table.pack is nil under LuaJIT/5.1 (verified), so use
+				-- select("#") + the 5.1 global unpack. The handler MUST be
+				-- called exactly once, with all args and all returns intact --
+				-- dropping either one breaks gd silently.
+				local nargs = select("#", ...)
+				local res = { handler(...) }
+				trace.sub(ev, "response_to_cursor", string.format("%.3fms", el()))
+				return unpack(res, 1, nargs)
+			end, bufnr2)
+		end
+
+		local ok, r = pcall(orig, scope, opts)
+		vim.lsp.buf_request = orig_req
+		if not ok then
+			trace.log(ev, el(), "error: " .. tostring(r), name, ft)
+			error(r, 0)
+		end
+		trace.log(ev, el(), "total (requests: " .. n .. ")", name, ft)
+		trace.flush()
+		return r
+	end
+	_G._pick_lsp = traced
+	M._pick_orig = orig
+	M._restore_pick = function()
+		_G._pick_lsp = orig
+		M._pick_wrapped = false
+	end
+	return true
+end
+
+--- Autocmd-level instrumentation.
+function M.setup_autocmds()
+	local grp = vim.api.nvim_create_augroup("DistroTraceHooks", { clear = true })
+	local trace = require("distro.trace")
+	local function on_cursor()
+		if not trace.enabled then
+			return
+		end
+		local buf, name, ft = ctx()
+		trace.log("autocmd/CursorMoved", nil, "line " .. vim.fn.line("."), name, ft)
+	end
+	vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+		group = grp,
+		callback = on_cursor,
+	})
+	vim.api.nvim_create_autocmd("BufEnter", {
+		group = grp,
+		callback = function()
+			if not trace.enabled then
+				return
+			end
+			local buf, name, ft = ctx()
+			trace.log("autocmd/BufEnter", nil, "size " .. tostring(vim.api.nvim_buf_line_count(buf)), name, ft)
+		end,
+	})
+	vim.api.nvim_create_autocmd("FileType", {
+		group = grp,
+		callback = function(ev)
+			if not trace.enabled then
+				return
+			end
+			local buf, name = ev.buf, vim.api.nvim_buf_get_name(ev.buf)
+			trace.log("autocmd/FileType", nil, vim.bo[ev.buf].filetype, name, vim.bo[ev.buf].filetype)
+		end,
+	})
+	vim.api.nvim_create_autocmd("LspAttach", {
+		group = grp,
+		callback = function(ev)
+			if not trace.enabled then
+				return
+			end
+			local name = vim.api.nvim_buf_get_name(ev.buf)
+			local cl = vim.lsp.get_clients({ bufnr = ev.buf })
+			trace.log("autocmd/LspAttach", nil, #cl .. " client(s)", name, vim.bo[ev.buf].filetype)
+		end,
+	})
+	vim.api.nvim_create_autocmd("DiagnosticChanged", {
+		group = grp,
+		callback = function(ev)
+			if not trace.enabled then
+				return
+			end
+			local name = vim.api.nvim_buf_get_name(ev.buf)
+			local n = #vim.diagnostic.get(ev.buf)
+			trace.log("autocmd/DiagnosticChanged", nil, n .. " diagnostic(s)", name, vim.bo[ev.buf].filetype)
+		end,
+	})
+	-- Time the whole BufReadPost / syntax+ft work: a plain autocmd cannot give a
+	-- duration, so we bracket it with two marks the viewer can pair by seq.
+	vim.api.nvim_create_autocmd("BufReadPost", {
+		group = grp,
+		callback = function(ev)
+			if not trace.enabled then
+				return
+			end
+			trace.log("buf/BufReadPost", nil, "lines " .. tostring(vim.api.nvim_buf_line_count(ev.buf)), vim.api.nvim_buf_get_name(ev.buf), vim.bo[ev.buf].filetype)
+		end,
+	})
+end
+
+--- Install everything. Cheap: only a _G swap and one augroup.
+function M.setup()
+	M.wrap_pick()
+	M.setup_autocmds()
+end
+
+return M

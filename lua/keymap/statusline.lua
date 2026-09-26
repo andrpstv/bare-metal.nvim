@@ -1,6 +1,8 @@
 -- Статуслайн в духе heirline ramojus (без плагинов):
 -- `[NOR] fname [+] | ●[E W] [servers] %= Ln:Col |  branch(+a-r~c) | (lines size)`
 -- Цвета — ссылками на группы темы (следуют за сменой colorscheme сами).
+-- Turbo-флаг: zero-cost модуль (только env/g-пробы), кэшируется require.
+local _turbo_ok, _turbo = pcall(require, "core.turbo")
 local _stl_devicons = {}
 local _stl_icon_cache = {}
 local function _stl_icon(filename)
@@ -204,11 +206,20 @@ _G._statusline = function()
 		end
 		parts[#parts + 1] = "%<"
 		-- Диагностика: читаем кэш DiagnosticChanged (никаких get() на redraw).
+		-- TURBO (T6): на промахе кэша fallback get() пропускаем и кладём нули.
+		-- Кэшируем: DiagnosticChanged для буфера БЕЗ диагностики не приходит,
+		-- так что без записи кэша баг-буфер светился бы «чистым» до
+		-- следующего публикующего события.
 		local bufnr = vim.api.nvim_get_current_buf()
 		local dc = _stl_diag_cache[bufnr]
 		if not dc then
-			dc = _stl_count_diags(bufnr)
-			_stl_diag_cache[bufnr] = dc
+			if _turbo_ok and _turbo.is_on() then
+				dc = { 0, 0, 0, 0 }
+				_stl_diag_cache[bufnr] = dc
+			else
+				dc = _stl_count_diags(bufnr)
+				_stl_diag_cache[bufnr] = dc
+			end
 		end
 		local e, w, it, h = dc[1], dc[2], dc[3], dc[4]
 		if e + w + it + h > 0 then

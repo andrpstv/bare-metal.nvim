@@ -75,6 +75,25 @@ settings["disabled_plugins"] = {}
 ---@type boolean
 settings["load_big_files_faster"] = true
 
+-- Large-file guard (lua/core/large_file.lua). When a file hits either limit,
+-- syntax/treesitter/LSP/undo/swap are turned off for that buffer.
+--
+-- Порог large-file детекта. Сравнение идёт через >=, так что файл ровно в
+-- max_lines строк тоже считается большим. 0 отключает измерение по строкам
+-- (по размеру в КБ детект продолжает работать).
+--
+-- Дефолт 10000 — исходное, до наследованное от хардкода значение.
+-- ВНИМАНИЕ: снижение до 5000 обсуждалось как «быстрая победа», но это
+-- ДЕГРАДАЦИЯ, а не оптимизация: порог не влияет на время старта, только на
+-- открытие больших файлов, поэтому выигрыша в обмен нет, а файлы 5000–9999
+-- строк теряют treesitter и LSP. Если 5000-строчные Go-файлы тормозят —
+-- лечится точечно (см. docs/distro/10-largefile-analysis.md), а не порогом.
+---@type integer
+settings["large_file_max_lines"] = 10000
+
+---@type integer
+settings["large_file_max_kb"] = 1024
+
 -- Set to false to stop touching external git/lazygit configs.
 -- When true, missing diff-color sections are appended to
 -- ~/.gitconfig and a default lazygit theme is created on first start.
@@ -97,6 +116,17 @@ settings["palette_overwrite"] = {
 ---@type string
 settings["colorscheme"] = "khold"
 
+-- Отложить применение базовой темы на «после первого кадра».
+-- Экономит ~6 мс синхронного sourcing (black-metal + 15 palette-модулей) на
+-- старте, но на первом кадре возможна кратковременная вспышка дефолтной темы.
+--
+-- По умолчанию ВЫКЛЮЧЕНО: поведение по умолчанию не меняется побайтово, и
+-- владелец включает сам и оценивает вспышку глазами.
+-- Headless и nvim_list_uis() == 0 всегда применяют тему СИНХРОННО независимо от
+-- флага (CI/скрипты/NVIM_DISTRO_SYNC).
+---@type boolean
+settings["defer_theme"] = false
+
 -- Set to true if your terminal supports a transparent background.
 ---@type boolean
 settings["transparent_background"] = false
@@ -104,6 +134,15 @@ settings["transparent_background"] = false
 -- Set the background mode here.
 -- Useful for themes with both light and dark variants.
 -- Valid values: `dark`, `light`.
+--
+-- ВНИМАНИЕ, скрытая связь с первым кадром. Это значение применяется
+-- СИНХРОННО при старте (core/init.lua, до defer-темы), и именно оно держит
+-- первый кадр тёмным. Комментарий в themes/black-metal-khold.lua про
+-- «paint-critical: первый кадр тёмный» относится к НЕотложенному пути.
+-- При settings.defer_theme = true базовая тема уезжает на таймер, и тёмный
+-- первый кадр обеспечивает только эта строка. Если её когда-нибудь отложить
+-- (например в turbo-режиме), появится белый флэш — проверено ревьюером, что
+-- сейчас его нет именно синхронным background="dark". Не откладывать молча.
 ---@type "dark"|"light"
 settings["background"] = "dark"
 
@@ -167,6 +206,52 @@ settings["gopls_codelenses"] = {
 settings["gopls_semantic_tokens"] = true
 ---@type boolean
 settings["gopls_complete_unimported"] = true
+
+-- Пресет «слабое железо» одним переключателем (lua/core/weak_hw.lua).
+-- ВКЛЮЧАЕТ: turbo (отложивание) + gopls_weak_hw + defer_theme + ослабление
+-- treesitter (indent off, full_lines<=500) + gopls_debounce >= 250.
+--
+-- Это отказ от части фич ради отзывчивости, а не бесплатное ускорение.
+-- По умолчанию false: пока выключен, ни один модуль пресета не читается и
+-- поведение конфига побайтово прежнее. Читается лениво (vim.g.weak_hw /
+-- NVIM_WEAK_HW=1), см. core/weak_hw.lua.
+---@type boolean
+settings["weak_hw"] = false
+
+-- Оси пресета: false = ось не включается даже при weak_hw=true.
+-- Оси: turbo, gopls, theme, treesitter, debounce. Отсутствующий ключ = включена.
+---@type table<string, boolean>
+settings["weak_hw_axes"] = {
+	turbo = true,
+	gopls = true,
+	theme = true,
+	treesitter = true,
+	debounce = true,
+}
+
+-- Пресет «слабое железо» для gopls. Один переключатель вместо пяти правок.
+-- Выключает САМЫЙ ДОРОГОЙ компонент — фоновые анализы сервера:
+--   fieldalignment -> off, все 8 codelenses -> off (без перечисления),
+--   semanticTokens -> off, completeUnimported -> off, debounce -> gopls_weak_hw_debounce.
+--
+-- Отдельный флаг, а не связка с turbo, потому что это разные оси: turbo про
+-- ОТЛОЖИВАНИЕ (поведение то же, позже), пресет про СОДЕРЖАНИЕ работы сервера
+-- (дешевле, но качество диагностики ниже). Смешивать их в один флаг значило бы
+-- нельзя было получить одно без другого.
+--
+-- ВНИМАНИЕ: это отказ от фич, а не «ускорение». gd перестаёт подсказывать
+-- выравнивание структур, codelenses исчезают.
+--
+-- Читается лениво — в lua/modules/configs/completion/servers/gopls.lua при
+-- первой загрузке модуля (первый Go-буфер), НЕ на старте. Переключение
+-- действует на будущие поднятия клиента; уже работающий сервер не меняется.
+-- По умолчанию false: при выключенном флаге поведение побайтово прежнее.
+---@type boolean
+settings["gopls_weak_hw"] = false
+
+-- Debounce для пресета выше (ms). Больше = реже пересчёт фоновых анализов.
+---@type number
+settings["gopls_weak_hw_debounce"] = 250
 
 -- Minimal mode (NVIM_MINIMAL=1 env): pager-like nvim. Disables inlay hints,
 -- codelens setup, signature window and treesitter indent. Highlight stays.

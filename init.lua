@@ -9,5 +9,11 @@ end
 
 if not vim.g.vscode then
 	vim.g.start_time = vim.fn.reltime() -- для check_startup в :ConfigHealth
+	-- Turbo flag: read FIRST, before require("core") builds anything
+	-- (settings merge, DistroLazy autocmds). SYNC keeps determinism.
+	if vim.env.NVIM_DISTRO_SYNC ~= "1"
+		and (vim.env.NVIM_TURBO == "1" or vim.env.NVIM_TURBO_MODE == "1") then
+		vim.g.turbo = true
+	end
 	require("core")
 end

@@ -24,3 +24,15 @@ pack/distro/opt/LuaSnip/lua/luasnip-jsregexp.lua
 # NOTE: per-tool .gitkeep files do NOT work under this rule (parent dirs excluded);
 # install_tool creates tools/<name>/ on demand, no placeholders needed.
 tools/*/**
+# OpenClaw agent workspace files — these describe the assistant operating this
+# config, not the distro itself. They live at the repo root because this repo IS
+# the OpenClaw workspace; they must never reach consumers.
+/AGENTS.md
+/SOUL.md
+/USER.md
+/IDENTITY.md
+/BOOTSTRAP.md
+/memory/
+/MEMORY.md
+# untrusted artifact from a failed automated run, kept out of history on purpose
+/docs/PHASE1_ARCH.md

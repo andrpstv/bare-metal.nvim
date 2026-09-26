@@ -2,31 +2,161 @@ local M = {}
 
 M.plugin = "metalelf0/black-metal-theme-neovim"
 
+-- Defer the whole apply (base + custom scheduling) by N ms. Only used when
+-- settings.defer_theme is ON and there is a UI. ~6 ms of black-metal sourcing
+-- moves off the startup path; the cost is a possible brief flash of the default
+-- colourscheme on the first frame. Headless / NVIM_DISTRO_SYNC stay synchronous.
+M.THEME_DEFER_MS = 50
+
+local function defer_allowed()
+	local ok, settings = pcall(require, "core.settings")
+	if not ok or not settings.defer_theme then
+		return false
+	end
+	-- Nothing to wait for without a UI, and scripts need determinism.
+	if #vim.api.nvim_list_uis() == 0 or vim.env.NVIM_DISTRO_SYNC == "1" then
+		return false
+	end
+	return true
+end
+
+-- ЕДИНСТВЕННАЯ точка, где гарантируется гард termguicolors для темы.
+--
+-- termguicolors=true ставится ВНУТРИ black-metal load() (то есть ДО любого
+-- возможного падения), поэтому откат в habamax без гарда оставил бы 24-битный
+-- режим на dumb/screen/NO_COLOR. Чтобы нельзя было добавить новый путь отката и
+-- забыть про гард, весь код применения темы ходит через эту обёртку: enforce()
+-- вызывается ПОСЛЕ pcall в любом случае — и при успехе, и при откате.
+local function with_term_guard(fn)
+	local ok, res = pcall(fn)
+	pcall(function()
+		require("core.term_guard").enforce()
+	end)
+	return ok, res
+end
+
 M.setup = function()
-	-- Paint-критично: только базовая colorscheme (быстро, без кастомной таблицы) —
-	-- первый кадр тёмный и корректный, без белого флэша.
-	-- Вся кастомизация ниже едет scheduled следом (1-2 кадра базовых цветов,
-	-- незаметно; headless — синхронно для детерминизма скриптов).
-	if pcall(vim.cmd, "colorscheme khold") then
-		vim.g.colors_name = vim.g.colors_name or "khold"
-	else
-		vim.notify("[theme] colorscheme khold failed — fallback habamax", vim.log.levels.ERROR)
-		pcall(vim.cmd, "colorscheme habamax")
-		return
+	-- Paint-critical: base colourscheme first (fast, no custom table) so the
+	-- first frame is dark and correct, with no white flash. The whole custom
+	-- pass below is scheduled separately (1-2 frames of base colours, invisible;
+	-- headless — synchronous for script determinism).
+	local function apply_base()
+		-- Откат в habamax лежит ВНУТРИ обёртки, поэтому гард отработает и на нём.
+		local ok, res = with_term_guard(function()
+			if pcall(vim.cmd, "colorscheme khold") then
+				vim.g.colors_name = vim.g.colors_name or "khold"
+				return true
+			end
+			vim.notify("[theme] colorscheme khold failed — fallback habamax", vim.log.levels.ERROR)
+			pcall(vim.cmd, "colorscheme habamax")
+			return false
+		end)
+		return ok and res or false
 	end
 	local function apply_custom()
 		M.apply_custom()
+		M._custom_applied = true
 	end
-	if #vim.api.nvim_list_uis() == 0 then
-		apply_custom()
-	else
-		vim.schedule(apply_custom)
+
+	-- Turbo/idle scheduling of the custom pass. Identical to the previous
+	-- inline body — extracted only so both the sync and deferred entry points
+	-- can share it without duplicating it.
+	local function schedule_custom()
+		-- TURBO (T2): custom highlights ride idle (once CursorHold/InsertLeave
+		-- + 300ms timer — pattern from distro/loader.lua:297-328); the base
+		-- colourscheme above is already synchronous (no white flash).
+		-- Headless/SYNC — synchronous.
+		local turbo_on = pcall(require, "core.turbo") and require("core.turbo").is_on()
+		if #vim.api.nvim_list_uis() == 0 or vim.env.NVIM_DISTRO_SYNC == "1" then
+			apply_custom()
+		elseif turbo_on then
+			local done = false
+			-- Live 300ms timer: after :Colorscheme it must die, otherwise a
+			-- dangling callback would repaint someone else's theme with ours.
+			local timer
+			---Synchronous drain for :TurboOff (core.turbo). Idempotent.
+			function M.apply_pending()
+				if done then
+					return
+				end
+				-- Custom belongs to khold: after :Colorscheme gruvbox we must
+				-- not paint it (otherwise the whole foreign palette shifts).
+				if vim.g.colors_name ~= "khold" then
+					return
+				end
+				done = true
+				apply_custom()
+			end
+			local function once()
+				M.apply_pending()
+			end
+			local grp = vim.api.nvim_create_augroup("TurboKholdCustom", { clear = true })
+			vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI", "InsertLeave" }, {
+				group = grp,
+				once = true,
+				desc = "turbo: idle apply khold custom highlights",
+				callback = function()
+					vim.schedule(once)
+				end,
+			})
+			vim.api.nvim_create_autocmd("ColorScheme", {
+				group = grp,
+				desc = "turbo: drop pending khold custom on colorscheme switch",
+				callback = function()
+					if timer then
+						timer:stop()
+						timer:close()
+						timer = nil
+					end
+					done = true
+				end,
+			})
+			timer = vim.defer_fn(function()
+				timer = nil
+				vim.schedule(once)
+			end, 300)
+		else
+			vim.schedule(function()
+				-- Same guard: if the colours were switched between setup() and
+				-- the frame, there is no previous theme to customise.
+				if vim.g.colors_name ~= "khold" then
+					return
+				end
+				apply_custom()
+			end)
+		end
 	end
+
+	local function apply_all()
+		if apply_base() then
+			schedule_custom()
+		end
+	end
+
+	-- Flag off (default) → exactly the previous synchronous path, byte for byte.
+	if defer_allowed() then
+		local pending = true
+		local function drain()
+			if not pending then
+				return
+			end
+			pending = false
+			apply_all()
+		end
+		-- :TurboOff must still be able to flush a pending deferred apply.
+		M.apply_pending = drain
+		vim.defer_fn(drain, M.THEME_DEFER_MS)
+		return
+	end
+
+	apply_all()
 end
 
 --- Полная кастомизация поверх базы (дорогая часть: ~90 highlights + load).
---- Вызывается из setup() scheduled; напрямую — только из тестов/дебага.
-M.apply_custom = function()
+--- Тело вынесено в apply_custom_body: публичная обёртка ниже прогоняет его
+--- через with_term_guard, поэтому гард termguicolors гарантирован и на путях
+--- отката в habamax, а не только по «успеху».
+local apply_custom_body = function()
 	-- Бленды в эстетике темы (считаем её же Util; фолбэк — руками).
 	local blend_ok, Util = pcall(require, "black-metal.util")
 	local function blend(fg, coeff, bg, fallback)
@@ -133,6 +263,10 @@ M.apply_custom = function()
 		pcall(vim.cmd, "colorscheme habamax")
 		return
 	end
+	-- Второй вызов load() (первый — на базовой теме) опять ставит
+	-- termguicolors=true. Гарантированный гард даёт with_term_guard ниже,
+	-- в том числе если этот load() упал и ушёл в habamax.
+	-- Идемпотентно, на обычном терминале — no-op.
 	-- Идемпотентный реаплай кастома: :colorscheme khold сносит highlights,
 	-- т.к. colors/khold.lua делает setup({})+load без них.
 	vim.api.nvim_create_autocmd("ColorScheme", {
@@ -150,6 +284,14 @@ M.apply_custom = function()
 			end
 		end,
 	})
+end
+
+--- Public entry point. Always returns through with_term_guard, so the
+--- termguicolors guard runs on EVERY path — success, habamax fallback, or an
+--- unexpected throw inside the body. Adding a new fallback inside
+--- apply_custom_body can no longer silently skip the guard.
+M.apply_custom = function()
+	with_term_guard(apply_custom_body)
 end
 
 return M

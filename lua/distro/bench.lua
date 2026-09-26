@@ -75,8 +75,232 @@ local function lsp_rtt()
 	return out
 end
 
+--- Async LSP round-trip. Returns ms elapsed, or nil on error.
+--- Uses buf_request (async), NOT buf_request_sync: sync returns results=0
+--- where the async callback gets 1, so sync measures an empty answer.
+--- NOTE the 5th param of buf_request is `on_unsupported` (a function), NOT a
+--- buffer number — passing a number there throws
+--- "on_unsupported: expected function, got number". Passing nil is correct.
+---@param method string
+---@param bufnr number
+---@param params table
+---@param cb fun(ms:number?, nresults:number, err:string?)
+local function lsp_async(method, bufnr, params, cb)
+	local t0 = vim.uv.hrtime()
+	vim.lsp.buf_request(bufnr, method, params, function(err, result)
+		local dt = (vim.uv.hrtime() - t0) / 1e6
+		local n = 0
+		if type(result) == "table" then
+			if result.uri then
+				n = 1
+			else
+				n = #result
+			end
+		end
+		if err then
+			cb(nil, 0, (err.message or tostring(err)))
+		else
+			cb(dt, n, nil)
+		end
+	end, nil)
+end
+
+--- COLD/WARM for gd/gr at the current buffer.
+---
+--- Rules that are not negotiable, learned the hard way:
+---  * COLD must be the FIRST and ONLY measurement of that symbol. Anything
+---    else and the "cold" run is already warm — it warmed itself inside the
+---    loop, and the number is fiction.
+---  * WARM is best-of-3, but on a DIFFERENT symbol each time. Repeating one
+---    symbol degenerates into a cache hit and reports an unrealistically
+---    optimistic number.
+---@param on_done fun(out:table)|nil Called when the async run finishes.
+---@return table out (immediately; out.done is false until the last response)
+local function cold_warm(on_done)
+	local out = { done = false }
+	local clients = vim.lsp.get_clients({ bufnr = 0 })
+	if #clients == 0 then
+		out.note = "no LSP attached here — open a code file first"
+		return out
+	end
+	local buf = vim.api.nvim_get_current_buf()
+	if vim.bo[buf].buftype ~= "" then
+		out.note = "current buffer is not a file (buftype=" .. vim.bo[buf].buftype .. ")"
+		return out
+	end
+
+	---Distinct identifier positions: only real symbols, skipping keywords.
+	---Pure string scan of the buffer — no vim.fn.search cursor walking. The
+	---earlier search-loop version could fail to advance and spin forever.
+	local KW = {
+		["if"] = true, ["for"] = true, ["while"] = true, ["return"] = true,
+		["func"] = true, ["var"] = true, ["const"] = true, ["type"] = true,
+		["end"] = true, ["then"] = true, ["else"] = true, ["elseif"] = true,
+		["do"] = true, ["nil"] = true, ["true"] = true, ["false"] = true,
+		["package"] = true, ["import"] = true, ["local"] = true,
+		["int"] = true, ["string"] = true, ["error"] = true, ["range"] = true,
+	}
+	local function symbols(n)
+		local out_syms, seen = {}, {}
+		local total = vim.api.nvim_buf_line_count(buf)
+		local limit = math.min(total, 3000)
+		for ln = 1, limit do
+			local line = vim.api.nvim_buf_get_lines(buf, ln - 1, ln, false)[1] or ""
+			local init = 1
+			while init <= #line do
+				local s, e = line:find("[%a_][%w_]*", init)
+				if not s then
+					break
+				end
+				local m = line:sub(s, e)
+				if #m > 2 and not KW[m] and not seen["s" .. m] then
+					seen["s" .. m] = true
+					out_syms[#out_syms + 1] = { ln = ln, col = s - 1, name = m }
+					if #out_syms >= n then
+						return out_syms
+					end
+				end
+				init = e + 1
+			end
+		end
+		return out_syms
+	end
+
+	local syms = symbols(10)
+	if #syms == 0 then
+		out.note = "no identifier under/near cursor to measure"
+		return out
+	end
+
+	local orig_win = vim.api.nvim_get_current_win()
+	local pos = vim.api.nvim_win_get_cursor(orig_win)
+	local function restore()
+		if vim.api.nvim_win_is_valid(orig_win) then
+			pcall(vim.api.nvim_set_current_win, orig_win)
+			pcall(vim.api.nvim_win_set_cursor, orig_win, pos)
+		end
+	end
+
+	local function measure(sym, method, cb)
+		vim.api.nvim_win_set_cursor(orig_win, { sym.ln, math.max(0, sym.col) })
+		local ok_p, params = pcall(vim.lsp.util.make_position_params, orig_win, "utf-16")
+		if not ok_p then
+			cb(nil, 0, "make_position_params failed")
+			return
+		end
+		lsp_async(method, buf, params, function(ms, n, err)
+			restore()
+			cb(ms, n, err)
+		end)
+	end
+
+	-- Serial async loop (explicit state machine, always advances).
+	--
+	-- A per-request timeout is mandatory, not defensive fluff: a request that
+	-- is never answered (server busy, cold gopls on external libs) would
+	-- otherwise stall the state machine forever and the bench window would sit
+	-- on "measuring…" with no result and no error. The whole point of the
+	-- async approach is that we never block the UI, so we must also never wait
+	-- unboundedly in the measurement itself.
+	local TIMEOUT_MS = 5000
+	local function run(specs, cb)
+		local i = 0
+		local results = {}
+		local finished = false
+		local function next()
+			i = i + 1
+			if i > #specs then
+				if not finished then
+					finished = true
+					cb(results)
+				end
+				return
+			end
+			local sp = specs[i]
+			local advanced = false
+			local advance = function(ms, n, err)
+				if advanced then
+					return -- late response after the timeout already moved on
+				end
+				advanced = true
+				results[i] = { ms = ms, n = n, err = err, sym = sp.sym.name, method = sp.method, label = sp.label }
+				restore()
+				vim.schedule(next)
+			end
+			local timer = vim.uv.new_timer()
+			timer:start(
+				TIMEOUT_MS,
+				0,
+				vim.schedule_wrap(function()
+					if timer then
+						timer:stop()
+						timer:close()
+						timer = nil
+					end
+					advance(nil, 0, "timeout after " .. TIMEOUT_MS .. "ms")
+				end)
+			)
+			measure(sp.sym, sp.method, function(ms, n, err)
+				if timer then
+					timer:stop()
+					timer:close()
+					timer = nil
+				end
+				advance(ms, n, err)
+			end)
+		end
+		next()
+	end
+
+	local method_def = "textDocument/definition"
+	local method_ref = "textDocument/references"
+
+	-- Rules being enforced here:
+	--  * COLD is the FIRST and ONLY run for that method+symbol. Nothing may
+	--    touch it before, or the "cold" number is fiction.
+	--  * WARM is best-of-3, and each of the 3 runs uses a DIFFERENT symbol.
+	--    Repeating one symbol degenerates into a cache hit and reports an
+	--    unrealistically optimistic number.
+	--  * Definition and references use disjoint symbol sets, so a symbol
+	--    already warmed by one method is not reused as "cold" for the other.
+	-- Needs 8 distinct symbols: 1 cold + 3 warm (def) + 1 cold + 3 warm (ref).
+	if #syms < 8 then
+		out.note = string.format("only %d distinct symbol(s) here — need >=8 for a COLD/WARM split", #syms)
+		return out
+	end
+	local specs = {
+		{ sym = syms[1], method = method_def, label = "COLD definition" },
+		{ sym = syms[2], method = method_def, label = "WARM definition" },
+		{ sym = syms[3], method = method_def, label = "WARM definition" },
+		{ sym = syms[4], method = method_def, label = "WARM definition" },
+		{ sym = syms[5], method = method_ref, label = "COLD references" },
+		{ sym = syms[6], method = method_ref, label = "WARM references" },
+		{ sym = syms[7], method = method_ref, label = "WARM references" },
+		{ sym = syms[8], method = method_ref, label = "WARM references" },
+	}
+
+	run(specs, function(rs)
+		out.runs = rs
+		out.symbols = syms
+		out.done = true
+		restore()
+		if on_done then
+			vim.schedule(function()
+				on_done(out)
+			end)
+		end
+	end)
+	return out
+end
+
 function M.run()
-	local lines = { " DistroBench — this machine, min-of-3, wall clock.", "" }
+	-- TURBO: шапка показывает режим; child nvim наследует NVIM_TURBO из env
+	-- родителя (vim.system), а NVIM_DISTRO_SYNC здесь НЕ выставляем (погасит турбо).
+	local turbo_txt = "TURBO OFF"
+	pcall(function()
+		turbo_txt = require("core.turbo").status()
+	end)
+	local lines = { " DistroBench — " .. turbo_txt .. " — this machine, min-of-3, wall clock.", "" }
 	-- 1. session age (equals startup time only if run right after open)
 	if vim.g.start_time then
 		local age_s = vim.fn.reltimefloat(vim.fn.reltime(vim.g.start_time))
@@ -106,21 +330,106 @@ function M.run()
 		lines[#lines + 1] = " gd/gr: " .. rtt.note
 	else
 		lines[#lines + 1] = string.format(
-			" gd/gr RTT (best-of-3 here): definition %sms · references %sms",
+			" gd/gr RTT (best-of-3 here, sync probe): definition %sms · references %sms",
 			rtt.definition ~= nil and rtt.definition or "?",
 			rtt.references ~= nil and rtt.references or "?"
 		)
+		lines[#lines + 1] = "   (sync probe returns 0 results where async returns 1 — read the COLD/WARM block below instead)"
 	end
 	lines[#lines + 1] = ""
-	lines[#lines + 1] = " q/Esc closes. Compare across machines by re-running."
-	local buf = vim.api.nvim_create_buf(false, true)
-	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-	vim.api.nvim_buf_set_option(buf, "modifiable", false)
-	vim.api.nvim_buf_set_option(buf, "filetype", "distro-bench")
-	local win = vim.api.nvim_open_win(buf, true, {
+	-- Sections 1–3 above are synchronous and expensive (child processes), so
+	-- they are computed exactly once and reused on the async re-render.
+	local head = lines
+	local head_len = #lines
+
+	-- forward-declared so the cold_warm callback below can reach them
+	local buf, win, set_lines
+
+	--- Lines for the COLD/WARM section + footer, given a result table.
+	local function build(cw)
+		local out = vim.list_slice(head, 1, head_len)
+		out[#out + 1] = ""
+		out[#out + 1] = " COLD/WARM — async; COLD is the first and only run on its symbol, WARM = best-of-3 on a NEW symbol each time."
+		if not cw.done and not cw.note then
+			out[#out + 1] = "   measuring… (7 async round-trips, one at a time)"
+		elseif cw.note then
+			out[#out + 1] = "   " .. cw.note
+		else
+			local by_label = {}
+			for _, r in ipairs(cw.runs or {}) do
+				by_label[r.label] = by_label[r.label] or {}
+				if r.ms then
+					table.insert(by_label[r.label], r)
+				end
+			end
+			for _, label in ipairs({ "COLD definition", "WARM definition", "COLD references", "WARM references" }) do
+				local rs = by_label[label]
+				if not rs or #rs == 0 then
+					out[#out + 1] = string.format("   %-18s н/д", label)
+				else
+					local best, best_sym = rs[1].ms, rs[1].sym
+					local nres = 0
+					for _, r in ipairs(rs) do
+						if r.ms < best then
+							best, best_sym = r.ms, r.sym
+						end
+						nres = nres + r.n
+					end
+					out[#out + 1] = string.format(
+						"   %-18s %7.1fms  (best of %d, symbol %s, %d result(s))",
+						label, best, #rs, best_sym, nres
+					)
+				end
+			end
+			local function pick(lbl)
+				local rs = by_label[lbl]
+				if not rs then
+					return nil
+				end
+				local b = nil
+				for _, r in ipairs(rs) do
+					if r.ms and (b == nil or r.ms < b) then
+						b = r.ms
+					end
+				end
+				return b
+			end
+			local cd, wd = pick("COLD definition"), pick("WARM definition")
+			local cr, wr = pick("COLD references"), pick("WARM references")
+			if cd and wd and cd > 0 then
+				out[#out + 1] = string.format("   delta definition: %+.1fms (%.0f%%)", wd - cd, (wd - cd) / cd * 100)
+			end
+			if cr and wr and cr > 0 then
+				out[#out + 1] = string.format("   delta references: %+.1fms (%.0f%%)", wr - cr, (wr - cr) / cr * 100)
+			end
+		end
+		out[#out + 1] = ""
+		out[#out + 1] = " Render timings under --headless: н/д, нужен UI (nvim__redraw is a no-op without one)."
+		out[#out + 1] = "   Run :DistroBench from a real terminal for redraw numbers."
+		out[#out + 1] = ""
+		out[#out + 1] = " q/Esc closes. Compare across machines by re-running."
+		return out
+	end
+
+	local cw = cold_warm(function(done)
+		if not buf or not vim.api.nvim_buf_is_valid(buf) or not win or not vim.api.nvim_win_is_valid(win) then
+			return
+		end
+		set_lines(build(done))
+	end)
+
+	buf = vim.api.nvim_create_buf(false, true)
+	set_lines = function(ls)
+		vim.api.nvim_buf_set_option(buf, "modifiable", true)
+		vim.api.nvim_buf_set_lines(buf, 0, -1, false, ls)
+		vim.api.nvim_buf_set_option(buf, "modifiable", false)
+	end
+	local initial = build(cw)
+	set_lines(initial)
+	win = vim.api.nvim_open_win(buf, true, {
 		relative = "editor",
 		width = 78,
-		height = math.min(#lines, vim.o.lines - 4),
+		height = math.min(#initial, vim.o.lines - 4),
 		row = 2,
 		col = math.max(1, (vim.o.columns - 78) / 2),
 		style = "minimal",
@@ -132,6 +441,7 @@ function M.run()
 	end
 	vim.keymap.set("n", "q", back, { buffer = buf, nowait = true })
 	vim.keymap.set("n", "<Esc>", back, { buffer = buf, nowait = true })
+	return win
 end
 
 return M

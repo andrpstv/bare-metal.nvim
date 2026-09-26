@@ -39,6 +39,10 @@ function M.run()
 	local cur_win, cur_buf = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
 	local cur_view = vim.fn.winsaveview()
 	local lines = { " DistroBenchUI — render pipeline (Lua side), best-of-N.", "" }
+	-- TURBO: шапка показывает режим текущей сессии.
+	pcall(function()
+		lines[1] = " DistroBenchUI — " .. require("core.turbo").status() .. " — render pipeline (Lua side), best-of-N."
+	end)
 
 	-- 1. statusline: what every redraw pays
 	local sl = avg(100, function()

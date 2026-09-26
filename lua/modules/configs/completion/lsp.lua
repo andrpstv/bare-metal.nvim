@@ -12,8 +12,55 @@ return function()
 	-- чтобы gopls присылал полные варианты.
 	-- cmp грузится лениво (InsertEnter), а LSP стартует раньше (BufReadPre),
 	-- поэтому тянем его явно: без этого require падает и LSP не встанет.
+	-- TURBO (T1): под флагом — статическая таблица (те же поля, что отдаёт
+	-- cmp_nvim_lsp сегодня; сверено с servers/gopls.lua:24-44) + догрузка
+	-- настоящего cmp в schedule / на первый InsertEnter. gopls читает caps
+	-- один раз на initialize, уже аттачные клиенты не меняются — gd/gr святое.
+	-- Без флага — старый путь 1-в-1.
+	-- Статический fallback: форма повторяет cmp_nvim_lsp.default_capabilities().
+	local TURBO_CMP_CAPS = {
+		textDocument = {
+			completion = {
+				dynamicRegistration = true,
+				contextSupport = true,
+				completionItem = {
+					snippetSupport = true,
+					commitCharactersSupport = true,
+					documentationFormat = { "markdown", "plaintext" },
+					deprecatedSupport = true,
+					preselectSupport = true,
+					tagSupport = { valueSet = { 1 } },
+					insertReplaceSupport = true,
+					resolveSupport = {
+						properties = { "documentation", "details", "additionalTextEdits" },
+					},
+					labelDetailsSupport = true,
+				},
+			},
+		},
+	}
 	local cmp_caps = {}
-	if not pcall(function()
+	local turbo_on = pcall(require, "core.turbo") and require("core.turbo").is_on()
+	if turbo_on then
+		cmp_caps = TURBO_CMP_CAPS
+		-- Догрузка настоящего cmp: в schedule (не блокирует open) + страховка
+		-- на первый InsertEnter каждого буфера (per-buffer флаг).
+		vim.schedule(function()
+			pcall(require("distro.loader").load, "nvim-cmp")
+		end)
+		local cmp_grp = vim.api.nvim_create_augroup("TurboCmpCaps", { clear = false })
+		vim.api.nvim_create_autocmd("InsertEnter", {
+			group = cmp_grp,
+			desc = "turbo: warm nvim-cmp on first insert",
+			callback = function(ev)
+				if vim.b[ev.buf].cmp_caps_real then
+					return
+				end
+				vim.b[ev.buf].cmp_caps_real = true
+				pcall(require("distro.loader").load, "nvim-cmp")
+			end,
+		})
+	elseif not pcall(function()
 		cmp_caps = require("cmp_nvim_lsp").default_capabilities()
 	end) then
 		pcall(function()

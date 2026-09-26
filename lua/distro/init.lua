@@ -134,6 +134,50 @@ function M.setup()
 		require("distro.benchui").run()
 	end, { desc = "distro: benchmark live UI render (statusline, redraw, splits, parse, folds, float)" })
 
+	vim.api.nvim_create_user_command("DistroTrace", function(opts)
+		local a = vim.trim(opts.args or "")
+		local sub = a:match("^%S+") or "toggle"
+		local trace = require("distro.trace")
+		if sub == "on" then
+			local p = trace.enable()
+			require("distro.tracehooks").setup()
+			vim.notify("DistroTrace ON — log: " .. p, vim.log.levels.INFO, { title = "trace" })
+		elseif sub == "off" then
+			local p = trace.path
+			trace.disable()
+			vim.notify("DistroTrace OFF — flushed to: " .. tostring(p), vim.log.levels.INFO, { title = "trace" })
+		elseif sub == "toggle" then
+			if trace.enabled then
+				local p = trace.path
+				trace.disable()
+				vim.notify("DistroTrace OFF — flushed to: " .. tostring(p), vim.log.levels.INFO, { title = "trace" })
+			else
+				local p = trace.enable()
+				require("distro.tracehooks").setup()
+				vim.notify("DistroTrace ON — log: " .. p, vim.log.levels.INFO, { title = "trace" })
+			end
+		elseif sub == "flush" then
+			trace.flush()
+			vim.notify("DistroTrace flushed to: " .. tostring(trace.path), vim.log.levels.INFO, { title = "trace" })
+		elseif sub == "report" then
+			vim.notify(require("distro.traceui").report(trace.path), vim.log.levels.INFO, { title = "trace" })
+		elseif sub == "open" then
+			require("distro.traceui").open(trace.path)
+		elseif sub == "clear" then
+			trace.flush()
+			local left = trace.clear()
+			vim.notify("DistroTrace: deleted old logs, " .. left .. " remain.", vim.log.levels.INFO, { title = "trace" })
+		else
+			vim.notify("Usage: :DistroTrace on|off|toggle|flush|report|open|clear", vim.log.levels.WARN, { title = "trace" })
+		end
+	end, {
+		nargs = "*",
+		desc = "distro: action tracing (on|off|toggle|flush|report|open|clear)",
+		complete = function()
+			return { "on", "off", "toggle", "flush", "report", "open", "clear" }
+		end,
+	})
+
 	vim.api.nvim_create_user_command("DistroBinaries", function()
 		require("distro.tools").open_binaries()
 	end, { desc = "distro: binaries menu (LSP, linters, formatters)" })
