@@ -27,9 +27,10 @@ local function load_options()
 		fileformats = "unix,mac,dos",
 		foldlevelstart = 99,
 		grepformat = "%f:%l:%c:%m",
-		-- rg может отсутствовать (Windows без winget-пакета, минимальные системы):
-		-- без гарда :grep падает E149. Фолбэк — встроенный grep.
-		grepprg = vim.fn.executable("rg") == 1 and "rg --hidden --vimgrep --smart-case --" or "grep -n $* /dev/null",
+		-- grepprg НЕ задаётся, если нет rg: платформенный дефолт Neovim
+		-- корректен на каждой ОС (grep на *nix, findstr на Windows). Старый
+		-- фолбэк "grep -n $* /dev/null" ломал :grep на Windows: /dev/null там
+		-- не существует, а шелл — cmd.exe. См. условие ниже, после таблицы.
 		helpheight = 12,
 		hidden = true,
 		history = 2000,
@@ -131,6 +132,13 @@ local function load_options()
 	else
 		vim.g.python_host_prog = use_if_defined(vim.g.python_host_prog, "python")
 		vim.g.python3_host_prog = use_if_defined(vim.g.python3_host_prog, is_win and "python" or "python3")
+	end
+
+	-- Ставим grepprg только когда rg реально есть. Без rg оставляем
+	-- платформенный дефолт Neovim: на *nix это grep, на Windows — findstr.
+	-- Это работает и без E149, и на любой ОС.
+	if vim.fn.executable("rg") == 1 then
+		vim.api.nvim_set_option_value("grepprg", "rg --hidden --vimgrep --smart-case --", {})
 	end
 
 	for name, value in pairs(require("modules.utils").extend_config(options, "user.options")) do
