@@ -199,11 +199,33 @@ function M.open(path, sort)
 
 	local function render()
 		local rows = M.rows(path, 4000, sort)
+		-- Сигнатура лога БЕЗ новой разметки подспанов (старый формат, до 6fa8fde):
+		-- НИ ОДНОЙ строки с числовой длительностью. Легаси-лог выглядит как
+		-- "правок не было": сортировка по времени уводит все стадии вниз, в сводке
+		-- их нет. Помечаем явно, чтобы не читать старый лог как пустой.
+		--
+		-- ВАЖНО: одного лишь "dur == nil и event со /" мало. Мгновенное событие
+		-- нового формата (напр. trace/enable) тоже имеет dur = "-" и event со "/",
+		-- и такие события легальны в любом логе. Поэтому метку ставим только когда
+		-- НИ ОДНОЙ строки во всём логе не имеет длительности: это отличает старый
+		-- формат от нового и не даёт ложного предупреждения на новых логах.
+		local timed, slash_nodur = 0, 0
+		for _, r in ipairs(rows) do
+			if r.dur ~= nil then
+				timed = timed + 1
+			elseif r.event and r.event:find("/", 1, true) then
+				slash_nodur = slash_nodur + 1
+			end
+		end
+		local legacy = (timed == 0 and slash_nodur > 0) and slash_nodur or 0
 		local slowest, total = 0, 0
 		local lines = {
-			string.format("DistroTrace — %d rows (tail) — sort: %s%s", #rows, sort, sort == "time" and "  (slowest first)" or "  (chronological)"),
+			string.format("DistroTrace — %d rows (tail) — sort: %s%s%s", #rows, sort, sort == "time" and "  (slowest first)" or "  (chronological)", legacy > 0 and string.format("  ⚠ OLD LOG FORMAT: none of %d rows has a duration (dur \"-\"), so sub-stage timing is absent and slowest-first order is not comparable", legacy) or ""),
 			string.format("file: %s", path),
 		}
+		if legacy > 0 then
+			lines[#lines + 1] = string.format("note: this log predates sub-stage timing; \"-\" in the duration column is missing data, not a zero-length stage. Re-run with the current build to get durations.")
+		end
 		-- Headline numbers: what a consumer actually reports.
 		for _, r in ipairs(rows) do
 			if r.dur and r.dur > 0 then

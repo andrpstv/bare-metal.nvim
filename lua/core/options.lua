@@ -139,6 +139,14 @@ local function load_options()
 	-- Это работает и без E149, и на любой ОС.
 	if vim.fn.executable("rg") == 1 then
 		vim.api.nvim_set_option_value("grepprg", "rg --hidden --vimgrep --smart-case --", {})
+		vim.api.nvim_set_option_value("grepformat", "%f:%l:%c:%m", {})
+	elseif is_win then
+		-- Без rg на Windows платформенный дефолт — findstr, а он печатает
+		-- file:line:text, БЕЗ колонки. Формат с %c там разъезжается, поэтому
+		-- сужаем grepformat до %f:%l:%m. На *nix дефолтный grep колонку даёт
+		-- (grep -n печатает file:line:text, и %c был бы лишним) — там оставляем
+		-- как есть, поведение не меняем.
+		vim.api.nvim_set_option_value("grepformat", "%f:%l:%m", {})
 	end
 
 	for name, value in pairs(require("modules.utils").extend_config(options, "user.options")) do
