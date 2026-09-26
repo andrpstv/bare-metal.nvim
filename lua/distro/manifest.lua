@@ -50,8 +50,16 @@ M.plugins = {
 	-- Lang (Go)
 	{ name = "go.nvim", repo = "ray-x/go.nvim", ref = "f5d1f11d4f616efbe2339286310bb89c4853d769", branch = "master", kind = "opt", defer_idle = true, ft = { "go", "gomod", "gosum" }, build = ":GoInstallBinaries", config = "lang.go", strip = true, deps = { "guihua.lua" } },
 	{ name = "guihua.lua", repo = "ray-x/guihua.lua", ref = "4c513d5dac550af77034cced421967b393261509", branch = "master", kind = "opt", defer_idle = true, strip = true },
-	{ name = "nvim-lint", repo = "mfussenegger/nvim-lint", ref = "3d55c8f67c6ae5c15e1042571e107c7a3d5c5f4e", branch = "master", kind = "opt", defer_idle = true, ft = { "go", "gomod", "gosum", "tmpl" }, config = "lang.lint", strip = true },
-	{ name = "nvim-dap", repo = "mfussenegger/nvim-dap", ref = "cfa2d58f4537aca6ca83e2de1a0d9f1491121264", branch = "master", kind = "opt", defer_idle = true, ft = { "go", "gomod" }, config = "lang.dap", strip = true, deps = { "nvim-dap-go", "nvim-dap-ui" } },
+	-- nvim-lint грузится по требованию (`:Lint`), а не на открытии .go.
+	-- Раньше стоял ft-триггер, из-за чего ~10 модулей подтягивались просто
+	-- при открытии Go-файла. Сама фича не изменилась: BufWritePost-триггер
+	-- вешается в lang.lint, а заглушка грузит плагин и перевызывает команду.
+	{ name = "nvim-lint", repo = "mfussenegger/nvim-lint", ref = "3d55c8f67c6ae5c15e1042571e107c7a3d5c5f4e", branch = "master", kind = "opt", defer_idle = true, cmd = { "Lint" }, config = "lang.lint", strip = true },
+	-- nvim-dap грузится по требованию (`:DapContinue` и т.д.), а не на открытии .go.
+	-- Раньше стоял ft-триггер: nvim-dap + nvim-dap-go + nvim-dap-ui + nvim-nio
+	-- (~60 модулей) загружались просто при открытии Go-файла, хотя отладка
+	-- нужна на единице открытий из тысячи. deps подтягиваются вместе с nvim-dap.
+	{ name = "nvim-dap", repo = "mfussenegger/nvim-dap", ref = "cfa2d58f4537aca6ca83e2de1a0d9f1491121264", branch = "master", kind = "opt", defer_idle = true, cmd = { "DapContinue", "DapToggleBreakpoint", "DapNew", "DapStepIn", "DapStepOut", "DapStepOver", "DapTerminate", "DapRestart", "DapRunLast", "DapEval", "DapToggleLogPoint", "DapUiOpen", "DapUiClose", "DapUiToggle" }, config = "lang.dap", strip = true, deps = { "nvim-dap-go", "nvim-dap-ui" } },
 	{ name = "nvim-dap-go", repo = "leoluz/nvim-dap-go", ref = "b4421153ead5d726603b02743ea40cf26a51ed5f", branch = "main", kind = "opt", defer_idle = true, strip = true },
 	{ name = "nvim-dap-ui", repo = "rcarriga/nvim-dap-ui", ref = "cc9dd33aade7f20bae414d0cba163bc60d4d4b43", branch = "master", kind = "opt", defer_idle = true, strip = true, deps = { "nvim-nio" } },
 	{ name = "nvim-nio", repo = "nvim-neotest/nvim-nio", ref = "edcc181a875301dd21840189aa2f2f9ad69fc172", branch = "master", kind = "opt", defer_idle = true, strip = true },
