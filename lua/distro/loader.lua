@@ -270,9 +270,21 @@ local function drain_idle()
 		return
 	end
 	idle_fired = true
-	for name in pairs(idle_queue) do
-		idle_queue[name] = nil
-		M.load(name)
+	-- MINIMAL trace: один спан на idle-drain (внутренние M.load уже
+	-- трейсятся сами; каждый require внутри не трогаем).
+	local t = trace()
+	if t and t.enabled then
+		t.span("loader:idle-drain", function()
+			for name in pairs(idle_queue) do
+				idle_queue[name] = nil
+				M.load(name)
+			end
+		end)
+	else
+		for name in pairs(idle_queue) do
+			idle_queue[name] = nil
+			M.load(name)
+		end
 	end
 end
 
@@ -394,13 +406,28 @@ function M.boot()
 				if not defer_enabled() then
 					return
 				end
-				M.load("nvim-cmp")
-				-- watchdog: anything still pending gets flushed synchronously
-				for name in pairs(pending) do
-					pending[name] = nil
-					M.load(name)
+				-- MINIMAL trace: один спан на idle-preload (внутри M.load /
+				-- drain_idle уже свои спаны; каждый require не трогаем).
+				local t = trace()
+				if t and t.enabled then
+					t.span("loader:idle-preload", function()
+						M.load("nvim-cmp")
+						-- watchdog: anything still pending gets flushed synchronously
+						for name in pairs(pending) do
+							pending[name] = nil
+							M.load(name)
+						end
+						drain_idle()
+					end)
+				else
+					M.load("nvim-cmp")
+					-- watchdog: anything still pending gets flushed synchronously
+					for name in pairs(pending) do
+						pending[name] = nil
+						M.load(name)
+					end
+					drain_idle()
 				end
-				drain_idle()
 			end))
 		end,
 		desc = "distro: idle preload",

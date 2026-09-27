@@ -92,10 +92,22 @@ local next_span = 0
 --- Last cumulative value per sub-stage group, for own_ms.
 local last_cum = {}
 
---- Drop frames that have outlived STALE_MS (and anything stacked under them).
+--- Drop frames that have outlived STALE_MS. Проверяем ВЕСЬ стек, а не
+--- только верх: нижний протухший фрейм иначе остаётся и усыновляет чужие
+--- события, даже когда верх свежий (стек упорядочен по t0 по возрастанию,
+--- так что протухнуть может именно низ).
 local function prune(now)
-	while #frames > 0 and (now - frames[#frames].t0) > STALE_MS * 1e6 do
-		frames[#frames] = nil
+	local kept = {}
+	for i = 1, #frames do
+		if (now - frames[i].t0) <= STALE_MS * 1e6 then
+			kept[#kept + 1] = frames[i]
+		end
+	end
+	for i = 1, #frames do
+		frames[i] = nil
+	end
+	for i = 1, #kept do
+		frames[i] = kept[i]
 	end
 end
 
@@ -351,6 +363,10 @@ function M.disable()
 		pcall(uv.fs_close, fd)
 		fd = nil
 	end
+	-- Базлайны sub-фаз per-frame иначе переживают сессию и вычитаются из
+	-- чужой инвокации (отрицательный own_ms); enable тоже чистит, но
+	-- disable — точка, где висеть им нечего.
+	last_cum = {}
 end
 
 function M.toggle()
@@ -388,6 +404,13 @@ end
 
 function M.clear()
 	M.flush()
+	-- При enabled fd открыт на текущий лог: закрыть до unlink, иначе
+	-- удаляем файл из-под открытого дескриптора. После удаления fd=nil —
+	-- следующий flush лениво переоткроет M.path заново (пустым).
+	if fd then
+		pcall(uv.fs_close, fd)
+		fd = nil
+	end
 	for _, f in ipairs(M.logs()) do
 		pcall(uv.fs_unlink, f.path)
 	end

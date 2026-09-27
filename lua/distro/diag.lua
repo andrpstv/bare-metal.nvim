@@ -173,7 +173,11 @@ local function header_block()
 	if not ok_nproc then
 		cpu_count = 1
 	end
-	lines[#lines + 1] = "weak_hw_profile: " .. (cpu_count <= 2 and "weak (<=2 CPUs)" or "off")
+	-- Источник истины — perf.lean_on(), а не жёсткий cpu<=2: порог CPU
+	-- устаревает, lean решает по флагам/env/settings.
+	local ok_perf, perf = pcall(require, "core.perf")
+	local lean = ok_perf and perf and perf.lean_on and perf.lean_on() or false
+	lines[#lines + 1] = "weak_hw_profile: " .. (lean and "weak" or "off") .. string.format(" (lean_on=%s, cpus=%s)", tostring(lean), tostring(cpu_count))
 
 	local turbo_status = "off"
 	local ok_turbo, turbo_mod = pcall(require, "core.turbo")
@@ -768,7 +772,14 @@ local function run_diag()
 		for _, c in ipairs(cleanups) do
 			pcall(c)
 		end
-		vim.cmd("qa!")
+		-- qa! только в headless: в интерактивной сессии не убивать
+		-- сессию и не терять несохранённое.
+		if #vim.api.nvim_list_uis() == 0 then
+			vim.cmd("qa!")
+		else
+			vim.notify("[diag] WATCHDOG_TIMEOUT: run exceeded 120s, partial log at " .. p, vim.log.levels.ERROR)
+			return
+		end
 	end))
 
 	all_lines[#all_lines + 1] = "=== distro diagnostic ==="

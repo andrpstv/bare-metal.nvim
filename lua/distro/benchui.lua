@@ -9,8 +9,8 @@ local function ms(t0)
 	return (vim.uv.hrtime() - t0) / 1e6
 end
 
---- Average over n runs of fn (fn must be side-effect free-ish).
-local function avg(n, fn)
+--- Best (min) over n runs of fn (fn must be side-effect free-ish).
+local function best(n, fn)
 	local best = nil
 	for _ = 1, n do
 		local t0 = vim.uv.hrtime()
@@ -45,7 +45,7 @@ function M.run()
 	end)
 
 	-- 1. statusline: what every redraw pays
-	local sl = avg(100, function()
+	local sl = best(100, function()
 		if _G._statusline then
 			_G._statusline()
 		end
@@ -53,7 +53,7 @@ function M.run()
 	lines[#lines + 1] = string.format(" statusline eval (x100 best):  %s / redraw", fmt(sl))
 
 	-- 2. full redraw (bang: force real work, no early-out)
-	local rd = avg(10, function()
+	local rd = best(10, function()
 		vim.cmd("redraw!")
 	end)
 	lines[#lines + 1] = string.format(" :redraw! (x10 best):           %s", fmt(rd))
@@ -69,7 +69,7 @@ function M.run()
 		vim.cmd("split")
 		pcall(vim.cmd, "wincmd j")
 		vim.cmd("split")
-		sp = avg(5, function()
+		sp = best(5, function()
 			vim.cmd("redraw!")
 		end)
 		for _, w in ipairs(vim.api.nvim_list_wins()) do
@@ -92,7 +92,7 @@ function M.run()
 	do
 		local ok, parser = pcall(vim.treesitter.get_parser, cur_buf)
 		if ok and parser then
-			parse_ms = avg(3, function()
+			parse_ms = best(3, function()
 				parser:parse(true)
 			end)
 		else
@@ -102,14 +102,14 @@ function M.run()
 	lines[#lines + 1] = string.format(" treesitter parse current buf:  %s", parse_ms and fmt(parse_ms) or parse_note)
 
 	-- 5. folds recompute (zx) + restore view
-	local fold_ms = avg(3, function()
+	local fold_ms = best(3, function()
 		vim.cmd("silent! normal! zx")
 	end)
 	pcall(vim.fn.winrestview, cur_view)
 	lines[#lines + 1] = string.format(" folds recompute zx (x3 best):   %s", fmt(fold_ms))
 
 	-- 6. float open: our own :Distro render + window (excl. interaction)
-	local float_ms = avg(3, function()
+	local float_ms = best(3, function()
 		local ok_ui, ui = pcall(require, "distro.ui")
 		if not ok_ui then
 			return
@@ -169,14 +169,14 @@ function M.run()
 	for _, item in ipairs({ { "open small cold", "open-small.txt", 100, true }, { "open small warm", "open-small.txt", 100, false }, { "open big cold", "open-big.txt", 20000, true }, { "open big warm", "open-big.txt", 20000, false } }) do
 		local label, fname, nlines, cold = item[1], item[2], item[3], item[4]
 		local p = test_file(fname, nlines)
-		local best = nil
+		local b = nil
 		for _ = 1, cold and 1 or 3 do
 			local dt = open_render(p, cold)
-			if dt and (not best or dt < best) then
-				best = dt
+			if dt and (not b or dt < b) then
+				b = dt
 			end
 		end
-		lines[#lines + 1] = string.format(" %-28s %s", label .. ":", best and fmt(best) or "n/a")
+		lines[#lines + 1] = string.format(" %-28s %s", label .. ":", b and fmt(b) or "n/a")
 	end
 
 	-- 8. buffer switch render: alternate two loaded buffers + redraw.
@@ -185,14 +185,14 @@ function M.run()
 		local f2 = test_file("open-big.txt", 20000)
 		pcall(vim.cmd, "edit " .. vim.fn.fnameescape(f1))
 		pcall(vim.cmd, "edit " .. vim.fn.fnameescape(f2))
-		local best = avg(3, function()
+		local sw = best(3, function()
 			pcall(vim.cmd, "bprev")
 			pcall(vim.cmd, "redraw!")
 			pcall(vim.cmd, "bnext")
 			pcall(vim.cmd, "redraw!")
 		end)
-		-- avg wraps the pair; halve for per-switch
-		lines[#lines + 1] = string.format(" buffer switch + redraw:        %s", best and fmt(best / 2) or "n/a")
+		-- best wraps the pair; halve for per-switch
+		lines[#lines + 1] = string.format(" buffer switch + redraw:        %s", sw and fmt(sw / 2) or "n/a")
 	end
 
 	-- 9. hotkey-to-picker: <leader>ff equivalent, time until picker visible.

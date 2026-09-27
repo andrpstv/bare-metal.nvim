@@ -6,7 +6,8 @@
 	-- ставит свои attach-автокоманды (см. setup_attach), поэтому аттачим сами
 	-- через actions.attach — on_attach large_file-гард ниже всё равно работает.
 	-- Headless/SYNC — синхронно как сейчас. Без флага — как сейчас 1-в-1.
-	local perf_defer = pcall(require, "core.perf") and require("core.perf").defer_on()
+	local ok_perf, perf_mod = pcall(require, "core.perf")
+	local perf_defer = ok_perf and perf_mod.defer_on and perf_mod.defer_on() or false
 	require("modules.utils").load_plugin("gitsigns", {
 		signs = {
 			add = { text = "┃" },

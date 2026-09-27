@@ -59,20 +59,25 @@ function M.wrap_pick()
 
 		-- We must not steal the shim's callback: it owns the jump/picker logic.
 		-- So wrap buf_request, hand the original callback a delegating wrapper,
-		-- and restore the original in every exit path. Restoration is done by
-		-- the wrapper's first invocation, not before: the shim calls
-		-- buf_request synchronously, so restoring right after the call is safe
-		-- and avoids leaking a patched global if the shim errors.
+		-- and restore the original in every exit path. Restoration happens
+		-- AFTER dispatch (pcall) and on TOTAL, not on the first request: the
+		-- shim may send multi-requests synchronously and all must be counted.
 		local orig_req = vim.lsp.buf_request
 		local n = 0
+		local frame_closed = false
 		vim.lsp.buf_request = function(bufnr, method, params, handler, bufnr2)
 			n = n + 1
-			-- 1. keypress -> request
+			-- 1. keypress -> request (каждый синхронный запрос шима виден:
+			-- restore перенесён на закрытие TOTAL, см. ниже).
 			trace.sub(ev, "keypress_to_request", el(), nil, frame)
-			-- The synchronous frame closes here: everything after the request is
-			-- sent happens in a frame this call no longer owns.
-			trace.end_span(trace.current_span(), ev)
-			vim.lsp.buf_request = orig_req
+			-- Синхронный фрейм закрывается один раз — на первом запросе;
+			-- повторный end_span закрыл бы чужой фрейм при перекрытии.
+			if not frame_closed then
+				frame_closed = true
+				trace.end_span(frame, ev)
+			end
+			-- restore НЕ здесь: шим может слать мульти-запросы синхронно,
+			-- обёртка живёт до конца dispatch (pcall ниже) + страховка на TOTAL.
 			return orig_req(bufnr, method, params, function(...)
 				-- 2. request -> response
 				trace.sub(ev, "request_to_response", el(), nil, frame)
@@ -86,16 +91,28 @@ function M.wrap_pick()
 				-- round-trip and the jump entirely. Measured at dispatch that
 				-- "total" reads 0.1-0.6 ms while the real hop is 9-14 ms.
 				trace.log(ev, el(), "TOTAL (requests: " .. n .. ")", name, ft, { kind = "action", group = ev })
+				vim.lsp.buf_request = orig_req
 				return unpack(res, 1, nargs)
 			end, bufnr2)
 		end
 
 		local ok, r = pcall(orig, scope, opts)
+		-- Dispatch окончен: все синхронные запросы шима уже посчитаны.
+		-- Снимаем обёртку здесь (и страховка в TOTAL-колбэке выше).
 		vim.lsp.buf_request = orig_req
 		if not ok then
 			trace.log(ev, el(), "error: " .. tostring(r), name, ft)
-			trace.end_span(trace.current_span(), ev)
+			if not frame_closed then
+				frame_closed = true
+				trace.end_span(frame, ev)
+			end
 			error(r, 0)
+		end
+		if n == 0 then
+			-- Шим не вызвал buf_request (нет клиента): закрыть фрейм с меткой,
+			-- иначе висит до STALE_MS и усыновляет чужие события.
+			frame_closed = true
+			trace.end_span(frame, ev, "no-request")
 		end
 		-- Dispatch only: how long the synchronous send took. Deliberately NOT
 		-- called "total" — the real TOTAL is logged from the response handler.
@@ -129,12 +146,16 @@ function M.wrap_commands()
 	local trace = require("distro.trace")
 	local uv = vim.uv or vim.loop
 	local api = vim.api
-	local pattern = "^(Distro.*|Turbo.*|WeakHw.*|Format.*)$"
+	-- Lua-паттерны без `|`: явный список префиксов через vim.startswith.
+	local prefixes = { "Distro", "Turbo", "WeakHw", "Perf", "Format" }
 	local cmds = api.nvim_get_commands({ builtin = false })
 	local names = {}
 	for name in pairs(cmds) do
-		if name:match(pattern) then
-			names[#names + 1] = name
+		for _, p in ipairs(prefixes) do
+			if vim.startswith(name, p) then
+				names[#names + 1] = name
+				break
+			end
 		end
 	end
 	if #names == 0 then

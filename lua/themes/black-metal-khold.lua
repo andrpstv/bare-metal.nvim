@@ -54,7 +54,14 @@ M.setup = function()
 		return ok and res or false
 	end
 	local function apply_custom()
-		M.apply_custom()
+		-- MINIMAL trace: один спан на deferred-apply кастома (дорогая часть
+		-- ~90 highlights). Внутренние require не трейсим — только apply.
+		local ok_t, tr = pcall(require, "distro.trace")
+		if ok_t and tr.enabled then
+			tr.span("theme/custom", M.apply_custom)
+		else
+			M.apply_custom()
+		end
 		M._custom_applied = true
 	end
 
@@ -66,7 +73,8 @@ M.setup = function()
 		-- + 300ms timer — pattern from distro/loader.lua:297-328); the base
 		-- colourscheme above is already synchronous (no white flash).
 		-- Headless/SYNC — synchronous.
-		local defer_on = pcall(require, "core.perf") and require("core.perf").defer_on()
+		local ok_perf, perf_mod = pcall(require, "core.perf")
+		local defer_on = ok_perf and perf_mod.defer_on and perf_mod.defer_on() or false
 		if #vim.api.nvim_list_uis() == 0 or vim.env.NVIM_DISTRO_SYNC == "1" then
 			apply_custom()
 		elseif defer_on then

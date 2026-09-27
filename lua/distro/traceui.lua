@@ -52,13 +52,16 @@ local function parse(line)
 		buf = (f[6] ~= "-" and vim.fn.fnamemodify(f[6], ":t")) or nil,
 		ft = (f[7] ~= "-" and f[7]) or nil,
 		run = f[8] or "-",
-		-- New, optional.
+		-- New, optional. nfields отличает новый 14-колоночный формат от
+		-- легаси 8-колоночного: instant нового формата тоже без dur и со "/",
+		-- но у него 14 полей (см. LEGACY-блок в render).
 		span_id = num(9),
 		parent_id = num(10),
 		own_ms = num(11),
 		kind = f[12] or "event",
 		async_from = num(13),
 		group = (f[14] ~= "-" and f[14]) or nil,
+		nfields = #f,
 	}
 end
 M._parse = parse
@@ -485,15 +488,22 @@ function M.open(path, sort)
 		-- и такие события легальны в любом логе. Поэтому метку ставим только когда
 		-- НИ ОДНОЙ строки во всём логе не имеет длительности: это отличает старый
 		-- формат от нового и не даёт ложного предупреждения на новых логах.
-		local timed, slash_nodur = 0, 0
+		local timed, slash_nodur, has_new = 0, 0, 0
 		for _, r in ipairs(rows) do
 			if r.dur ~= nil then
 				timed = timed + 1
 			elseif r.event and r.event:find("/", 1, true) then
 				slash_nodur = slash_nodur + 1
 			end
+			-- Маркер нового формата: 14 колонок или любое заполненное
+			-- span-поле. Новый лог с одними instant (напр. CursorMoved)
+			-- тоже имеет timed==0 и slash_nodur>0, но у него есть эти
+			-- маркеры — он не легаси.
+			if (r.nfields or 0) > 8 or r.span_id or r.parent_id or r.own_ms or r.group or r.async_from then
+				has_new = has_new + 1
+			end
 		end
-		local legacy = (timed == 0 and slash_nodur > 0) and slash_nodur or 0
+		local legacy = (timed == 0 and slash_nodur > 0 and has_new == 0) and slash_nodur or 0
 		local roots = M.build_tree(rows)
 		if sort == "time" then
 			table.sort(roots, function(a, b)

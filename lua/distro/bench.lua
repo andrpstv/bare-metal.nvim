@@ -300,7 +300,7 @@ function M.run()
 	pcall(function()
 		perf_txt = require("core.perf").status()
 	end)
-	local lines = { " DistroBench — " .. perf_txt .. " — this machine, min-of-3, wall clock.", "" }
+	local lines = { " DistroBench — " .. perf_txt .. " — this machine, wall clock (file open: best-of-3; LSP COLD single / WARM best-of-3, see block below).", "" }
 	-- 1. session age (equals startup time only if run right after open)
 	if vim.g.start_time then
 		local age_s = vim.fn.reltimefloat(vim.fn.reltime(vim.g.start_time))

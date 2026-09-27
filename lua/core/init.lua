@@ -175,7 +175,8 @@ local load_core = function()
 	-- откладываем на schedule. vim.schedule отрабатывает раньше первого ввода,
 	-- поэтому немедленный :w после open работает. Headless — синхронно
 	-- (:Format команда должна существовать для скриптов). Без флага — как было.
-	local defer_on = pcall(require, "core.perf") and require("core.perf").defer_on()
+	local ok_perf, perf_mod = pcall(require, "core.perf")
+	local defer_on = ok_perf and perf_mod.defer_on and perf_mod.defer_on() or false
 	if defer_on then
 		vim.schedule(function()
 			require("core.pairs").setup()
