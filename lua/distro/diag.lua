@@ -104,16 +104,37 @@ local function header_block()
 
 	local gopls_ver = "NOT MEASURED: gopls version query failed"
 	if gopls_path ~= "" then
-		local ok, v = pcall(function()
-			local handle = io.popen(gopls_path .. " version 2>&1")
-			if handle then
-				local out = handle:read("*a")
-				handle:close()
-				return out:match("gopls v([%d%.]+)") or out:match("(%d+%.%d+%.%d+)") or "unknown"
+		-- Было: io.popen(gopls_path .. " version") + handle:read("*a").
+		-- Это СИНХРОННЫЙ блокирующий вызов: он не крутит цикл событий, значит
+		-- watchdog (таймер ниже) в этот момент молчит. Если gopls завис (а он
+		-- зависает — network/версия/лицензия/заблокированный кэш), handle:read
+		-- ждёт бесконечно, и ":DistroDiag" не завершается никогда. Для
+		-- потребителя это главный риск: команда, которую нельзя прервать.
+		-- Стало: асинхронный vim.system с явным timeout. Процесс принудительно
+		-- убивается на 5000мс, ожидание ограничено тем же бюджетом и крутит
+		-- цикл событий (vim.wait), так что watchdog наконец работает.
+		local GopLS_VERSION_TIMEOUT_MS = 5000
+		local finished, out, spawn_err = false, nil, nil
+		pcall(vim.system, { gopls_path, "version" }, { text = true, timeout = GopLS_VERSION_TIMEOUT_MS }, function(obj)
+			finished = true
+			if obj and obj.code == 124 then
+				spawn_err = "gopls version timed out after " .. GopLS_VERSION_TIMEOUT_MS .. "ms (process killed)"
+			elseif obj and obj.code ~= 0 then
+				spawn_err = "gopls version exited " .. tostring(obj.code) .. ": " .. vim.trim(tostring(obj.stderr or obj.stdout or ""))
+			else
+				out = tostring(obj and obj.stdout or "")
 			end
 		end)
-		if ok and v then
-			gopls_ver = v
+		local w0 = uv.hrtime()
+		while not finished and (uv.hrtime() - w0) / 1e6 < GopLS_VERSION_TIMEOUT_MS + 250 do
+			vim.wait(20) -- pumps the loop: watchdog + editor stay alive
+		end
+		if not finished then
+			gopls_ver = "NOT MEASURED: gopls version did not complete within " .. GopLS_VERSION_TIMEOUT_MS .. "ms (killed)"
+		elseif spawn_err then
+			gopls_ver = "NOT MEASURED: " .. spawn_err
+		else
+			gopls_ver = (out:match("gopls v([%d%.]+)") or out:match("(%d+%.%d+%.%d+)") or "unknown")
 		end
 	end
 	lines[#lines + 1] = "gopls_version  : " .. gopls_ver
@@ -321,6 +342,21 @@ local function measure_file_open(file_path, label)
 	end
 
 	local modules_after_edit = nil
+	-- Аудит блокирующих вызовов (watchdog молчит только там, где не крутится
+	-- цикл событий):
+	--   * io.popen "gopls version"  -- был единственным НЕОГРАНИЧЕННЫМ вызовом
+	--     (жёсткий внешний процесс, ждал вечно). Теперь vim.system+timeout.
+	--   * vim.cmd("edit") ниже -- синхронный, НО читает локальный файл только
+	--     что записанный нами самим (make_clean/make_heavy_go_module) и не
+	--     запускает внешних процессов. Зависнуть не на чем; время входит в
+	--     EDIT_total_ms.
+	--   * uv.fs_scandir по go/pkg/mod -- синхронный обход каталога, без
+	--     внешних процессов; риск только медленный HDD, и это само по себе
+	--     измеряемая величина для потребителя.
+	--   * все vim.wait(...) -- ПОМИМО ОЖИДАНИЯ крутят цикл событий, поэтому
+	--     watchdog и таймеры в них живы.
+	-- Вывод: неограниченного блокирующего вызова, способного повесить команду,
+	-- в diag.lua не осталось.
 	local ok_edit, err = pcall(vim.cmd, "edit " .. vim.fn.fnameescape(file_path))
 	if not ok_edit then
 		result.not_measured[#result.not_measured + 1] = "file_open: " .. tostring(err)
