@@ -12,6 +12,17 @@ local M = {}
 
 local PAGE = 200
 
+--- Viewer state, keyed by BUFFER handle.
+---
+--- Was `vim.b[win]`, which is a bug: `vim.b`/`vim.w` are indexed by buffer, and
+--- `nvim_open_win` returns a WINDOW id. `win` 1001 is not a buffer, so every
+--- read or write raised "scoped variable: Invalid buffer id: 1001" — the
+--- viewer could not open at all. Buffer vars would be the wrong tool anyway:
+--- the state outlives nothing, and we want it to be reachable from the
+--- `<CR>`/`s` callbacks without depending on a live window id.
+---@type table<integer, table>
+local state = {}
+
 --- Parse one TSV row.
 ---@return table|nil
 local function parse(line)
@@ -195,7 +206,7 @@ function M.open(path, sort)
 		border = "rounded",
 		title = " DistroTrace ",
 	})
-	vim.b[win].distro_trace = { path = path }
+	state[b] = { path = path, sort = sort }
 
 	local function render()
 		local rows = M.rows(path, 4000, sort)
@@ -241,6 +252,11 @@ function M.open(path, sort)
 		if #rows == 0 then
 			lines[#lines + 1] = "(no rows)"
 		end
+		-- 1-based line number of the first data row. The header above is a
+		-- variable length (the legacy-format note line appears only for old
+		-- logs), so the first row does NOT sit at a fixed line: a hardcoded
+		-- offset made <CR> off by one on every non-legacy log.
+		local first_row_line = #lines + 1
 		local durs = {}
 		for _, r in ipairs(rows) do
 			local line, dur = fmt_row(r)
@@ -256,26 +272,40 @@ function M.open(path, sort)
 		vim.api.nvim_buf_clear_namespace(b, ns, 0, -1)
 		for i, dur in ipairs(durs) do
 			if dur and dur >= SLOW_MS then
-				vim.api.nvim_buf_add_highlight(b, ns, vim.api.nvim_str_byteindex(b, i, 0, false), vim.api.nvim_str_byteindex(b, i, 0, false), dur >= VERY_SLOW_MS and "DistroTraceVerySlow" or "DistroTraceSlow")
+				-- Column 7 is the start of the duration cell ("#%-5d " = 6 ASCII
+				-- bytes) and it is 9 bytes wide. Computed directly instead of via
+				-- nvim_str_byteindex: that API does not exist in 0.11 (it is
+				-- 0.12+), so calling it crashed the viewer on the first slow row.
+				-- Safe because the prefix is pure ASCII by construction.
+				-- nvim_buf_add_highlight(buf, ns, hl_group, line, col_start, col_end):
+				-- hl_group is argument THREE on this build (same call shape as
+				-- lua/distro/ui.lua:685), not last as in the 0.10 API. Passing it
+				-- last made the group string land in col_end and raise
+				-- "Invalid 'col_end': Expected Lua number" on the first slow row.
+				vim.api.nvim_buf_add_highlight(b, ns, dur >= VERY_SLOW_MS and "DistroTraceVerySlow" or "DistroTraceSlow", i, 7, 7 + 9)
 			end
 		end
-		vim.b[win].distro_trace = { path = path, rows = rows, sort = sort }
+		state[b] = { path = path, rows = rows, sort = sort, first_row_line = first_row_line }
 	end
 	render()
 
 	local function close()
 		pcall(vim.api.nvim_win_close, win, true)
+		-- bufhidden=wipe means the buffer outlives nothing, but drop the state
+		-- with the window so a re-open cannot inherit a stale path.
+		state[b] = nil
 	end
 	vim.keymap.set("n", "q", close, { buffer = b, nowait = true })
 	vim.keymap.set("n", "<Esc>", close, { buffer = b, nowait = true })
 	vim.keymap.set("n", "s", function()
 		sort = (sort == "time") and "seq" or "time"
+		state[b].sort = sort
 		render()
 		vim.api.nvim_win_set_cursor(win, { 1, 0 })
 	end, { buffer = b, nowait = true, desc = "trace: toggle sort" })
 	vim.keymap.set("n", "<CR>", function()
-		local info = vim.b[win].distro_trace
-		local r = info.rows and info.rows[vim.api.nvim_win_get_cursor(0)[1] - 7]
+		local info = state[b]
+		local r = info and info.rows and info.rows[vim.api.nvim_win_get_cursor(0)[1] - (info.first_row_line or 1) + 1]
 		if r then
 			M.detail(info.path, r)
 		end
@@ -337,7 +367,7 @@ function M.detail(path, r)
 			x.at - r.at + (r.dur or 0),
 			delta,
 			x.event,
-			x.dur and string.format("(own dur %.3f)" % x.dur) or ""
+			x.dur and ("(own dur %.3f)"):format(x.dur) or ""
 		)
 	end
 	lines[#lines + 1] = ""
