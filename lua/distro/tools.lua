@@ -159,6 +159,7 @@ end
 --- Install/update a tool binary into tools/<name>/ (config-local). Confirm-gated.
 function M.install_tool(name, opts)
 	require("distro.install").require_consent(opts)
+	opts = opts or {} -- opts.preconfirmed ниже: не дать упасть будущему вызывающему
 	local manifest = require("distro.manifest")
 	local tool = manifest.get_tool and manifest.get_tool(name) or nil
 	if not tool then
@@ -248,6 +249,7 @@ end
 --- Install a Go binary via `go install <pkg>` (needs Go + module reachability).
 function M.install_go(bin, opts)
 	require("distro.install").require_consent(opts)
+	opts = opts or {} -- opts.preconfirmed ниже: не дать упасть будущему вызывающему
 	local spec = nil
 	for _, b in ipairs(require("distro.manifest").binaries or {}) do
 		if b.name == bin then
