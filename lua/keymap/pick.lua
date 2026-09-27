@@ -5,7 +5,41 @@ end
 
 -- Безопасный вызов mini.pick / mini.extra: догружает mini.nvim через distro loader.
 -- Ноль внешних зависимостей (rg/git опционально ускоряют builtin-пикеры).
+
+-- DistroTrace. Отдельный маленький хук вместо обёртки снаружи: _G._pick_lsp
+-- уже обёрнут в distro.tracehooks, а переписывать определения здесь означало бы
+-- ловить собственный патч. Правило то же: выключенный трейс стоит одно
+-- сравнение `if not t.enabled then` в начале каждой функции.
+local function pick_trace()
+	if not _G._pick_trace then
+		local ok, t = pcall(require, "distro.trace")
+		_G._pick_trace = ok and t or false
+	end
+	return _G._pick_trace
+end
+
+local pick_ensure_loaded = false
+
+--- Собственно загрузка mini.pick (без трассировки) — вынесена отдельно, чтобы
+--- picker:ensure не оборачивал рекурсию, и чтобы выключенный трейс вообще
+--- не менял число require.
+local _pick_ensure_inner
+
 local function _pick_ensure()
+	local t = pick_trace()
+	if t and t.enabled and not pick_ensure_loaded then
+		-- Первый вызов тянет mini.nvim через loader (до 121 модуля на холодном
+		-- старте). Стоимость самого require уходит в loader:load/mini.nvim;
+		-- здесь фиксируем только факт инициализации пикера.
+		local res = t.span("picker:ensure", _pick_ensure_inner)
+		pick_ensure_loaded = true
+		return res
+	end
+	return _pick_ensure_inner()
+end
+
+---@return table|nil mini.pick
+_pick_ensure_inner = function()
 	pcall(function()
 		require("distro.loader").load("mini.nvim")
 	end)
@@ -17,10 +51,30 @@ local function _pick_ensure()
 	return pick
 end
 
+-- Вперёд объявленные тела: глобальные точки входа определены выше, но
+-- ссылаются на эти функции. Без forward declaration Lua считает имя
+-- глобальным — и _G._pick вызывает сам себя (stack overflow).
+local _pick, _pick_extra
+
 ---Builtin-пикер mini.pick: files, grep_live, buffers, help, oldfiles, resume.
 ---@param fn string
 ---@param opts table|nil
 _G._pick = function(fn, opts)
+	local t = pick_trace()
+	if t and t.enabled then
+		-- Один span на весь вызов: builtin-пикер сам спискает и рисует
+		-- элементы внутри, трейсить каждый экран не нужно.
+		return t.span("picker:mini.pick", function()
+			return _pick(fn, opts)
+		end)
+	end
+	return _pick(fn, opts)
+end
+
+---Тело builtin-пикера (mini.pick): рисует и спискает элементы сам.
+---@param fn string
+---@param opts table|nil
+_pick = function(fn, opts)
 	local pick = _pick_ensure()
 	if not pick then
 		return
@@ -36,6 +90,18 @@ end
 ---@param fn string
 ---@param opts table|nil
 _G._pick_extra = function(fn, opts)
+	local t = pick_trace()
+	if t and t.enabled then
+		return t.span("picker:mini.extra", function()
+			return _pick_extra(fn, opts)
+		end)
+	end
+	return _pick_extra(fn, opts)
+end
+
+---@param fn string
+---@param opts table|nil
+_pick_extra = function(fn, opts)
 	if not _pick_ensure() then
 		return
 	end

@@ -98,6 +98,74 @@ function M.wrap_pick()
 	return true
 end
 
+--- Wrap every Distro*/Turbo*/WeakHw*/Format* user command with a timed row.
+---
+--- Done centrally instead of editing ~20 registration sites: re-create each
+--- command with the SAME opts and the SAME callback, only the callback body
+--- gains a span. Registration order matters — this must run after the modules
+--- that define the commands, so :DistroTrace calls it on enable.
+---
+--- The wrapped function re-dispatches through the original command, so
+--- completion, nargs and bang semantics are untouched; args/bang are forwarded.
+--- Commands whose name is in M._cmd_orig are never wrapped twice.
+function M.wrap_commands()
+	if M._cmds_wrapped then
+		return false
+	end
+	local trace = require("distro.trace")
+	local uv = vim.uv or vim.loop
+	local api = vim.api
+	local pattern = "^(Distro.*|Turbo.*|WeakHw.*|Format.*)$"
+	local cmds = api.nvim_get_commands({ builtin = false })
+	local names = {}
+	for name in pairs(cmds) do
+		if name:match(pattern) then
+			names[#names + 1] = name
+		end
+	end
+	if #names == 0 then
+		return false
+	end
+	table.sort(names)
+	M._cmd_orig = M._cmd_orig or {}
+	for _, name in ipairs(names) do
+		if not M._cmd_orig[name] then
+			local info = cmds[name]
+			local orig = info.definition
+			do
+				if type(orig) == "function" then
+					local opts = {}
+					for _, k in ipairs({ "nargs", "bang", "bar", "range", "count", "complete", "addr", "reg" }) do
+						opts[k] = info[k]
+					end
+					if info.complete and type(info.complete) == "string" then
+						opts.complete = info.complete
+					end
+					M._cmd_orig[name] = { fn = orig, opts = opts }
+					api.nvim_create_user_command(name, function(copts)
+						if not trace.enabled then
+							return orig(copts)
+						end
+						local t0 = uv.hrtime()
+						local ok, res = pcall(orig, copts)
+						local dt = (uv.hrtime() - t0) / 1e6
+						trace.log("command:" .. name, dt, ok and nil or ("error: " .. tostring(res)))
+						trace.flush()
+						if not ok then
+							error(res, 0)
+						end
+						return res
+					end, vim.tbl_extend("force", opts, {
+						desc = (opts.desc or ("distro: " .. name)) .. " [traced]",
+					}))
+				end
+			end
+		end
+	end
+	M._cmds_wrapped = true
+	return true
+end
+
 --- Autocmd-level instrumentation.
 function M.setup_autocmds()
 	local grp = vim.api.nvim_create_augroup("DistroTraceHooks", { clear = true })
@@ -172,6 +240,7 @@ end
 function M.setup()
 	M.wrap_pick()
 	M.setup_autocmds()
+	M.wrap_commands()
 end
 
 return M

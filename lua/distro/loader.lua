@@ -5,6 +5,26 @@ local M = {}
 
 M.loaded = {}
 
+-- DistroTrace integration. Trace only, no behaviour: `enabled` is read once
+-- per call and every helper below is a no-op table index when the trace is off.
+local function trace()
+	if not M._trace then
+		local t = package.loaded["distro.trace"]
+		if not t then
+			local ok, mod = pcall(require, "distro.trace")
+			t = ok and mod or false
+		end
+		M._trace = t
+	end
+	return M._trace
+end
+
+--- Re-entry depth of M.load. A plugin's config/setup() may load another
+--- plugin, so the outer frame is marked with an aggregate row; inner frames
+--- still emit their own pack/finish rows (see pack_subtree/finish_subtree),
+--- which is where the real cost of the 121-module first frame shows up.
+local load_depth = 0
+
 local function cfg_path()
 	return vim.fn.stdpath("config")
 end
@@ -69,9 +89,21 @@ local function pack_subtree(entry)
 		if entry.kind == "start" then
 			-- уже на rtp — nothing to do
 		else
-			local pok = pcall(vim.cmd, "packadd " .. entry.name)
-			if not pok then
-				ok = false
+			-- packadd only: rtp, no after/plugin, no config. This is the
+			-- dominant cost of the first frame on a spinning disk.
+			local t = trace()
+			if t and t.enabled then
+				t.span("loader:pack/" .. entry.name, function()
+					local pok = pcall(vim.cmd, "packadd " .. entry.name)
+					if not pok then
+						ok = false
+					end
+				end)
+			else
+				local pok = pcall(vim.cmd, "packadd " .. entry.name)
+				if not pok then
+					ok = false
+				end
 			end
 		end
 	end
@@ -99,22 +131,33 @@ local function finish_subtree(entry)
 		end
 	end
 	if ok then
+		local t = trace()
 		-- :packadd sources plugin/ but NOT after/plugin (lazy.nvim did that part).
 		-- Several plugins self-register there (e.g. all cmp sources), so source them.
-		M.source_after(M.pack_dir(entry))
-		if entry.config then
-			local cfg_mod = entry.config:match("^themes%.") and entry.config or ("modules.configs." .. entry.config)
-			local ok_req, cfg = pcall(require, cfg_mod)
-			if ok_req then
-				if type(cfg) == "function" then
-					local ok_call, err = pcall(cfg)
-					if not ok_call then
-						vim.notify("[Distro] config '" .. cfg_mod .. "' failed: " .. tostring(err), vim.log.levels.ERROR)
+		-- after/plugin + require(config) + cfg.setup(): everything a user's
+		-- first file open can pay for. Traced as one span per plugin, never
+		-- per require inside it — an inner require flood would drown the log.
+		local function do_finish()
+			M.source_after(M.pack_dir(entry))
+			if entry.config then
+				local cfg_mod = entry.config:match("^themes%.") and entry.config or ("modules.configs." .. entry.config)
+				local ok_req, cfg = pcall(require, cfg_mod)
+				if ok_req then
+					if type(cfg) == "function" then
+						local ok_call, err = pcall(cfg)
+						if not ok_call then
+							vim.notify("[Distro] config '" .. cfg_mod .. "' failed: " .. tostring(err), vim.log.levels.ERROR)
+						end
+					elseif type(cfg) == "table" and cfg.setup then
+						pcall(cfg.setup)
 					end
-				elseif type(cfg) == "table" and cfg.setup then
-					pcall(cfg.setup)
 				end
 			end
+		end
+		if t and t.enabled then
+			t.span("loader:finish/" .. entry.name, do_finish)
+		else
+			do_finish()
 		end
 		M.loaded[entry.name] = true
 	end
@@ -139,7 +182,22 @@ function M.load(name)
 		return false
 	end
 	loading[name] = true
-	local ok = pack_subtree(entry) and finish_subtree(entry)
+	load_depth = load_depth + 1
+	local outer = load_depth == 1
+	local t = trace()
+	local ok
+	if outer and t and t.enabled then
+		-- Aggregate row for the top-level load only. pack/finish rows above
+		-- are the breakdown; this is the single "what did that gd cost"
+		-- number. A nested M.load (plugin config loading another plugin) must
+		-- not emit its own aggregate — that is the spam case.
+		ok = t.span("loader:load/" .. name, function()
+			return pack_subtree(entry) and finish_subtree(entry)
+		end)
+	else
+		ok = pack_subtree(entry) and finish_subtree(entry)
+	end
+	load_depth = load_depth - 1
 	loading[name] = nil
 	return ok
 end
