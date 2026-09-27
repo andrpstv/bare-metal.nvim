@@ -118,6 +118,26 @@ end
 -- N нажатий gd дают N параллельных rg по go/pkg/mod (сотни МБ каждый).
 local lib_searching = false
 
+-- Учёт definition/type_definition-запроса, который УЖЕ ушёл в gopls.
+-- Именно module-level, по той же причине, что и lib_searching выше: внутри
+-- _G._pick_lsp это upvalue, пересоздаваемый на каждом вызове, и гард мёртв.
+--
+-- Это НЕ булев флаг и не "busy"-предупреждение. Две разные вещи:
+--   1) настоящая отмена на проводе — замыкание, которое vim.lsp.buf_request
+--      отдаёт вторым значением (lsp.lua:1298) и шлёт $/cancelRequest;
+--   2) номер поколения — потому что отмена best-effort. Сервер без поддержки
+--      cancel (и гонка на стороне gopls) всё равно может прислать результат.
+--      Ответ с устаревшим поколением обязан уйти молча, не открыв пикер.
+-- Поколение — обязательная часть контракта, отмена — оптимизация.
+-- Счётчик живёт здесь, а не в замыкании: сравнивать его надо с ПОСЛЕДНИМ
+-- запросом, то есть с тем, что находится вне функции.
+--
+-- Область действия намеренно узкая: только ветка opts.jump1 (gd и
+-- type_definition). Ветка без jump1 уходит в mini.extra pickers, там запрос
+-- принадлежит пикеру, и вытеснение сломало бы document_symbol/references/
+-- implementation/workspace_symbol_live — они открывают UI сами.
+local lsp_req = { gen = 0, inflight = nil }
+
 ---LSP через mini.extra: definition|references|implementation|type_definition|
 ---document_symbol|workspace_symbol_live. opts.jump1: один результат — прыгнуть сразу.
 ---@param scope string
@@ -233,14 +253,36 @@ _G._pick_lsp = function(scope, opts)
 		local req_buf = vim.api.nvim_get_current_buf()
 		local req_pos = vim.api.nvim_win_get_cursor(0)
 		local req_symbol = vim.fn.expand("<cword>")
+		-- Новый gd = новое поколение. Прежний запрос в полёте вытесняется:
+		-- отменяем на проводе, после чего его поздний ответ (если сервер
+		-- проигнорирует cancel) отбросится проверкой поколения в колбэке.
+		local gen = lsp_req.gen + 1
+		lsp_req.gen = gen
+		local prev = lsp_req.inflight
+		if prev and type(prev.cancel) == "function" then
+			pcall(prev.cancel)
+		end
+		lsp_req.inflight = nil
 		local responded = false
 		vim.defer_fn(function()
-			if not responded and vim.api.nvim_buf_is_valid(req_buf) then
+			-- Сторож живёт только у САМОГО СВЕЖЕГО запроса. Иначе N нажатий
+			-- дают N одинаковых "server busy?" от запросов, уже отменённых и
+			-- пользователю не нужных.
+			if gen == lsp_req.gen and not responded and vim.api.nvim_buf_is_valid(req_buf) then
 				vim.notify("[lsp] slow response (" .. scope .. "), server busy?", vim.log.levels.WARN, { title = "lsp" })
 			end
 		end, 2000)
-		vim.lsp.buf_request(0, method, params, function(err, result)
+		local _, cancel = vim.lsp.buf_request(0, method, params, function(err, result)
+			-- Ответ на ВЫТЕСНЕННЫЙ запрос: уходим молча. Ни прыжка в устаревшую
+			-- позицию, ни пикера поверх того, что открыл более новый запрос, ни
+			-- rg-фолбэка. Это и есть защита от гонки, а не только отмена.
+			if gen ~= lsp_req.gen then
+				return
+			end
 			responded = true
+			if lsp_req.inflight and lsp_req.inflight.gen == gen then
+				lsp_req.inflight = nil
+			end
 			if err then
 				-- Сервер ответил ошибкой (не висение!): показываем её текст,
 				-- а для внешних либ пробуем текстовый фолбэк вместо пустоты.
@@ -282,6 +324,10 @@ _G._pick_lsp = function(scope, opts)
 				extra2.pickers.lsp({ scope = scope })
 			end
 		end)
+		-- Запрос в полёте: следующий gd вытеснит именно его, а не что попало.
+		if gen == lsp_req.gen then
+			lsp_req.inflight = { gen = gen, cancel = type(cancel) == "function" and cancel or nil }
+		end
 		return
 	end
 	local ok, extra = pcall(require, "mini.extra")
