@@ -36,6 +36,11 @@ local target = vim.env.IBENCH_FILE
 local label = vim.env.IBENCH_LABEL or "?"
 local run_idx = tonumber(vim.env.IBENCH_RUN or "0") or 0
 local turbo_env = vim.env.NVIM_TURBO or vim.env.NVIM_TURBO_MODE or "-"
+-- Каноника 4->2: пишем и новые env рядом со старыми, иначе A/B метки
+-- (NVIM_PERF_DEFER=0/1 vs NVIM_TURBO=1) разъезжаются в агрегаторе.
+local perf_defer_env = vim.env.NVIM_PERF_DEFER or "-"
+local perf_lean_env = vim.env.NVIM_PERF_LEAN or "-"
+local weak_hw_env = vim.env.NVIM_WEAK_HW or "-"
 local sync_env = vim.env.NVIM_DISTRO_SYNC or "-"
 local ts_only = vim.env.IBENCH_TS == "1"
 local boot_required = vim.env.IBENCH_BOOT_REQUIRE == "1"
@@ -54,6 +59,9 @@ local meta = {
 	file = target,
 	uis = #vim.api.nvim_list_uis(),
 	nvim_turbo = turbo_env,
+	nvim_perf_defer = perf_defer_env,
+	nvim_perf_lean = perf_lean_env,
+	nvim_weak_hw = weak_hw_env,
 	distro_sync = sync_env,
 	ts_only = ts_only,
 }

@@ -171,12 +171,12 @@ local load_core = function()
 	-- pairs СТРОГО после keymap: <C-h> и <BS> делят поведение стирания,
 	-- наш хендлер должен побеждать `i|<C-h> -> <Left>` из keymap/editor.lua.
 	-- Так же было со старым autoclose: он грузился по InsertEnter, т.е. позже всех.
-	-- TURBO (T4): pairs + format_on_save не нужны до первого Insert/Write —
+	-- PERF_DEFER (D): pairs + format_on_save не нужны до первого Insert/Write —
 	-- откладываем на schedule. vim.schedule отрабатывает раньше первого ввода,
 	-- поэтому немедленный :w после open работает. Headless — синхронно
 	-- (:Format команда должна существовать для скриптов). Без флага — как было.
-	local turbo_on = pcall(require, "core.turbo") and require("core.turbo").is_on()
-	if turbo_on and #vim.api.nvim_list_uis() > 0 then
+	local defer_on = pcall(require, "core.perf") and require("core.perf").defer_on()
+	if defer_on then
 		vim.schedule(function()
 			require("core.pairs").setup()
 		end)
@@ -215,6 +215,8 @@ local load_core = function()
 		vim.cmd("checkhealth core")
 	end, { desc = "config: environment preflight (binaries, LSP, theme, keys)" })
 	require("core.turbo").setup()
+	-- perf: канонические команды :PerfDefer* / :PerfLean* (алиасы к Turbo/WeakHw).
+	require("core.perf").setup()
 	-- weak-hw: команды пресета слабого железа (:WeakHwOn/:WeakHwOff/:WeakHwStatus).
 	-- Регистрация не имеет побочных эффектов и ничего не включает: сам пресет
 	-- остаётся opt-in через settings.weak_hw / :WeakHwOn / NVIM_WEAK_HW=1.

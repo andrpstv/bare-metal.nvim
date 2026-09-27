@@ -1,8 +1,37 @@
 -- Статуслайн в духе heirline ramojus (без плагинов):
 -- `[NOR] fname [+] | ●[E W] [servers] %= Ln:Col |  branch(+a-r~c) | (lines size)`
 -- Цвета — ссылками на группы темы (следуют за сменой colorscheme сами).
--- Turbo-флаг: zero-cost модуль (только env/g-пробы), кэшируется require.
+-- PerfDefer-флаг: defer_on() дёргает settings + nvim_list_uis() — на каждый
+-- redraw дорого. Кэшируем по ключу из дешёвых vim.g/vim.env проб; ключ меняется
+-- только на PerfDefer toggle (defer_enable/defer_disable пишут vim.g.perf_defer
+-- и vim.g.turbo), тогда и пересчитываем. require кэшируется один раз сверху.
+-- В статуслайне UI всегда есть, так что list_uis в ключ не входит.
 local _turbo_ok, _turbo = pcall(require, "core.turbo")
+local _stl_defer_key = nil
+local _stl_defer_val = false
+local function _stl_defer_on()
+	local key = tostring(vim.g.perf_defer)
+		.. ":"
+		.. tostring(vim.g.turbo)
+		.. ":"
+		.. tostring(vim.env.NVIM_PERF_DEFER)
+		.. ":"
+		.. tostring(vim.env.NVIM_TURBO)
+		.. ":"
+		.. tostring(vim.env.NVIM_TURBO_MODE)
+		.. ":"
+		.. tostring(vim.env.NVIM_DISTRO_SYNC)
+	if key == _stl_defer_key then
+		return _stl_defer_val
+	end
+	local ok = false
+	if _turbo_ok and _turbo then
+		ok = _turbo.is_on()
+	end
+	_stl_defer_key = key
+	_stl_defer_val = ok
+	return ok
+end
 local _stl_devicons = {}
 local _stl_icon_cache = {}
 local function _stl_icon(filename)
@@ -213,7 +242,7 @@ _G._statusline = function()
 		local bufnr = vim.api.nvim_get_current_buf()
 		local dc = _stl_diag_cache[bufnr]
 		if not dc then
-			if _turbo_ok and _turbo.is_on() then
+			if _stl_defer_on() then
 				dc = { 0, 0, 0, 0 }
 				_stl_diag_cache[bufnr] = dc
 			else

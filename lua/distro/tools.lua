@@ -6,7 +6,6 @@ local M = {}
 local HINTS = {
 	curl = { mac = "brew install curl", win = "winget install curl.curl", linux = "sudo apt install curl" },
 	tar = { mac = "bsdtar ships with macOS", win = "tar ships with Windows 10+; otherwise: winget install libarchive", linux = "sudo apt install tar" },
-	fzf = { mac = "brew install fzf", win = "winget install junegunn.fzf", linux = "sudo apt install fzf", curl = "junegunn/fzf" },
 	rg = { mac = "brew install ripgrep", win = "winget install BurntSushi.ripgrep", linux = "sudo apt install ripgrep" },
 	gcc = {
 		mac = "curl cannot provide Apple Command Line Tools. Run: xcode-select --install (or: brew install gcc make)",

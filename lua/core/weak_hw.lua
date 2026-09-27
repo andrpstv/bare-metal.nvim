@@ -1,54 +1,23 @@
--- core.weak_hw — пресет «слабое железо» ОДНИМ переключателем.
---
--- Зачем: у владельца на слабом ПК было два разрозненных рычага (turbo и
--- gopls_weak_hw) плюс заготовки defer_theme/treesitter/debounce. Это разные оси,
--- и знать про все нужно вручную. Здесь они собраны в один opt-in пресет.
---
--- ЧТО ЭТО НЕ ЯВЛЯЕТСЯ: не «ускорением без издержек». Каждая ось чего-то стоит —
--- turbo откладывает, gopls_weak_hw отключает диагностические фичи, defer_theme
--- допускает вспышку первого кадра, treesitter_ослабляет подсветку.
---
--- ПРО ДЕФОЛТЫ: settings.weak_hw = false. Пока флаг выключен, ни один модуль этого
--- не читает и поведение конфига побайтово прежнее.
---
--- ПРО ЧТЕНИЕ ФЛАГА: is_on() читается ЛЕНИВО и НИГДЕ НЕ КЭШИРУЕТСЯ — так же, как
--- core.turbo. Переключение в середине сессии влияет на БУДУЩИЕ загрузки; уже
--- поднятые клиенты/буферы не перенастраиваются (тот же контракт, что у turbo).
+-- core.weak_hw — DEPRECATED shim over core/perf (perf 4->2).
+-- Каноника: settings.perf_lean + perf_lean_axes. Этот модуль сохранён для
+-- совместимости: :WeakHwOn/:WeakHwOff/:WeakHwStatus работают как раньше,
+-- но дергают perf. Мутации F5 (treesitter/debounce) живут в core/perf.
 local M = {}
 
-local settings = require("core.settings")
-
--- Снимок настроек ДО включения пресета, чтобы :WeakHwOff их вернул.
--- Без этого «переключатель» был бы необратимым: enable() мутирует settings, и
--- после выключения оси остались бы включёнными (проверено: gopls_weak_hw=true
--- переживал :WeakHwOff).
-local saved = nil
-
---- Оси пресета. Каждую можно выключить отдельно через settings.weak_hw_axes —
---- тогда пресет включит остальные, а выключенную ось не тронет.
-local DEFAULT_AXES = {
-	turbo = true, -- отложить пары/format_on_save/cursorline/gitsigns/тему-кастом
-	gopls = true, -- gopls_weak_hw: фон gopls на минимум
-	theme = true, -- defer_theme: базовая тема после первого кадра
-	treesitter = true, -- treesitter_indent=false, treesitter_full_lines ниже
-	debounce = true, -- gopls_debounce выше
-}
-
----@return table<string, boolean>
-local function axes()
-	local a = settings.weak_hw_axes
-	if type(a) ~= "table" then
-		return DEFAULT_AXES
+local function perf()
+	local ok, p = pcall(require, "core.perf")
+	if ok then
+		return p
 	end
-	local out = {}
-	for k, v in pairs(DEFAULT_AXES) do
-		out[k] = a[k] ~= false -- отсутствующий ключ = ось включена
-	end
-	return out
+	return nil
 end
 
 ---@return boolean
 function M.is_on()
+	local p = perf()
+	if p then
+		return p.lean_on()
+	end
 	if vim.env.NVIM_DISTRO_SYNC == "1" then
 		return false
 	end
@@ -58,85 +27,63 @@ function M.is_on()
 	return vim.g.weak_hw == true or vim.g.weak_hw == 1
 end
 
---- Активна ли конкретная ось (для тех, кто хочет часть без пресета).
 ---@param axis string
 ---@return boolean
 function M.axis_on(axis)
-	return M.is_on() and axes()[axis] == true
+	local p = perf()
+	if p then
+		if axis == "turbo" then
+			-- Legacy weak_hw_axes.turbo=false: ось выключена даже при lean —
+			-- старый контракт axes().turbo (lean_enable тогда и defer не тянет).
+			local ok_s, s = pcall(require, "core.settings")
+			if ok_s and type(s) == "table" and type(s.weak_hw_axes) == "table" and s.weak_hw_axes.turbo == false then
+				return false
+			end
+			return p.defer_on()
+		end
+		return p.lean_axis(axis)
+	end
+	return M.is_on()
 end
 
-local function apply_axes()
-	local a = axes()
-	if a.gopls then
-		settings.gopls_weak_hw = true
-	end
-	if a.theme then
-		settings.defer_theme = true
-	end
-	if a.treesitter then
-		settings.treesitter_indent = false
-		settings.treesitter_full_lines = math.min(settings.treesitter_full_lines or 2000, 500)
-	end
-	if a.debounce then
-		settings.gopls_debounce = math.max(settings.gopls_debounce or 150, 250)
-	end
-end
-
---- Включить пресет. Действует на будущие загрузки.
 function M.enable()
-	if not saved then
-		saved = {
-			gopls_weak_hw = settings.gopls_weak_hw,
-			defer_theme = settings.defer_theme,
-			treesitter_indent = settings.treesitter_indent,
-			treesitter_full_lines = settings.treesitter_full_lines,
-			gopls_debounce = settings.gopls_debounce,
-		}
+	local p = perf()
+	if p then
+		p.lean_enable()
+		return
 	end
 	vim.g.weak_hw = true
-	apply_axes()
-	if axes().turbo then
-		require("core.turbo").enable()
-	end
-	vim.notify(
-		"[weak-hw] ON — turbo + gopls/treesitter/theme/debounce ослаблены (будущие загрузки)",
-		vim.log.levels.INFO,
-		{ title = "weak-hw" }
-	)
+	vim.notify("[weak-hw] ON — (fallback, perf unavailable)", vim.log.levels.WARN)
 end
 
---- Выключить пресет и синхронно слить отложенное (как :TurboOff).
 function M.disable()
+	local p = perf()
+	if p then
+		p.lean_disable()
+		return
+	end
 	vim.g.weak_hw = false
-	-- Вернуть оси в состояние до включения пресета: выключатель обязан быть
-	-- обратимым, иначе второй :WeakHwOn уже не восстановит исходные значения.
-	if saved then
-		for k, v in pairs(saved) do
-			settings[k] = v
-		end
-		saved = nil
-	end
-	local ok, turbo = pcall(require, "core.turbo")
-	if ok and turbo then
-		pcall(turbo.disable)
-	end
-	vim.notify("[weak-hw] OFF — отложенная работа слита, настройки возвращены", vim.log.levels.INFO, { title = "weak-hw" })
+	vim.notify("[weak-hw] OFF — (fallback, perf unavailable)", vim.log.levels.WARN)
 end
 
 ---@return string
 function M.status()
-	if not M.is_on() then
-		return "WEAK-HW OFF"
+	local p = perf()
+	if p then
+		if not p.lean_on() then
+			return "WEAK-HW OFF"
+		end
+		-- Показываем оси через perf, но с прежним префиксом для совместимости.
+		local lean_st = p.lean_status()
+		local axes = lean_st:match("%(axes: (.*)%)") or ""
+		if axes ~= "" then
+			return "WEAK-HW ON (axes: " .. axes .. ")"
+		end
+		return "WEAK-HW ON"
 	end
-	local on = {}
-	for k in pairs(axes()) do
-		on[#on + 1] = k
-	end
-	table.sort(on)
-	return "WEAK-HW ON (axes: " .. table.concat(on, ", ") .. ")"
+	return M.is_on() and "WEAK-HW ON" or "WEAK-HW OFF"
 end
 
---- Регистрация :WeakHwOn / :WeakHwOff / :WeakHwStatus.
 function M.setup()
 	vim.api.nvim_create_user_command("WeakHwOn", function()
 		M.enable()

@@ -294,13 +294,13 @@ local function cold_warm(on_done)
 end
 
 function M.run()
-	-- TURBO: шапка показывает режим; child nvim наследует NVIM_TURBO из env
-	-- родителя (vim.system), а NVIM_DISTRO_SYNC здесь НЕ выставляем (погасит турбо).
-	local turbo_txt = "TURBO OFF"
+	-- PERF: шапка показывает режим; child nvim наследует NVIM_PERF_* из env
+	-- родителя (vim.system), а NVIM_DISTRO_SYNC здесь НЕ выставляем (погасит defer).
+	local perf_txt = "PERF_DEFER OFF + PERF_LEAN OFF"
 	pcall(function()
-		turbo_txt = require("core.turbo").status()
+		perf_txt = require("core.perf").status()
 	end)
-	local lines = { " DistroBench — " .. turbo_txt .. " — this machine, min-of-3, wall clock.", "" }
+	local lines = { " DistroBench — " .. perf_txt .. " — this machine, min-of-3, wall clock.", "" }
 	-- 1. session age (equals startup time only if run right after open)
 	if vim.g.start_time then
 		local age_s = vim.fn.reltimefloat(vim.fn.reltime(vim.g.start_time))

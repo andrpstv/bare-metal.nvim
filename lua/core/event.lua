@@ -29,7 +29,6 @@ vim.api.nvim_create_autocmd("FileType", {
 		"terminal",
 		"prompt",
 		"toggleterm",
-		"copilot",
 		"startuptime",
 		"tsplayground",
 	},
@@ -141,10 +140,10 @@ function autocmd.nvim_create_augroups(definitions)
 end
 
 function autocmd.load_autocmds()
-	-- TURBO (T5): 6 vimscript cursorline-строк → 2 Lua-колбэка с ранним return.
+	-- PERF_DEFER: 6 vimscript cursorline-строк → 2 Lua-колбэка с ранним return.
 	-- Только под флагом (без флага — старые строки 1-в-1, откат одним флагом).
 	-- FocusGained/VimResized/VimLeave и строитель — не трогаем.
-	local turbo_on = pcall(require, "core.turbo") and require("core.turbo").is_on()
+	local defer_on = pcall(require, "core.perf") and require("core.perf").defer_on()
 	local definitions = {
 		bufs = {
 			-- Reload vim config automatically
@@ -178,12 +177,12 @@ function autocmd.load_autocmds()
 			{
 				"WinEnter,BufEnter,InsertLeave",
 				"*",
-				[[if ! &cursorline && &filetype !~# '^\(dashboard\|clap_\)' && ! &pvw | setlocal cursorline | endif]],
+				[[if ! &cursorline && ! &pvw | setlocal cursorline | endif]],
 			},
 			{
 				"WinLeave,BufLeave,InsertEnter",
 				"*",
-				[[if &cursorline && &filetype !~# '^\(dashboard\|clap_\)' && ! &pvw | setlocal nocursorline | endif]],
+				[[if &cursorline && ! &pvw | setlocal nocursorline | endif]],
 			},
 			-- Attempt to write shada when leaving nvim
 			{
@@ -198,7 +197,6 @@ function autocmd.load_autocmds()
 		},
 		ft = {
 			{ "FileType", "*", "setlocal formatoptions-=cro" },
-			{ "FileType", "alpha", "setlocal showtabline=0" },
 			{ "FileType", "markdown", "setlocal wrap" },
 			{ "FileType", "dap-repl", "lua require('dap.ext.autocompl').attach()" },
 			{
@@ -216,7 +214,7 @@ function autocmd.load_autocmds()
 		},
 	}
 
-	if turbo_on then
+	if defer_on then
 		-- Выкидываем из wins обе vimscript cursorline-записи по содержимому
 		-- (устойчиво к user.event-расширениям); остальное (VimLeave/
 		-- FocusGained/VimResized + пользовательское) строитель создаёт как было.
@@ -230,13 +228,9 @@ function autocmd.load_autocmds()
 		definitions.wins = kept
 	end
 	autocmd.nvim_create_augroups(require("modules.utils").extend_config(definitions, "user.event"))
-	if turbo_on then
+	if defer_on then
 		-- 2 Lua-колбэка вместо 6 vimscript-строк, в ту же группу _wins
 		-- (строитель уже создал её; :autocmd _wins показывает 2 Lua + 3 редкие).
-		-- Denylist повторяет regex '^\(dashboard\|clap_\)' 1-в-1 (префикс).
-		local function wins_ft_denied(ft)
-			return ft:sub(1, 9) == "dashboard" or ft:sub(1, 5) == "clap_"
-		end
 		local wins_grp = vim.api.nvim_create_augroup("_wins", { clear = false })
 		vim.api.nvim_create_autocmd({ "WinEnter", "BufEnter", "InsertLeave" }, {
 			group = wins_grp,
@@ -244,9 +238,6 @@ function autocmd.load_autocmds()
 			desc = "turbo: cursorline on in focused window",
 			callback = function()
 				if vim.wo.cursorline then
-					return
-				end
-				if wins_ft_denied(vim.bo.filetype) then
 					return
 				end
 				if vim.wo.previewwindow then
@@ -261,9 +252,6 @@ function autocmd.load_autocmds()
 			desc = "turbo: cursorline off outside focused window",
 			callback = function()
 				if not vim.wo.cursorline then
-					return
-				end
-				if wins_ft_denied(vim.bo.filetype) then
 					return
 				end
 				if vim.wo.previewwindow then

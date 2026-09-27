@@ -382,7 +382,7 @@ end
 
 local function check_startup()
     vim.health.start("Startup")
-    local mode = require("core.settings").distro_defer == false and "eager (sync)"
+    local mode = require("core.settings").perf_defer == false and "eager (sync)"
         or "deferred (streaming, variant A)"
     vim.health.info("loader mode: " .. mode)
     local t = vim.g.start_time

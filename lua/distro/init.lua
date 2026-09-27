@@ -88,7 +88,7 @@ function M.setup()
 		if a:match("^%-%-install") then
 			local tool = a:gsub("^%-%-install%s*", "")
 			if tool == "" then
-				vim.notify("Usage: :DistroTools --install <tool>  (e.g. fzf). No changes made.", vim.log.levels.WARN)
+				vim.notify("Usage: :DistroTools --install <tool>  (e.g. rg). No changes made.", vim.log.levels.WARN)
 				return
 			end
 			local ok, msg = require("distro.tools").install_tool(tool, { user_confirmed = true })

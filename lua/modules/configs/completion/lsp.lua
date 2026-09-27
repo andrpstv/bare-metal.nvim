@@ -12,7 +12,7 @@ return function()
 	-- чтобы gopls присылал полные варианты.
 	-- cmp грузится лениво (InsertEnter), а LSP стартует раньше (BufReadPre),
 	-- поэтому тянем его явно: без этого require падает и LSP не встанет.
-	-- TURBO (T1): под флагом — статическая таблица (те же поля, что отдаёт
+	-- PERF_DEFER (D): под флагом — статическая таблица (те же поля, что отдаёт
 	-- cmp_nvim_lsp сегодня; сверено с servers/gopls.lua:24-44) + догрузка
 	-- настоящего cmp в schedule / на первый InsertEnter. gopls читает caps
 	-- один раз на initialize, уже аттачные клиенты не меняются — gd/gr святое.
@@ -40,8 +40,8 @@ return function()
 		},
 	}
 	local cmp_caps = {}
-	local turbo_on = pcall(require, "core.turbo") and require("core.turbo").is_on()
-	if turbo_on then
+	local defer_on = pcall(require, "core.perf") and require("core.perf").defer_on()
+	if defer_on then
 		cmp_caps = TURBO_CMP_CAPS
 		-- Догрузка настоящего cmp: в schedule (не блокирует open) + страховка
 		-- на первый InsertEnter каждого буфера (per-buffer флаг).

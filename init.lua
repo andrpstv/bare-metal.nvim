@@ -9,11 +9,28 @@ end
 
 if not vim.g.vscode then
 	vim.g.start_time = vim.fn.reltime() -- для check_startup в :ConfigHealth
-	-- Turbo flag: read FIRST, before require("core") builds anything
+	-- Perf flags: read FIRST, before require("core") builds anything
 	-- (settings merge, DistroLazy autocmds). SYNC keeps determinism.
-	if vim.env.NVIM_DISTRO_SYNC ~= "1"
-		and (vim.env.NVIM_TURBO == "1" or vim.env.NVIM_TURBO_MODE == "1") then
-		vim.g.turbo = true
+	-- Каноника: NVIM_PERF_DEFER / NVIM_PERF_LEAN. Deprecated-алиасы:
+	-- NVIM_TURBO / NVIM_TURBO_MODE -> perf_defer, NVIM_WEAK_HW=1 -> perf_lean.
+	if vim.env.NVIM_DISTRO_SYNC ~= "1" then
+		local defer_env = vim.env.NVIM_PERF_DEFER
+		if defer_env == "1"
+			or vim.env.NVIM_TURBO == "1"
+			or vim.env.NVIM_TURBO_MODE == "1" then
+			vim.g.perf_defer = true
+			vim.g.turbo = true
+		elseif defer_env == "0" then
+			vim.g.perf_defer = false
+			vim.g.turbo = false
+		end
+		if vim.env.NVIM_PERF_LEAN == "1" or vim.env.NVIM_WEAK_HW == "1" then
+			vim.g.perf_lean = true
+			vim.g.weak_hw = true
+		elseif vim.env.NVIM_PERF_LEAN == "0" then
+			vim.g.perf_lean = false
+			vim.g.weak_hw = false
+		end
 	end
 	require("core")
 end

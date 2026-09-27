@@ -6,10 +6,6 @@ local settings = {}
 ---@type boolean
 settings["use_ssh"] = false
 
--- Set to false if you don't use Copilot.
----@type boolean
-settings["use_copilot"] = false
-
 -- Set to false if you don't want to format on save.
 ---@type boolean
 settings["format_on_save"] = true
@@ -116,6 +112,7 @@ settings["palette_overwrite"] = {
 ---@type string
 settings["colorscheme"] = "khold"
 
+-- DEPRECATED (perf 4->2): use perf_lean + perf_lean_axes.theme instead.
 -- Отложить применение базовой темы на «после первого кадра».
 -- Экономит ~6 мс синхронного sourcing (black-metal + 15 palette-модулей) на
 -- старте, но на первом кадре возможна кратковременная вспышка дефолтной темы.
@@ -145,11 +142,6 @@ settings["transparent_background"] = false
 -- сейчас его нет именно синхронным background="dark". Не откладывать молча.
 ---@type "dark"|"light"
 settings["background"] = "dark"
-
--- Set the command for opening external URLs.
--- This is ignored on Windows and macOS, which use built-in handlers.
----@type string
-settings["external_browser"] = "chrome-cli open"
 
 -- Set the search backend here (единственный пикер — mini.pick, без внешних зависимостей).
 ---@type "pick"
@@ -207,6 +199,7 @@ settings["gopls_semantic_tokens"] = true
 ---@type boolean
 settings["gopls_complete_unimported"] = true
 
+-- DEPRECATED (perf 4->2): use perf_lean instead.
 -- Пресет «слабое железо» одним переключателем (lua/core/weak_hw.lua).
 -- ВКЛЮЧАЕТ: turbo (отложивание) + gopls_weak_hw + defer_theme + ослабление
 -- treesitter (indent off, full_lines<=500) + gopls_debounce >= 250.
@@ -218,6 +211,7 @@ settings["gopls_complete_unimported"] = true
 ---@type boolean
 settings["weak_hw"] = false
 
+-- DEPRECATED (perf 4->2): use perf_lean_axes instead.
 -- Оси пресета: false = ось не включается даже при weak_hw=true.
 -- Оси: turbo, gopls, theme, treesitter, debounce. Отсутствующий ключ = включена.
 ---@type table<string, boolean>
@@ -229,6 +223,7 @@ settings["weak_hw_axes"] = {
 	debounce = true,
 }
 
+-- DEPRECATED (perf 4->2): use perf_lean + perf_lean_axes.gopls instead.
 -- Пресет «слабое железо» для gopls. Один переключатель вместо пяти правок.
 -- Выключает САМЫЙ ДОРОГОЙ компонент — фоновые анализы сервера:
 --   fieldalignment -> off, все 8 codelenses -> off (без перечисления),
@@ -376,49 +371,64 @@ settings["distro_mirror"] = {
 	allow_http = false,
 }
 
+-- Perf 4->2 (Researcher-B): две канонические оси.
+-- perf_defer=true (D, откладывание): покрывает distro_defer + turbo + theme-custom-idle.
+-- perf_lean=false (C, урезание): покрывает weak_hw + gopls_weak_hw + F5-мутации
+--   + defer_theme как ось theme.
+---@type boolean
+settings["perf_defer"] = true
+---@type boolean
+settings["perf_lean"] = false
+-- Оси урезания: false = ось не включается даже при perf_lean=true.
+-- Оси: gopls, theme, treesitter, debounce. Отсутствующий ключ = включена.
+---@type table<string, boolean>
+settings["perf_lean_axes"] = {
+	gopls = true,
+	theme = true,
+	treesitter = true,
+	debounce = true,
+}
+
+-- DEPRECATED (perf 4->2): use perf_defer instead.
 -- Async startup streaming (variant A): heavy plugins load after first paint
 -- (scheduled) + idle preload. `false` restores byte-identical synchronous boot.
 ---@type boolean
 settings["distro_defer"] = true
 
--- Set it to false if you don't use AI chat functionality.
----@type boolean
-settings["use_chat"] = false
-
--- Set the language to use for AI chat response here.
---- @type string
-settings["chat_lang"] = "English"
-
--- Set environment variable here to read API key for AI chat.
--- or you can set it to a command that reads the API key from your password manager.
--- e.g. "cmd:op read op://personal/OpenAI/credential --no-new
---- @type string
-settings["chat_api_key"] = "CODE_COMPANION_KEY"
-
--- Set the chat models here and use the first entry as default model.
--- We use `openrouter` as the chat model provider by default (No vested interest).
--- You need to register an account on openrouter and generate an api key.
--- We read the api key by reading the env variable: `CODE_COMPANION_KEY`.
--- All available models can be found here: https://openrouter.ai/models.
---- @type string[]
-settings["chat_models"] = {
-	-- free models
-	"moonshotai/kimi-k2:free", -- default
-	"qwen/qwen3-coder:free",
-	"deepseek/deepseek-chat-v3-0324:free",
-	"deepseek/deepseek-r1:free",
-	"google/gemma-3-27b-it:free",
-	-- paid models
-	"openai/codex-mini",
-	"openai/gpt-4.1-mini",
-	"google/gemini-2.5-flash-lite",
-	"google/gemini-2.5-flash",
-	"anthropic/claude-3.7-sonnet",
-	"anthropic/claude-sonnet-4",
-}
-
 return (function()
 	local merged = require("modules.utils").extend_config(settings, "user.settings")
+	-- DEPRECATED (perf 4->2): маппинг старых флагов в новые. Старые ключи
+	-- остаются читаемыми, но каноничны perf_defer/perf_lean/perf_lean_axes.
+	-- Сужение осей — ТОЛЬКО если юзер не задал perf_lean_axes явно: иначе
+	-- одиночный legacy-флаг включал бы все 4 оси разом (over-activation).
+	local user_axes_explicit = (function()
+		local ok_u, u = pcall(require, "user.settings")
+		return ok_u and type(u) == "table" and u.perf_lean_axes ~= nil
+	end)()
+	if merged.distro_defer == false then
+		merged.perf_defer = false
+	end
+	if merged.gopls_weak_hw == true then
+		merged.perf_lean = true
+	end
+	if merged.weak_hw == true then
+		merged.perf_lean = true
+	end
+	if merged.defer_theme == true then
+		merged.perf_lean = true
+	end
+	-- weak_hw==true -> все оси (дефолт, не сужаем); одиночные legacy-флаги
+	-- включают ТОЛЬКО свои оси: gopls_weak_hw -> {gopls}, defer_theme -> {theme}.
+	if not user_axes_explicit and merged.weak_hw ~= true then
+		if merged.gopls_weak_hw == true or merged.defer_theme == true then
+			merged.perf_lean_axes = {
+				gopls = merged.gopls_weak_hw == true,
+				theme = merged.defer_theme == true,
+				treesitter = false,
+				debounce = false,
+			}
+		end
+	end
 	if vim.env.NVIM_MINIMAL == "1" then
 		merged.lsp_inlayhints = false
 		merged.signature_enabled = false

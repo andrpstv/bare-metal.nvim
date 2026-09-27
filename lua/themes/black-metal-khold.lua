@@ -3,14 +3,14 @@ local M = {}
 M.plugin = "metalelf0/black-metal-theme-neovim"
 
 -- Defer the whole apply (base + custom scheduling) by N ms. Only used when
--- settings.defer_theme is ON and there is a UI. ~6 ms of black-metal sourcing
+-- perf_lean + axis theme is ON and there is a UI. ~6 ms of black-metal sourcing
 -- moves off the startup path; the cost is a possible brief flash of the default
 -- colourscheme on the first frame. Headless / NVIM_DISTRO_SYNC stay synchronous.
 M.THEME_DEFER_MS = 50
 
 local function defer_allowed()
-	local ok, settings = pcall(require, "core.settings")
-	if not ok or not settings.defer_theme then
+	local ok, perf = pcall(require, "core.perf")
+	if not ok or not perf.lean_axis("theme") then
 		return false
 	end
 	-- Nothing to wait for without a UI, and scripts need determinism.
@@ -62,19 +62,19 @@ M.setup = function()
 	-- inline body — extracted only so both the sync and deferred entry points
 	-- can share it without duplicating it.
 	local function schedule_custom()
-		-- TURBO (T2): custom highlights ride idle (once CursorHold/InsertLeave
+		-- PERF_DEFER (D): custom highlights ride idle (once CursorHold/InsertLeave
 		-- + 300ms timer — pattern from distro/loader.lua:297-328); the base
 		-- colourscheme above is already synchronous (no white flash).
 		-- Headless/SYNC — synchronous.
-		local turbo_on = pcall(require, "core.turbo") and require("core.turbo").is_on()
+		local defer_on = pcall(require, "core.perf") and require("core.perf").defer_on()
 		if #vim.api.nvim_list_uis() == 0 or vim.env.NVIM_DISTRO_SYNC == "1" then
 			apply_custom()
-		elseif turbo_on then
+		elseif defer_on then
 			local done = false
 			-- Live 300ms timer: after :Colorscheme it must die, otherwise a
 			-- dangling callback would repaint someone else's theme with ours.
 			local timer
-			---Synchronous drain for :TurboOff (core.turbo). Idempotent.
+			---Synchronous drain for :PerfDeferOff/:TurboOff (core.perf). Idempotent.
 			function M.apply_pending()
 				if done then
 					return
@@ -143,7 +143,7 @@ M.setup = function()
 			pending = false
 			apply_all()
 		end
-		-- :TurboOff must still be able to flush a pending deferred apply.
+		-- :PerfDeferOff/:TurboOff must still be able to flush a pending deferred apply.
 		M.apply_pending = drain
 		vim.defer_fn(drain, M.THEME_DEFER_MS)
 		return

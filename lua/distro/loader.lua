@@ -230,11 +230,16 @@ local boot_cmd_stub
 local pending = {}
 
 local function defer_enabled()
+	local ok, perf = pcall(require, "core.perf")
+	if ok and perf and perf.defer_on then
+		return perf.defer_on()
+	end
+	-- Fallback без perf: NVIM_DISTRO_SYNC + settings.perf_defer + UI.
 	-- NVIM_DISTRO_SYNC=1: принудительно синхронно (CI, скрипты, детерминизм)
 	if vim.env.NVIM_DISTRO_SYNC == "1" then
 		return false
 	end
-	if require("core.settings").distro_defer == false then
+	if require("core.settings").perf_defer == false then
 		return false
 	end
 	-- headless/scripts: fully synchronous for determinism
@@ -286,17 +291,17 @@ function M.kick(p)
 	end
 end
 
---- Turbo: synchronously drain everything deferred so far (scheduled kicks
+--- Perf: synchronously drain everything deferred so far (scheduled kicks
 --- + idle queue). Idempotent: M.load short-circuits on M.loaded, and the
 --- still-queued vim.schedule callbacks become no-ops afterwards.
---- Called by :TurboOff (core.turbo). Zero network by construction.
+--- Called by :PerfDeferOff/:TurboOff (core.perf). Zero network by construction.
 function M.drain_all()
 	for name in pairs(pending) do
 		pending[name] = nil
 		M.load(name)
 	end
 	drain_idle()
-	-- Гейт одноразовый только до :TurboOff — возвращаем его в исходное
+	-- Гейт одноразовый только до :PerfDeferOff/:TurboOff — возвращаем его в исходное
 	-- «не сработал» состояние, иначе все последующие defer_until_idle
 	-- грузились бы сразу и навсегда мимо очереди «не парсить при наборе».
 	idle_fired = false

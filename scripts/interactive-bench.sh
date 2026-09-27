@@ -232,19 +232,22 @@ PY
 # penalising whichever one ran last.
 #
 # (a) clean      nvim -u NONE — the floor: what a bare editor costs.
-# (b) distro-off full distro, turbo NOT set: deferral is live (UI attached)
-#     but turbo's own micro-optimisations (khold-on-idle, lazy gitsigns attach,
-#     2-Lua-callback cursorline, deferred pairs) are off.
-# (c) distro-turbo  NVIM_TURBO=1 — the branch under test.
+# (b) distro-off full distro, perf NOT set: deferral is live (UI attached)
+#     but perf_defer's own micro-optimisations (khold-on-idle, lazy gitsigns attach,
+#     2-Lua-callback cursorline, deferred pairs) follow the single D flag.
+#     (Post 4->2 the loader + micro-opts share NVIM_PERF_DEFER; there is no
+#     separate "loader on / micro off" state anymore.)
+# (c) distro-turbo  NVIM_PERF_DEFER=1 — the branch under test.
+#     (NVIM_TURBO=1 kept as deprecated fallback in core/perf.)
 # (d) clean-ts   nvim -u NONE + the vendored nvim-treesitter ONLY, started on
 #     BufReadPre for *.go. THIS IS THE ISOLATED MECHANISM: it is the single
 #     size-dependent cost in the whole curve. If the Go parse is ~N ms at 1k
 #     lines and ~M ms at 12k lines, the "large files are disproportionately
 #     slow" report is explained by parsing, not by the distro loader — and
-#     turbo's deferral can only *move* that cost after paint, never remove it.
+#     perf_defer can only *move* that cost after paint, never remove it.
 #     (Chosen over an NVIM_DISTRO_SYNC=1 control because SYNC also flips
-#     core.turbo.is_on() to false, so it would conflate deferral with four
-#     unrelated turbo code paths.)
+#     core.perf.defer_on() to false, so it would conflate deferral with four
+#     unrelated perf code paths.)
 
 run_one() {
 	local label="$1" file="$2" idx="$3"
@@ -259,13 +262,13 @@ run_one() {
 	local -a args=()
 	case "$label" in
 		clean)        envs=(NVIM_DISTRO_SYNC=1);               args=(-u NONE) ;;
-		distro-off)   envs=();                                   args=(-u "$CONFIG_DIR/init.lua") ;;
-		distro-turbo) envs=(NVIM_TURBO=1);                      args=(-u "$CONFIG_DIR/init.lua") ;;
+		distro-off)   envs=(NVIM_PERF_DEFER=0);                 args=(-u "$CONFIG_DIR/init.lua") ;;
+		distro-turbo) envs=(NVIM_PERF_DEFER=1);                args=(-u "$CONFIG_DIR/init.lua") ;;
 		clean-ts)     envs=(NVIM_DISTRO_SYNC=1 IBENCH_TS=1);    args=(-u NONE) ;;
 		*) echo "FATAL: bad label $label" >&2; exit 2 ;;
 	esac
 
-	pty_run env -u NVIM_TURBO -u NVIM_TURBO_MODE -u NVIM_DISTRO_SYNC \
+	pty_run env -u NVIM_PERF_DEFER -u NVIM_PERF_LEAN -u NVIM_TURBO -u NVIM_TURBO_MODE -u NVIM_WEAK_HW -u NVIM_DISTRO_SYNC \
 	    ${envs[@]+"${envs[@]}"} \
 	    IBENCH_OUT="$OUT" IBENCH_FILE="$file" IBENCH_LABEL="$label" IBENCH_RUN="$idx" \
 	    IBENCH_TIMEOUT=60 \

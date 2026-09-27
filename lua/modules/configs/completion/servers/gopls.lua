@@ -1,15 +1,21 @@
 -- https://github.com/neovim/nvim-lspconfig/blob/master/lua/lspconfig/configs/gopls.lua
 local settings = require("core.settings")
 
--- Пресет «слабое железо»: снимает самый дорогой компонент — фоновые анализы
+-- PERF_LEAN (C, ось gopls): снимает самый дорогой компонент — фоновые анализы
 -- gopls. ВАЖНО, где читается флаг: здесь, при ПЕРВОЙ загрузке этого модуля,
 -- то есть на первом Go-буфере (lsp.lua регистрирует сервер на BufReadPre), а
--- не на старте се��сии. Поэтому :TurboOn/переключение флага в середине сессии
+-- не на старте сессии. Поэтому :WeakHwOn/переключение флага в середине сессии
 -- не врёт, но и не мгновенно: новый клиент gopls подхватывает новое значение,
--- уже поднятый сервер — нет (то же поведение, что у turbo: «applies to FUTURE
--- loads»). Специально НЕ читаем флаг на этапе core.settings, иначе значение
--- запекалось бы до того, как владелец успел его переключить.
-local weak = settings.gopls_weak_hw == true
+-- уже поднятый сервер — нет (то же поведение, что у perf_defer: «applies to
+-- FUTURE loads»). Специально НЕ читаем флаг на этапе core.settings, иначе
+-- значение запекалось бы до того, как владелец успел его переключить.
+local weak = (function()
+	local ok, perf = pcall(require, "core.perf")
+	if ok and perf and perf.lean_axis then
+		return perf.lean_axis("gopls")
+	end
+	return settings.gopls_weak_hw == true
+end)()
 
 -- Codelenses. Ловушка, на которую владелец наступит: в старом коде было
 -- `cl.X ~= false`, где cl = settings.gopls_codelenses or {}. При пустой таблице
@@ -98,7 +104,7 @@ return {
 				unusedwrite = true,
 				useany = true,
 				-- Дорогой memory-анализ: выключается через settings.gopls_fieldalignment
-				-- либо целиком пресетом settings.gopls_weak_hw.
+				-- либо целиком осью perf_lean.gopls.
 				fieldalignment = (not weak) and settings.gopls_fieldalignment ~= false,
 				httpresponse = true, -- незакрытые http response body
 			},

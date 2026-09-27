@@ -1,15 +1,12 @@
  	return function()
 	local mapping = require("keymap.ui")
 
-	-- TURBO (T3): под флагом auto_attach=false + отложенный attach на idle /
+	-- PERF_DEFER (D): под флагом auto_attach=false + отложенный attach на idle /
 	-- первый BufWritePost (once per-buffer). gitsigns с auto_attach=false не
 	-- ставит свои attach-автокоманды (см. setup_attach), поэтому аттачим сами
 	-- через actions.attach — on_attach large_file-гард ниже всё равно работает.
 	-- Headless/SYNC — синхронно как сейчас. Без флага — как сейчас 1-в-1.
-	local turbo_on = pcall(require, "core.turbo") and require("core.turbo").is_on()
-	local turbo_defer = turbo_on
-		and #vim.api.nvim_list_uis() > 0
-		and vim.env.NVIM_DISTRO_SYNC ~= "1"
+	local perf_defer = pcall(require, "core.perf") and require("core.perf").defer_on()
 	require("modules.utils").load_plugin("gitsigns", {
 		signs = {
 			add = { text = "┃" },
@@ -19,7 +16,7 @@
 			changedelete = { text = "~" },
 			untracked = { text = "┆" },
 		},
-		auto_attach = not turbo_defer,
+		auto_attach = not perf_defer,
 		-- Большие файлы не аттачим вообще: git diff + вотчеры на 10k+ строк
 		-- вешают слабый ПК, а пользы ноль (там и так всё выключено).
 		on_attach = function(bufnr)
@@ -36,7 +33,7 @@
 		diff_opts = { internal = true },
 		watch_gitdir = { follow_files = true, interval = 5000 },
 	})
-	if turbo_defer then
+	if perf_defer then
 		local grp = vim.api.nvim_create_augroup("TurboGitsignsAttach", { clear = false })
 		-- BufReadPost/InsertEnter — знаки сразу на открытии и на первом наборе
 		-- (CursorHold один ждёт ~4000мс updatetime, т.е. на старте экрана пусто).
