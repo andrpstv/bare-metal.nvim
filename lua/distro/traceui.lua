@@ -391,7 +391,89 @@ function M.phase_sum(r, depth)
 	elseif rest < -0.05 then
 		eq = eq .. string.format(" - %.2f (overlap)", -rest)
 	end
-	return string.format("%s = %.2f", eq, total)
+	eq = string.format("%s = %.2f", eq, total)
+	-- P1-5: one-line CLIENT/SERVER/GAP suffix on the expanded action.
+	local cs = M.client_server_of_node(r)
+	if cs then
+		eq = eq .. string.format(" | CLIENT=%.2f SERVER=%.2f GAP=%.2f", cs.client, cs.server, cs.gap)
+	end
+	return eq
+end
+
+--- P1-5: CLIENT vs SERVER vs GAP split, parsed from EXISTING rows only
+--- (the log format is never changed here).
+--- CLIENT = keypress_to_request + response_to_cursor + dispatch remainder,
+--- SERVER = request_to_response, GAP = wall-clock nobody is charged for.
+--- Returns nil when the staged phases are absent (old log) — the caller
+--- then prints "n/a (old log)".
+---@param r table the span/action row (needs .dur)
+---@param subs table[] rows inside the span window
+---@return table|nil {client,server,gap,k2r,r2c,dispatch}
+function M.client_server_from_window(r, subs)
+	if not r or not r.dur or r.dur < 0 or not subs or #subs == 0 then
+		return nil
+	end
+	local k2r, r2r, r2c
+	for _, x in ipairs(subs) do
+		local st = x.event and x.event:match("/([^/]+)$")
+		local ms = x.own_ms or x.dur
+		if type(ms) == "number" and ms >= 0 then
+			if st == "keypress_to_request" and k2r == nil then
+				k2r = ms
+			elseif st == "request_to_response" and r2r == nil then
+				r2r = ms
+			elseif st == "response_to_cursor" and r2c == nil then
+				r2c = ms
+			end
+		end
+	end
+	if k2r == nil or r2r == nil or r2c == nil then
+		return nil
+	end
+	local dispatch = r.dur - (k2r + r2r + r2c)
+	if dispatch < 0 then
+		dispatch = 0 -- overlap: never charge a negative dispatch
+	end
+	local client = k2r + r2c + dispatch
+	return { client = client, server = r2r, gap = r.dur - client - r2r, k2r = k2r, r2c = r2c, dispatch = dispatch }
+end
+
+--- Same split for a tree node, from its kind="sub" children (used by
+--- phase_sum for the one-line suffix; detail uses the window version).
+---@return table|nil
+function M.client_server_of_node(r)
+	if not r or not r.dur or r.dur < 0 then
+		return nil
+	end
+	local kids = r.children or {}
+	if #kids == 0 then
+		return nil
+	end
+	local k2r, r2r, r2c
+	for _, c in ipairs(kids) do
+		if c.kind == "sub" then
+			local st = c.event and c.event:match("/([^/]+)$")
+			local ms = M.cost_of(c, 1)
+			if type(ms) == "number" and ms >= 0 then
+				if st == "keypress_to_request" and k2r == nil then
+					k2r = ms
+				elseif st == "request_to_response" and r2r == nil then
+					r2r = ms
+				elseif st == "response_to_cursor" and r2c == nil then
+					r2c = ms
+				end
+			end
+		end
+	end
+	if k2r == nil or r2r == nil or r2c == nil then
+		return nil
+	end
+	local dispatch = r.dur - (k2r + r2r + r2c)
+	if dispatch < 0 then
+		dispatch = 0
+	end
+	local client = k2r + r2c + dispatch
+	return { client = client, server = r2r, gap = r.dur - client - r2r }
 end
 
 --- Anomaly thresholds, ms. Slow >= SLOW, very slow >= VERY_SLOW.
@@ -859,6 +941,22 @@ function M.detail(path, r)
 			lines[#lines + 1] =
 				string.format("  past span end     %11.3f ms  (last rows lie beyond the span; window slack ±1 ms)", -tail)
 		end
+	end
+	-- P1-5: three explicit lines — CLIENT (keypress_to_request +
+	-- response_to_cursor + dispatch), SERVER (request_to_response),
+	-- GAP (idle uncharged). Parsed from the existing phase rows; an old log
+	-- without staged phases says so instead of printing zeros.
+	lines[#lines + 1] = ""
+	lines[#lines + 1] = "  --- CLIENT vs SERVER vs GAP ---"
+	local cs = M.client_server_from_window(r, subs)
+	if cs then
+		lines[#lines + 1] = string.format("  CLIENT=%.3f ms (keypress_to_request+response_to_cursor+dispatch)", cs.client)
+		lines[#lines + 1] = string.format("  SERVER=%.3f ms (request_to_response)", cs.server)
+		lines[#lines + 1] = string.format("  GAP=%.3f ms (idle uncharged, belongs to no row)", cs.gap)
+	else
+		lines[#lines + 1] = "  CLIENT=n/a (old log)"
+		lines[#lines + 1] = "  SERVER=n/a (old log)"
+		lines[#lines + 1] = "  GAP=n/a (old log)"
 	end
 	lines[#lines + 1] = ""
 	lines[#lines + 1] = "q — назад"

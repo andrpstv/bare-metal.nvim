@@ -332,6 +332,224 @@ function M.flush()
 	uv.fs_write(fd, payload, -1)
 end
 
+--- Cached snapshot lines, computed once per enable (never per action).
+--- Cleared at the top of M.enable so a re-enable re-reads the world.
+M._config_line = nil
+M._config_hash = nil
+M._goenv_line = nil
+M._gopls_pv = nil
+
+--- 8 hex chars of the config line. Used in every action detail so a reader
+--- can tell whether two actions ran under the same settings.
+---@return string
+local function short_hash(s)
+	s = tostring(s or "")
+	local ok, h = pcall(vim.fn.sha256, s)
+	if ok and type(h) == "string" and #h >= 8 then
+		return h:sub(1, 8)
+	end
+	local x = 5381
+	for i = 1, #s do
+		x = (x * 33 + s:byte(i)) % 4294967296
+	end
+	return string.format("%08x", x)
+end
+
+--- gopls binary path + version. Cached; vim.system with a 2 s timeout,
+--- called ONLY from M.config_line (i.e. only at enable), never per action.
+---@return string "path=... ver=..." | "gopls=missing" | "gopls_path=..."
+local function gopls_path_ver()
+	if M._gopls_pv then
+		return M._gopls_pv
+	end
+	local path = vim.fn.exepath("gopls")
+	if path == "" then
+		M._gopls_pv = "gopls=missing"
+		return M._gopls_pv
+	end
+	local ver = "unknown"
+	local ok, obj = pcall(function()
+		return vim.system({ "gopls", "version" }, { text = true, timeout = 2000 }):wait(2500)
+	end)
+	if ok and obj and obj.code == 0 then
+		local out = tostring(obj.stdout or "")
+		ver = out:match("gopls v([%d%.]+)") or out:match("(%d+%.%d+%.%d+)") or "unknown"
+	end
+	M._gopls_pv = "gopls_path=" .. path .. " gopls_ver=" .. ver
+	return M._gopls_pv
+end
+
+--- CONFIG snapshot: lean_on + lean axes (core/perf), gopls debounce /
+--- semanticTokens / completeUnimported / fieldalignment / 8-codelens bitmask /
+--- usePlaceholders / staticcheck (read lazily via pcall require — this module
+--- must NOT load the lsp config at startup), perf.status(), gopls path+ver.
+--- Full line is logged once at trace/enable; M.config_hash (8 hex of it)
+--- goes into every action detail.
+---@return string
+function M.config_line()
+	if M._config_line then
+		return M._config_line
+	end
+	local parts = {}
+	local ok_perf, perf = pcall(require, "core.perf")
+	if ok_perf and perf and perf.lean_on then
+		local ok_l, lean = pcall(perf.lean_on)
+		local axes = {}
+		if ok_perf and perf.lean_axis then
+			for _, a in ipairs({ "gopls", "theme", "treesitter", "debounce" }) do
+				local ok_a, on = pcall(perf.lean_axis, a)
+				axes[#axes + 1] = a .. "=" .. ((ok_a and on) and "1" or "0")
+			end
+		end
+		parts[#parts + 1] = "lean=" .. ((ok_l and lean) and "on" or "off") .. "(" .. table.concat(axes, ",") .. ")"
+		local ok_s, st = pcall(perf.status)
+		if ok_s and type(st) == "string" then
+			parts[#parts + 1] = "perf=" .. (st:gsub("[\t\r\n]", " "))
+		end
+	else
+		parts[#parts + 1] = "lean=n/a"
+	end
+	local ok_g, gcfg = pcall(require, "modules.configs.completion.servers.gopls")
+	if ok_g and type(gcfg) == "table" then
+		local flags = gcfg.flags or {}
+		local gs = (gcfg.settings or {}).gopls or {}
+		local an = gs.analyses or {}
+		local cl = gs.codelenses or {}
+		local order = { "generate", "gc_details", "test", "tidy", "vendor", "regenerate_cgo", "upgrade_dependency", "organizeImports" }
+		local bits = {}
+		for _, k in ipairs(order) do
+			bits[#bits + 1] = cl[k] and "1" or "0"
+		end
+		parts[#parts + 1] = string.format(
+			"gopls debounce=%s sem=%s unimp=%s fieldalign=%s usePH=%s static=%s codelens=%s",
+			tostring(flags.debounce_text_changes),
+			tostring(gs.semanticTokens),
+			tostring(gs.completeUnimported),
+			tostring(an.fieldalignment),
+			tostring(gs.usePlaceholders),
+			tostring(gs.staticcheck),
+			table.concat(bits)
+		)
+	else
+		parts[#parts + 1] = "gopls_cfg=n/a"
+	end
+	parts[#parts + 1] = gopls_path_ver()
+	M._config_line = table.concat(parts, " ")
+	M._config_hash = short_hash(M._config_line)
+	return M._config_line
+end
+
+---@return string 8 hex chars of M.config_line(), cached (no work per action)
+function M.config_hash()
+	if M._config_hash then
+		return M._config_hash
+	end
+	M.config_line()
+	return M._config_hash or "n/a"
+end
+
+--- Redact secrets in proxy-like values (GOPROXY userinfo/token) before they
+--- hit the trace log. Primary: distro.mirror.redact(); fallback: local
+--- userinfo scrub when the mirror module cannot be loaded.
+---@param s string|nil
+---@return string
+local function redact_proxy(s)
+	local ok, mirror = pcall(require, "distro.mirror")
+	if ok and mirror and mirror.redact then
+		local ok2, out = pcall(mirror.redact, tostring(s or ""))
+		if ok2 and type(out) == "string" then
+			return out
+		end
+	end
+	return tostring(s or ""):gsub("://[^@]*@", "://***@")
+end
+
+--- `go env` snapshot, ONE `go env ...` call with a 5 s timeout, plus
+--- modcache entries + du size and the mongo-driver version when present.
+--- Cached per enable. "go: missing" when there is no go binary.
+--- NOTE: GOPROXY is passed through redact_proxy(); GOMODCACHE/GOPATH are
+--- local paths, GOVERSION a version, GOFLAGS build flags — none carries
+--- userinfo, so only the proxy-like value is redacted.
+---@return string
+function M.goenv_line()
+	if M._goenv_line then
+		return M._goenv_line
+	end
+	if vim.fn.exepath("go") == "" then
+		M._goenv_line = "go: missing"
+		return M._goenv_line
+	end
+	local ok, obj = pcall(function()
+		return vim.system(
+			{ "go", "env", "GOMODCACHE", "GOPROXY", "GOPATH", "GOVERSION", "GOFLAGS" },
+			{ text = true, timeout = 5000 }
+		):wait(5500)
+	end)
+	if not ok or not obj or obj.code ~= 0 then
+		M._goenv_line = "go env: NOT MEASURED (timeout/error)"
+		return M._goenv_line
+	end
+	local vals = {}
+	for l in (tostring(obj.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do
+		if l ~= "" then
+			vals[#vals + 1] = l
+		end
+	end
+	local modcache, goproxy, gopath, goversion, goflags =
+		vals[1] or "?", vals[2] or "?", vals[3] or "?", vals[4] or "?", vals[5] or ""
+	local entries, size_txt = nil, "n/a"
+	if modcache ~= "" and modcache ~= "?" and vim.fn.isdirectory(modcache) == 1 then
+		local n = 0
+		local scan = uv.fs_scandir(modcache)
+		if scan then
+			while true do
+				local nm = uv.fs_scandir_next(scan)
+				if not nm then
+					break
+				end
+				n = n + 1
+			end
+		end
+		entries = n
+		local ok_du, du = pcall(function()
+			return vim.system({ "du", "-sk", modcache }, { text = true, timeout = 5000 }):wait(5500)
+		end)
+		if ok_du and du and du.code == 0 then
+			local kb = tostring(du.stdout or ""):match("^(%d+)")
+			if kb then
+				size_txt = kb .. "KB"
+			end
+		end
+	end
+	local mongo = "n/a"
+	if modcache ~= "" and modcache ~= "?" then
+		for _, d in ipairs({ modcache .. "/go.mongodb.org/mongo-driver/v2", modcache .. "/go.mongodb.org/mongo-driver" }) do
+			if vim.fn.isdirectory(d) == 1 then
+				local vers = vim.fn.glob(d .. "@*", true, true)
+				if #vers > 0 then
+					local v = vers[#vers]:match("@([^/]+)$")
+					if v then
+						mongo = v
+						break
+					end
+				end
+			end
+		end
+	end
+	M._goenv_line = string.format(
+		"GOMODCACHE=%s GOPROXY=%s GOPATH=%s GOVERSION=%s GOFLAGS=%s modcache=%sentries/%s mongo-driver=%s",
+		modcache,
+		redact_proxy(goproxy),
+		gopath,
+		goversion,
+		goflags,
+		entries ~= nil and (tostring(entries)) or "?",
+		size_txt,
+		mongo
+	)
+	return M._goenv_line
+end
+
 --- Start tracing. Returns the log path.
 ---@return string
 function M.enable()
@@ -346,7 +564,21 @@ function M.enable()
 	frames = {}
 	last_cum = {}
 	next_span = 0
+	-- Fresh snapshot per enable (config may have changed since last time);
+	-- per-action rows reuse the cache via M.config_hash (no work per action).
+	M._config_line = nil
+	M._config_hash = nil
+	M._goenv_line = nil
+	M._gopls_pv = nil
 	M.log("trace/enable", nil, "pid=" .. tostring(vim.fn.getpid()))
+	-- Full CONFIG + go env lines once per enable; each is one row, so the
+	-- column format is untouched. pcall: enable must never fail on snapshot.
+	pcall(function()
+		M.log("trace/config", nil, M.config_line() .. " cfg=" .. M.config_hash())
+	end)
+	pcall(function()
+		M.log("trace/goenv", nil, M.goenv_line())
+	end)
 	M.flush()
 	return M.path
 end

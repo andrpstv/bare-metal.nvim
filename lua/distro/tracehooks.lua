@@ -12,11 +12,183 @@
 
 local M = {}
 
+--- P0-1 session state for the "cold gd" question. Plain counters, no log I/O.
+M._gd_count = 0
+M._seen_targets = {}
+M._bufread_at = nil -- trace.now_ms() of the last BufReadPost (any buffer)
+M._lspattach_at = nil -- trace.now_ms() of the last LspAttach
+--- P0-4 per-window frames: frame_id -> {begin,report,end,titles,indexing,diag,t0}.
+--- The registry only routes $/progress + DiagnosticChanged into the window
+--- that is open; every counter lives in the per-frame table and the entry is
+--- dropped at TOTAL — never a global counter.
+M._active = {}
+M._progress_wrapped = false
+M._progress_orig = nil
+
 local function ctx()
 	local buf = vim.api.nvim_get_current_buf()
 	local ft = vim.bo[buf].filetype
 	local name = vim.api.nvim_buf_get_name(buf)
-	return buf, name, ft
+	-- P0-1: symbol under the cursor. 4th return, so the three existing
+	-- callers (`local buf, name, ft = ctx()`) are untouched.
+	local sym = nil
+	pcall(function()
+		sym = vim.fn.expand("<cword>")
+	end)
+	if sym == "" then
+		sym = nil
+	end
+	return buf, name, ft, sym
+end
+
+--- Target class for the cold-gd question, via the existing is_go_lib.
+---@return string "workspace"|"modcache"|"stdlib"|"other"
+local function classify_target(uri)
+	local s = tostring(uri or ""):gsub("^file://", "")
+	if s:match("/go/pkg/mod/") or s:match("\\go\\pkg\\mod\\") then
+		return "modcache"
+	end
+	local ok_u, utils = pcall(require, "modules.utils")
+	if ok_u and utils and utils.is_go_lib and utils.is_go_lib(s) then
+		return "stdlib"
+	end
+	if s == "" then
+		return "other"
+	end
+	if s:match("^%a[%w%.%+%-]*://") then
+		return "other"
+	end
+	return "workspace"
+end
+
+--- Ages of BufReadPost / LspAttach in seconds, for the detail text.
+---@return string br, string la ("n/a" when the event predates tracing)
+local function ages(trace)
+	local now = trace.now_ms()
+	local br, la = "n/a", "n/a"
+	if M._bufread_at then
+		br = string.format("%.1fs", (now - M._bufread_at) / 1000)
+	end
+	if M._lspattach_at then
+		la = string.format("%.1fs", (now - M._lspattach_at) / 1000)
+	end
+	return br, la
+end
+
+--- Freshness of LspAttach in ms, or nil when unknown.
+local function lsp_age_ms(trace)
+	if not M._lspattach_at then
+		return nil
+	end
+	return trace.now_ms() - M._lspattach_at
+end
+
+--- First location URI out of a definition/hover response, or nil.
+local function first_target_uri(res)
+	if type(res) ~= "table" then
+		return nil
+	end
+	if type(res.uri) == "string" then
+		return res.uri
+	end
+	if type(res.targetUri) == "string" then
+		return res.targetUri
+	end
+	local first = res[1]
+	if type(first) == "table" then
+		return first.uri or first.targetUri
+	end
+	return nil
+end
+
+local function short_target(uri)
+	local s = tostring(uri or ""):gsub("^file://", "")
+	if #s > 60 then
+		s = "…" .. s:sub(-59)
+	end
+	return s
+end
+
+local function cfg_hash()
+	local ok, trace = pcall(require, "distro.trace")
+	if ok and trace.config_hash then
+		local ok_h, h = pcall(trace.config_hash)
+		if ok_h and type(h) == "string" then
+			return h
+		end
+	end
+	return "n/a"
+end
+
+--- Fold one $/progress notification into a per-frame table.
+local function note_progress(st, result)
+	local v = result and result.value
+	if type(v) ~= "table" then
+		return
+	end
+	local kind = v.kind
+	if kind == "begin" then
+		st.begin = (st.begin or 0) + 1
+	elseif kind == "report" then
+		st.report = (st.report or 0) + 1
+	elseif kind == "end" then
+		st["end"] = (st["end"] or 0) + 1
+	end
+	local title = tostring(v.title or "")
+	local msg = tostring(v.message or "")
+	local t = title ~= "" and title or msg
+	if t ~= "" then
+		local low = (title .. " " .. msg):lower()
+		if low:find("index", 1, true) then
+			st.indexing = true
+		end
+		local dup = false
+		for _, x in ipairs(st.titles) do
+			if x == t then
+				dup = true
+				break
+			end
+		end
+		if not dup and #st.titles < 5 then
+			st.titles[#st.titles + 1] = t:sub(1, 40):gsub("[\t\r\n]", " ")
+		end
+	end
+end
+
+--- Install the $/progress wrapper for the gd window only (P2 explicitly
+--- defers a subscription outside it). Routes into every open per-frame
+--- table; the wrapper is removed when the last window closes.
+local function ensure_progress_wrap()
+	if M._progress_wrapped then
+		return
+	end
+	M._progress_orig = vim.lsp.handlers["$/progress"]
+	M._progress_wrapped = true
+	vim.lsp.handlers["$/progress"] = function(err, result, ctx_, config_)
+		local ok, trace = pcall(require, "distro.trace")
+		if ok and trace.enabled then
+			pcall(function()
+				for _, st in pairs(M._active) do
+					note_progress(st, result)
+				end
+			end)
+		end
+		if type(M._progress_orig) == "function" then
+			return M._progress_orig(err, result, ctx_, config_)
+		end
+	end
+end
+
+local function restore_progress_if_idle()
+	if not M._progress_wrapped then
+		return
+	end
+	if next(M._active) ~= nil then
+		return
+	end
+	vim.lsp.handlers["$/progress"] = M._progress_orig
+	M._progress_orig = nil
+	M._progress_wrapped = false
 end
 
 --- Wrap _G._pick_lsp once, idempotently.
@@ -39,7 +211,15 @@ function M.wrap_pick()
 		if not trace.enabled then
 			return orig(scope, opts)
 		end
-		local buf, name, ft = ctx()
+		local buf, name, ft, sym = ctx()
+		sym = sym or "?"
+		-- P0-1: gd counter of the session (#N) + provisional cold flag
+		-- (final cold adds "target unseen", known only at TOTAL).
+		M._gd_count = M._gd_count + 1
+		local gd_n = M._gd_count
+		local br_age, la_age = ages(trace)
+		local la_ms = lsp_age_ms(trace)
+		local cold_prov = (gd_n == 1) or (la_ms ~= nil and la_ms < 2000)
 		local t0 = uv.hrtime()
 		local el = function()
 			return (uv.hrtime() - t0) / 1e6
@@ -57,6 +237,25 @@ function M.wrap_pick()
 		-- press of the same key (see M.sub).
 		local frame = trace.begin(ev)
 
+		-- P0-4: per-window table for this gd (dropped at TOTAL, never global).
+		-- Stale entries (>30 s, response never came) are pruned so a hung
+		-- server cannot grow the registry; then the $/progress wrapper lives
+		-- only while a window is open.
+		local now_ms = trace.now_ms()
+		for id, st in pairs(M._active) do
+			if st.t0 and (now_ms - st.t0) > 30000 then
+				M._active[id] = nil
+			end
+		end
+		restore_progress_if_idle()
+		local fstate = { begin = 0, report = 0, ["end"] = 0, titles = {}, indexing = false, diag = 0, t0 = now_ms }
+		M._active[frame] = fstate
+		ensure_progress_wrap()
+		local function close_window()
+			M._active[frame] = nil
+			restore_progress_if_idle()
+		end
+
 		-- We must not steal the shim's callback: it owns the jump/picker logic.
 		-- So wrap buf_request, hand the original callback a delegating wrapper,
 		-- and restore the original in every exit path. Restoration happens
@@ -69,7 +268,15 @@ function M.wrap_pick()
 			n = n + 1
 			-- 1. keypress -> request (каждый синхронный запрос шима виден:
 			-- restore перенесён на закрытие TOTAL, см. ниже).
-			trace.sub(ev, "keypress_to_request", el(), nil, frame)
+			-- P0-1: symbol, gd counter, ages, provisional cold — всё в
+			-- detail-тексте, колонки лога не тронуты.
+			trace.sub(
+				ev,
+				"keypress_to_request",
+				el(),
+				string.format("sym=%s #%d bufread=%s lspattach=%s cold=%s", sym, gd_n, br_age, la_age, cold_prov and "YES" or "NO"),
+				frame
+			)
 			-- Синхронный фрейм закрывается один раз — на первом запросе;
 			-- повторный end_span закрыл бы чужой фрейм при перекрытии.
 			if not frame_closed then
@@ -79,19 +286,69 @@ function M.wrap_pick()
 			-- restore НЕ здесь: шим может слать мульти-запросы синхронно,
 			-- обёртка живёт до конца dispatch (pcall ниже) + страховка на TOTAL.
 			return orig_req(bufnr, method, params, function(...)
+				-- Peek the target BEFORE logging the phase: its class is part
+				-- of the sub detail (P0-1). Peeking never consumes the args.
+				local res_arg = select(2, ...)
+				local target_uri = first_target_uri(res_arg)
+				local target_class = target_uri and classify_target(target_uri) or "n/a"
 				-- 2. request -> response
-				trace.sub(ev, "request_to_response", el(), nil, frame)
+				trace.sub(
+					ev,
+					"request_to_response",
+					el(),
+					string.format("sym=%s target=%s", sym, target_class),
+					frame
+				)
 				local nargs = select("#", ...)
 				local res = { handler(...) }
 				-- 3. response -> cursor placed
-				trace.sub(ev, "response_to_cursor", el(), nil, frame)
+				trace.sub(ev, "response_to_cursor", el(), string.format("sym=%s #%d", sym, gd_n), frame)
 				-- The honest end-to-end total, logged HERE rather than after
 				-- pcall(orig): the shim dispatches asynchronously and returns
 				-- immediately, so anything timed after it excludes the server
 				-- round-trip and the jump entirely. Measured at dispatch that
 				-- "total" reads 0.1-0.6 ms while the real hop is 9-14 ms.
-				trace.log(ev, el(), "TOTAL (requests: " .. n .. ")", name, ft, { kind = "action", group = ev })
+				-- P0-1 + P0-2 + P0-4: target class, final cold, ages,
+				-- indexing titles, DiagnosticChanged count, config hash —
+				-- all inside the detail text; column layout is unchanged.
+				local la_ms2 = lsp_age_ms(trace)
+				local br2, la2 = ages(trace)
+				local unseen = target_uri and not M._seen_targets[target_uri] or false
+				local cold = cold_prov or unseen or (la_ms2 ~= nil and la_ms2 < 2000)
+				local idx_txt = "indexing=" .. (fstate.indexing and "YES" or "NO")
+				if #fstate.titles > 0 then
+					idx_txt = idx_txt .. " [" .. table.concat(fstate.titles, ", ") .. "]"
+				else
+					idx_txt = idx_txt .. " []"
+				end
+				if target_uri then
+					M._seen_targets[target_uri] = true
+				end
+				trace.log(
+					ev,
+					el(),
+					-- cfg= sits before the variable-length tail (titles) so a
+					-- 300-char sanitize cut never eats the config hash.
+					string.format(
+						"TOTAL (requests: %d) sym=%s #%d target=%s:%s cold=%s cfg=%s bufread=%s lspattach=%s %s diag=%d",
+						n,
+						sym,
+						gd_n,
+						target_class,
+						short_target(target_uri),
+						cold and "YES" or "NO",
+						cfg_hash(),
+						br2,
+						la2,
+						idx_txt,
+						fstate.diag or 0
+					),
+					name,
+					ft,
+					{ kind = "action", group = ev }
+				)
 				vim.lsp.buf_request = orig_req
+				close_window()
 				return unpack(res, 1, nargs)
 			end, bufnr2)
 		end
@@ -102,6 +359,7 @@ function M.wrap_pick()
 		vim.lsp.buf_request = orig_req
 		if not ok then
 			trace.log(ev, el(), "error: " .. tostring(r), name, ft)
+			close_window()
 			if not frame_closed then
 				frame_closed = true
 				trace.end_span(frame, ev)
@@ -111,12 +369,13 @@ function M.wrap_pick()
 		if n == 0 then
 			-- Шим не вызвал buf_request (нет клиента): закрыть фрейм с меткой,
 			-- иначе висит до STALE_MS и усыновляет чужие события.
+			close_window()
 			frame_closed = true
 			trace.end_span(frame, ev, "no-request")
 		end
 		-- Dispatch only: how long the synchronous send took. Deliberately NOT
 		-- called "total" — the real TOTAL is logged from the response handler.
-		trace.log(ev, el(), "dispatch only (requests: " .. n .. ")", name, ft, { kind = "phase", group = ev })
+		trace.log(ev, el(), "dispatch only (requests: " .. n .. ") sym=" .. sym .. " #" .. gd_n, name, ft, { kind = "phase", group = ev })
 		trace.flush()
 		return r
 	end
@@ -265,6 +524,8 @@ function M.setup_autocmds()
 			if not trace.enabled then
 				return
 			end
+			-- P0-1: anchor for the cold-gd age (sec since attach).
+			M._lspattach_at = trace.now_ms()
 			local name = vim.api.nvim_buf_get_name(ev.buf)
 			local cl = vim.lsp.get_clients({ bufnr = ev.buf })
 			trace.log("autocmd/LspAttach", nil, #cl .. " client(s)", name, vim.bo[ev.buf].filetype)
@@ -276,6 +537,12 @@ function M.setup_autocmds()
 			if not trace.enabled then
 				return
 			end
+			-- P0-4: count per open gd window (frame-local, not global).
+			pcall(function()
+				for _, st in pairs(M._active) do
+					st.diag = (st.diag or 0) + 1
+				end
+			end)
 			local name = vim.api.nvim_buf_get_name(ev.buf)
 			local n = #vim.diagnostic.get(ev.buf)
 			trace.log("autocmd/DiagnosticChanged", nil, n .. " diagnostic(s)", name, vim.bo[ev.buf].filetype)
@@ -289,6 +556,8 @@ function M.setup_autocmds()
 			if not trace.enabled then
 				return
 			end
+			-- P0-1: anchor for the cold-gd age (sec since file read).
+			M._bufread_at = trace.now_ms()
 			trace.log("buf/BufReadPost", nil, "lines " .. tostring(vim.api.nvim_buf_line_count(ev.buf)), vim.api.nvim_buf_get_name(ev.buf), vim.bo[ev.buf].filetype)
 		end,
 	})

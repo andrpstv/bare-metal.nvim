@@ -84,25 +84,51 @@ end
 ---@param method string
 ---@param bufnr number
 ---@param params table
----@param cb fun(ms:number?, nresults:number, err:string?)
+---@param cb fun(ms:number?, nresults:number, err:string?, target:string?)
 local function lsp_async(method, bufnr, params, cb)
 	local t0 = vim.uv.hrtime()
 	vim.lsp.buf_request(bufnr, method, params, function(err, result)
 		local dt = (vim.uv.hrtime() - t0) / 1e6
 		local n = 0
+		-- P1-7: first target URI for the cold/warm verdict (peek only).
+		local target = nil
 		if type(result) == "table" then
 			if result.uri then
 				n = 1
+				target = result.uri
+			elseif type(result.targetUri) == "string" then
+				n = 1
+				target = result.targetUri
 			else
 				n = #result
+				if type(result[1]) == "table" then
+					target = result[1].uri or result[1].targetUri
+				end
 			end
 		end
 		if err then
-			cb(nil, 0, (err.message or tostring(err)))
+			cb(nil, 0, (err.message or tostring(err)), nil)
 		else
-			cb(dt, n, nil)
+			cb(dt, n, nil, type(target) == "string" and target or nil)
 		end
 	end, nil)
+end
+
+--- Target class for the cold/warm verdict, via the existing is_go_lib.
+---@return string "workspace"|"modcache"|"stdlib"|"other"
+local function target_class(uri)
+	local s = tostring(uri or "")
+	if s:match("/go/pkg/mod/") or s:match("\\go\\pkg\\mod\\") then
+		return "modcache"
+	end
+	local ok, u = pcall(require, "modules.utils")
+	if ok and u and u.is_go_lib and u.is_go_lib(s) then
+		return "stdlib"
+	end
+	if s == "" then
+		return "other"
+	end
+	return "workspace"
 end
 
 --- COLD/WARM for gd/gr at the current buffer.
@@ -185,12 +211,12 @@ local function cold_warm(on_done)
 		vim.api.nvim_win_set_cursor(orig_win, { sym.ln, math.max(0, sym.col) })
 		local ok_p, params = pcall(vim.lsp.util.make_position_params, orig_win, "utf-16")
 		if not ok_p then
-			cb(nil, 0, "make_position_params failed")
+			cb(nil, 0, "make_position_params failed", nil)
 			return
 		end
-		lsp_async(method, buf, params, function(ms, n, err)
+		lsp_async(method, buf, params, function(ms, n, err, target)
 			restore()
-			cb(ms, n, err)
+			cb(ms, n, err, target)
 		end)
 	end
 
@@ -218,12 +244,12 @@ local function cold_warm(on_done)
 			end
 			local sp = specs[i]
 			local advanced = false
-			local advance = function(ms, n, err)
+			local advance = function(ms, n, err, target)
 				if advanced then
 					return -- late response after the timeout already moved on
 				end
 				advanced = true
-				results[i] = { ms = ms, n = n, err = err, sym = sp.sym.name, method = sp.method, label = sp.label }
+				results[i] = { ms = ms, n = n, err = err, sym = sp.sym.name, method = sp.method, label = sp.label, target = target }
 				restore()
 				vim.schedule(next)
 			end
@@ -237,16 +263,16 @@ local function cold_warm(on_done)
 						timer:close()
 						timer = nil
 					end
-					advance(nil, 0, "timeout after " .. TIMEOUT_MS .. "ms")
+					advance(nil, 0, "timeout after " .. TIMEOUT_MS .. "ms", nil)
 				end)
 			)
-			measure(sp.sym, sp.method, function(ms, n, err)
+			measure(sp.sym, sp.method, function(ms, n, err, target)
 				if timer then
 					timer:stop()
 					timer:close()
 					timer = nil
 				end
-				advance(ms, n, err)
+				advance(ms, n, err, target)
 			end)
 		end
 		next()
@@ -401,6 +427,35 @@ function M.run()
 			end
 			if cr and wr and cr > 0 then
 				out[#out + 1] = string.format("   delta references: %+.1fms (%.0f%%)", wr - cr, (wr - cr) / cr * 100)
+			end
+			-- P1-7: one-line verdict under delta (1-2 lines total).
+			local function verdict(cold, warm, cold_target)
+				if not cold or not warm or cold <= 0 or warm <= 0 then
+					return nil
+				end
+				if cold > warm * 2 and cold > 500 and cold_target == "modcache" then
+					return "cold norm"
+				end
+				if cold > 1000 and warm > 1000 and math.abs(cold - warm) / math.max(cold, warm) < 0.3 then
+					return "graph not indexed, not config"
+				end
+				return nil
+			end
+			local function cold_target(label)
+				for _, rr in ipairs(cw.runs or {}) do
+					if rr.label == label and rr.target then
+						return target_class(rr.target)
+					end
+				end
+				return nil
+			end
+			local vd = verdict(cd, wd, cold_target("COLD definition"))
+			if vd then
+				out[#out + 1] = "   verdict definition: " .. vd
+			end
+			local vr = verdict(cr, wr, cold_target("COLD references"))
+			if vr then
+				out[#out + 1] = "   verdict references: " .. vr
 			end
 		end
 		out[#out + 1] = ""

@@ -37,6 +37,22 @@ local M = {}
 
 local uv = vim.uv or vim.loop
 
+--- Redact secrets in proxy-like values (GOPROXY userinfo/token) before they
+--- hit the report (the report is copied to %TEMP% for support).
+--- Primary: distro.mirror.redact(); fallback: local userinfo scrub.
+---@param s string|nil
+---@return string
+local function redact_proxy(s)
+	local ok, mirror = pcall(require, "distro.mirror")
+	if ok and mirror and mirror.redact then
+		local ok2, out = pcall(mirror.redact, tostring(s or ""))
+		if ok2 and type(out) == "string" then
+			return out
+		end
+	end
+	return tostring(s or ""):gsub("://[^@]*@", "://***@")
+end
+
 --- Phases we time, in the order :edit fires them. Order matters: deltas
 --- are computed against the previous event actually recorded.
 local PHASES = { "BufReadPre", "BufReadPost", "Syntax", "FileType", "BufEnter", "LspAttach" }
@@ -60,6 +76,75 @@ local function count_loaded_modules()
 		n = n + 1
 	end
 	return n
+end
+
+--- Run argv synchronously with a timeout, pumping the event loop so the
+--- watchdog stays alive (same pattern as the gopls version query above).
+---@return string|nil stdout, string|nil err
+local function sys_sync(argv, timeout_ms)
+	if vim.fn.exepath(argv[1]) == "" then
+		return nil, "missing:" .. argv[1]
+	end
+	local finished, out, spawn_err = false, nil, nil
+	pcall(vim.system, argv, { text = true, timeout = timeout_ms }, function(obj)
+		finished = true
+		if obj and obj.code == 124 then
+			spawn_err = "timed out after " .. timeout_ms .. "ms (process killed)"
+		elseif obj and obj.code ~= 0 then
+			spawn_err = "exited " .. tostring(obj.code)
+		else
+			out = tostring(obj and obj.stdout or "")
+		end
+	end)
+	local w0 = uv.hrtime()
+	while not finished and (uv.hrtime() - w0) / 1e6 < timeout_ms + 250 do
+		vim.wait(20) -- pumps the loop: watchdog + editor stay alive
+	end
+	if not finished then
+		return nil, "did not complete within " .. timeout_ms .. "ms (killed)"
+	end
+	if spawn_err then
+		return nil, spawn_err
+	end
+	return out, nil
+end
+
+--- Target class for the gd verdict, via the existing is_go_lib.
+---@return string "workspace"|"modcache"|"stdlib"|"other"
+local function classify_target(uri)
+	local s = tostring(uri or ""):gsub("^file://", "")
+	if s:match("/go/pkg/mod/") or s:match("\\go\\pkg\\mod\\") then
+		return "modcache"
+	end
+	local ok_u, utils = pcall(require, "modules.utils")
+	if ok_u and utils and utils.is_go_lib and utils.is_go_lib(s) then
+		return "stdlib"
+	end
+	if s == "" then
+		return "other"
+	end
+	if s:match("^%a[%w%.%+%-]*://") then
+		return "other"
+	end
+	return "workspace"
+end
+
+--- First location URI out of a definition response, or nil.
+local function first_target_uri(res)
+	if type(res) ~= "table" then
+		return nil
+	end
+	if type(res.uri) == "string" then
+		return res.uri
+	end
+	if type(res.targetUri) == "string" then
+		return res.targetUri
+	end
+	local first = res[1]
+	if type(first) == "table" then
+		return first.uri or first.targetUri
+	end
+	return nil
 end
 
 local function header_block()
@@ -139,8 +224,42 @@ local function header_block()
 	end
 	lines[#lines + 1] = "gopls_version  : " .. gopls_ver
 
+	-- P0-3: ONE `go env ...` call (5 s timeout); modcache entries (as before)
+	-- + du size; mongo-driver version when present. "go: missing" without go.
+	local go_modcache = nil
+	if vim.fn.exepath("go") == "" then
+		lines[#lines + 1] = "go_env          : go: missing"
+	else
+		local go_out, go_err = sys_sync({ "go", "env", "GOMODCACHE", "GOPROXY", "GOPATH", "GOVERSION", "GOFLAGS" }, 5000)
+		if not go_out then
+			lines[#lines + 1] = "go_env          : NOT MEASURED: " .. tostring(go_err)
+		else
+			local vals = {}
+			for l in (go_out .. "\n"):gmatch("([^\n]*)\n") do
+				if l ~= "" then
+					vals[#vals + 1] = l
+				end
+			end
+			go_modcache = vals[1]
+			lines[#lines + 1] = "go_modcache     : " .. (vals[1] or "?")
+			-- GOPROXY may embed userinfo (https://user:TOKEN@host/...) in corp
+			-- envs; the report is copied to %TEMP% for support, so redact it.
+			-- GOMODCACHE/GOPATH are local paths, GOVERSION a version, GOFLAGS
+			-- build flags — no userinfo, no redact needed. GOSUMDB/GOPRIVATE
+			-- are not queried here (only the 5 vars above via `go env`).
+			lines[#lines + 1] = "go_proxy        : " .. redact_proxy(vals[2] or "?")
+			lines[#lines + 1] = "go_path         : " .. (vals[3] or "?")
+			lines[#lines + 1] = "go_version      : " .. (vals[4] or "?")
+			lines[#lines + 1] = "go_flags        : " .. (vals[5] or "")
+		end
+	end
+
 	local modcache_size = "NOT MEASURED: go module cache not found"
+	local modcache_bytes = "n/a"
+	local mongo_ver = "n/a"
+	local modcache_hit = nil
 	for _, p in ipairs({
+		go_modcache or "",
 		vim.fn.expand("$GOMODCACHE"),
 		vim.fn.expand("~/go/pkg/mod"),
 		vim.fn.expand("$GOPATH/pkg/mod"),
@@ -158,10 +277,34 @@ local function header_block()
 				end
 			end
 			modcache_size = tostring(count) .. " entries at " .. p
+			modcache_hit = p
 			break
 		end
 	end
 	lines[#lines + 1] = "modcache_size : " .. modcache_size
+	if modcache_hit then
+		local du_out = sys_sync({ "du", "-sk", modcache_hit }, 5000)
+		if du_out then
+			local kb = du_out:match("^(%d+)")
+			if kb then
+				modcache_bytes = kb .. "KB at " .. modcache_hit
+			end
+		end
+		for _, d in ipairs({ modcache_hit .. "/go.mongodb.org/mongo-driver/v2", modcache_hit .. "/go.mongodb.org/mongo-driver" }) do
+			if vim.fn.isdirectory(d) == 1 then
+				local vers = vim.fn.glob(d .. "@*", true, true)
+				if #vers > 0 then
+					local v = vers[#vers]:match("@([^/]+)$")
+					if v then
+						mongo_ver = v
+						break
+					end
+				end
+			end
+		end
+	end
+	lines[#lines + 1] = "modcache_bytes: " .. modcache_bytes
+	lines[#lines + 1] = "mongo_driver   : " .. mongo_ver
 
 	local drive_kind = "LOCAL"
 	if vim.fn.has("win32") == 1 and vim.fn.has("network") == 1 then
@@ -450,9 +593,14 @@ local function measure_file_open(file_path, label)
 end
 
 --- Measure the gd path via the real mapping function.
+--- P1-6: also records the definition target (class via is_go_lib) and a
+--- session cold flag, so gd_block_lines can print a verdict.
+M._gd_runs = 0
 local function measure_gd_path(bufnr)
 	-- dispatch_return_ms — отдельное, честно названное поле: это НЕ ответ.
 	local out = { symbol = "n/a", dispatch_return_ms = nil, to_response_ms = nil, jump_ms = nil, slow_response_notice = "NO" }
+	M._gd_runs = M._gd_runs + 1
+	out.cold = (M._gd_runs == 1)
 
 	local clients = vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/definition" })
 	if #clients == 0 then
@@ -475,6 +623,7 @@ local function measure_gd_path(bufnr)
 	--   курсор     — наблюдаем до реального прыжка
 	local orig_buf_request = vim.lsp.buf_request
 	local t_send, t_response, saw_request = nil, nil, false
+	local gd_target_uri = nil
 	vim.lsp.buf_request = function(b, method, params, handler)
 		if method ~= "textDocument/definition" then
 			return orig_buf_request(b, method, params, handler)
@@ -484,6 +633,11 @@ local function measure_gd_path(bufnr)
 		return orig_buf_request(b, method, params, function(...)
 			if t_response == nil then
 				t_response = uv.hrtime()
+				-- P1-6: definition target for the verdict (peek, never consume).
+				local res_arg = select(2, ...)
+				pcall(function()
+					gd_target_uri = first_target_uri(res_arg)
+				end)
 			end
 			return handler(...)
 		end)
@@ -521,6 +675,10 @@ local function measure_gd_path(bufnr)
 
 	-- Время ДО ОТВЕТА: отправка -> колбэк сервера.
 	out.to_response_ms = (t_response - t_send) / 1e6
+
+	-- P1-6: target + class for the verdict.
+	out.gd_target = gd_target_uri and tostring(gd_target_uri):gsub("^file://", "") or "n/a"
+	out.gd_target_class = gd_target_uri and classify_target(gd_target_uri) or "n/a"
 
 	-- Прыжок происходит в том же колбэке (vim.cmd.edit + set_cursor), плюс
 	-- возможен асинхронный hop. Наблюдаем курсор, пока тот не уедет.
@@ -706,6 +864,24 @@ local function file_block_lines(result, label)
 	lines[#lines + 1] = "gopls_RTT1_ms (cold, symbol '" .. tostring(result.symbol1 or "?") .. "') : " .. fmt_ms(result.gopls_RTT1_ms)
 	lines[#lines + 1] = "gopls_RTT2_ms (warm, DIFFERENT symbol '" .. tostring(result.symbol2 or "?") .. "') : " .. fmt_ms(result.gopls_RTT2_ms)
 
+	-- P1-6: file-block verdict, one line (hover probes run on workspace files).
+	local r1, r2 = result.gopls_RTT1_ms, result.gopls_RTT2_ms
+	local fverdict = nil
+	if r1 and r2 then
+		if r1 > 1500 and r1 > r2 * 1.5 then
+			fverdict = "COLD-norm: first package warmup, not config bug"
+		elseif r1 < 500 and r2 < 500 then
+			fverdict = "warm-ish"
+		elseif r1 > 2000 and r2 > 2000 and math.abs(r1 - r2) / math.max(r1, r2) < 0.3 then
+			fverdict = "server slow on workspace (index/settings?)"
+		end
+	elseif r1 and r1 > 2000 then
+		fverdict = "server slow on workspace (index/settings?)"
+	end
+	if fverdict then
+		lines[#lines + 1] = "file_verdict      : " .. fverdict
+	end
+
 	for _, nm in ipairs(result.not_measured) do
 		lines[#lines + 1] = "NOT MEASURED: " .. nm
 	end
@@ -716,6 +892,8 @@ local function gd_block_lines(result, err)
 	local lines = {}
 	lines[#lines + 1] = "--- gd path ---"
 	lines[#lines + 1] = "gd_symbol       : " .. (result.symbol or "n/a")
+	lines[#lines + 1] = "gd_target       : " .. (result.gd_target or "n/a") .. " (" .. (result.gd_target_class or "n/a") .. ")"
+	lines[#lines + 1] = "gd_cold         : " .. (result.cold and "YES (first gd this session)" or "NO")
 	-- Имена намеренно длинные: gd_response_wait_ms — от отправки запроса до
 	-- ОТВЕТА сервера; gd_dispatch_return_ms — синхронный возврат _pick_lsp
 	-- (диспетчеризация, НЕ время до ответа). Одно нельзя прочитать как другое.
@@ -726,6 +904,19 @@ local function gd_block_lines(result, err)
 		lines[#lines + 1] = "gd_jump_not_measured : " .. result.no_jump_reason
 	end
 	lines[#lines + 1] = "slow_response_notice : " .. (result.slow_response_notice or "NO")
+	-- P1-6: verdict, one line. slow_response_notice>2000 above is untouched.
+	local tr = result.to_response_ms
+	local verdict = nil
+	if result.gd_target_class == "modcache" and result.cold and tr and tr > 1500 then
+		verdict = "COLD-norm: first package warmup, not config bug"
+	elseif result.cold and tr and tr < 500 then
+		verdict = "warm-ish"
+	elseif result.gd_target_class == "workspace" and (result.slow_response_notice == "YES" or (tr and tr > 2000)) then
+		verdict = "server slow on workspace (index/settings?)"
+	end
+	if verdict then
+		lines[#lines + 1] = "gd_verdict        : " .. verdict
+	end
 	if err then
 		lines[#lines + 1] = "NOT MEASURED: gd path: " .. err
 	end
