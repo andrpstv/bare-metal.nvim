@@ -24,31 +24,44 @@ local PAGE = 200
 local state = {}
 
 --- Parse one TSV row.
+---
+--- The first 8 columns are the frozen legacy format; columns 9-14 were added
+--- for the action tree and are optional. We split the whole line rather than
+--- padding and hard-stopping at 8, so an 8-field log yields nil for the new
+--- fields instead of raising, and a 14-field log is read in full (previously the
+--- extra columns were silently dropped, so span_id was unreachable).
 ---@return table|nil
 local function parse(line)
 	local f = {}
-	local n = 0
-	for part in (line .. "\t\t\t\t\t\t\t"):gmatch("([^\t]*)\t?") do
-		n = n + 1
-		if n > 8 then
-			break
-		end
-		f[n] = part
+	for part in (line .. "\t"):gmatch("([^\t]*)\t") do
+		f[#f + 1] = part
 	end
 	if not f[1] or f[1] == "" or not tonumber(f[1]) then
 		return nil
+	end
+	local num = function(i)
+		local v = f[i]
+		return (v and v ~= "-") and tonumber(v) or nil
 	end
 	return {
 		seq = tonumber(f[1]),
 		at = tonumber(f[2]) or 0,
 		event = f[3] or "?",
-		dur = tonumber(f[4]),
+		dur = num(4),
 		detail = (f[5] ~= "-" and f[5]) or nil,
 		buf = (f[6] ~= "-" and vim.fn.fnamemodify(f[6], ":t")) or nil,
 		ft = (f[7] ~= "-" and f[7]) or nil,
 		run = f[8] or "-",
+		-- New, optional.
+		span_id = num(9),
+		parent_id = num(10),
+		own_ms = num(11),
+		kind = f[12] or "event",
+		async_from = num(13),
+		group = (f[14] ~= "-" and f[14]) or nil,
 	}
 end
+M._parse = parse
 
 --- Read the last `limit` lines of a file, without loading the whole file.
 --- Uses a reverse chunk read: seek to EOF, walk backwards in 64KB blocks.
@@ -132,6 +145,92 @@ end
 
 M.SORTS = { "time", "seq" }
 
+--- Build the action tree from parsed rows.
+---
+--- The rules, and why each one exists:
+---  * A node becomes a CHILD only via `parent_id`, which the writer sets only
+---    when the parent frame was provably open in the same Lua call stack
+---    (see trace.lua). A stray CursorMoved that fired while gd was waiting for
+---    gopls therefore CANNOT be filed under that gd.
+---  * A row with `async_from` is shown as its own "happened during <event>"
+---    level under the top level, never as a subtree. Time adjacency is never
+---    used to guess a parent.
+---  * `group` is a link the CALLER wrote (pick_lsp/definition naming its own
+---    phases), which is a declaration, not a guess.
+---  * Rows with no span data at all (legacy 8-field logs) all stay at the top
+---    level, so an old log still opens.
+---@param rows table[]
+---@return table[] roots
+function M.build_tree(rows)
+	local by_span, roots, async_of = {}, {}, {}
+	for _, r in ipairs(rows) do
+		if r.span_id then
+			by_span[r.span_id] = r
+		end
+	end
+	for _, r in ipairs(rows) do
+		r.children = nil
+		r.happened = nil
+		r.is_child = nil
+		r.happened_parent = nil
+		r.own = r.own_ms or r.dur
+	end
+	-- children by proven parent
+	for _, r in ipairs(rows) do
+		local p = r.parent_id and by_span[r.parent_id]
+		if p and p ~= r then
+			p.children = p.children or {}
+			p.children[#p.children + 1] = r
+			r.is_child = true
+		end
+	end
+	-- declared group members, but only if not already a proven child
+	for _, r in ipairs(rows) do
+		if r.group and not r.is_child then
+			for _, c in ipairs(rows) do
+				if c.event == r.group and c.span_id and c.span_id ~= r.span_id then
+					c.children = c.children or {}
+					c.children[#c.children + 1] = r
+					r.is_child = true
+					break
+				end
+			end
+		end
+	end
+	-- "happened during": attributed, but structurally separate
+	for _, r in ipairs(rows) do
+		if r.async_from and not r.is_child then
+			local owner = by_span[r.async_from]
+			if owner then
+				owner.happened = owner.happened or {}
+				owner.happened[#owner.happened + 1] = r
+				-- Mark it so it is not ALSO listed as a top-level root: it is
+				-- accounted for under its owner, just not as a subtree.
+				r.happened_parent = owner
+			end
+		end
+	end
+	for _, r in ipairs(rows) do
+		if not r.is_child and not r.happened_parent then
+			roots[#roots + 1] = r
+		end
+	end
+	-- A row that is both a declared group member AND has children is a root of
+	-- its own action; keep roots sorted below.
+	for _, r in ipairs(roots) do
+		r.depth = 0
+	end
+	return roots
+end
+
+--- Own time for ranking: falls back to dur, then to -1 so untimed events sort
+--- last instead of jumping to the top of a "slowest first" list.
+---@param r table
+---@return number
+function M.own_of(r)
+	return r.own_ms or r.dur or -1
+end
+
 --- Anomaly thresholds, ms. Slow >= SLOW, very slow >= VERY_SLOW.
 local SLOW_MS, VERY_SLOW_MS = 50, 200
 
@@ -147,6 +246,10 @@ local function ensure_hl()
 	vim.api.nvim_set_hl(0, "DistroTraceVerySlow", { fg = "#ff5f5f", bold = true })
 	vim.api.nvim_set_hl(0, "DistroTraceHead", { bold = true, reverse = true })
 	vim.api.nvim_set_hl(0, "DistroTraceSub", { italic = true })
+	vim.api.nvim_set_hl(0, "DistroTraceTree", { fg = "#6c8ebf" })
+	vim.api.nvim_set_hl(0, "DistroTraceAction", { bold = true })
+	vim.api.nvim_set_hl(0, "DistroTraceHappened", { fg = "#8a8a8a", italic = true })
+	vim.api.nvim_set_hl(0, "DistroTraceSummary", { fg = "#9fd0a0", bold = true })
 end
 
 --- One row. Returns the rendered line and the duration in ms (or nil) so the
@@ -195,6 +298,8 @@ function M.open(path, sort)
 		return
 	end
 	sort = sort or "time"
+	-- Everything starts collapsed. The complaint being fixed is "I see every
+	-- action at once", so the default view is the top level only.
 	local b = vim.api.nvim_create_buf(false, true)
 	local win = vim.api.nvim_open_win(b, true, {
 		relative = "editor",
@@ -206,7 +311,7 @@ function M.open(path, sort)
 		border = "rounded",
 		title = " DistroTrace ",
 	})
-	state[b] = { path = path, sort = sort }
+	state[b] = { path = path, sort = sort, expanded = {} }
 
 	local function render()
 		local rows = M.rows(path, 4000, sort)
@@ -229,63 +334,171 @@ function M.open(path, sort)
 			end
 		end
 		local legacy = (timed == 0 and slash_nodur > 0) and slash_nodur or 0
-		local slowest, total = 0, 0
-		local lines = {
-			string.format("DistroTrace — %d rows (tail) — sort: %s%s%s", #rows, sort, sort == "time" and "  (slowest first)" or "  (chronological)", legacy > 0 and string.format("  ⚠ OLD LOG FORMAT: none of %d rows has a duration (dur \"-\"), so sub-stage timing is absent and slowest-first order is not comparable", legacy) or ""),
-			string.format("file: %s", path),
-		}
-		if legacy > 0 then
-			lines[#lines + 1] = string.format("note: this log predates sub-stage timing; \"-\" in the duration column is missing data, not a zero-length stage. Re-run with the current build to get durations.")
+		local roots = M.build_tree(rows)
+		if sort == "time" then
+			table.sort(roots, function(a, b)
+				return M.own_of(a) > M.own_of(b)
+			end)
 		end
+		-- Legacy 8-field logs carry no span ids at all, so there is no tree to
+		-- draw: fall back to the old flat listing rather than showing an empty
+		-- screen. Same data, same order, no crash.
+		local flat = (legacy > 0)
 		-- Headline numbers: what a consumer actually reports.
+		local slowest, total, sum = 0, 0, 0
 		for _, r in ipairs(rows) do
+			local own = M.own_of(r)
 			if r.dur and r.dur > 0 then
 				total = total + 1
+				sum = sum + r.dur
 				if r.dur > slowest then
 					slowest = r.dur
 				end
 			end
 		end
-		lines[#lines + 1] = string.format("slowest event: %s ms   measured: %d   red >= %d ms, yellow >= %d ms", slowest > 0 and string.format("%.2f", slowest) or "-", total, VERY_SLOW_MS, SLOW_MS)
-		lines[#lines + 1] = ""
-		lines[#lines + 1] = "        duration      at  event                             ft     buffer"
-		if #rows == 0 then
-			lines[#lines + 1] = "(no rows)"
+		local actions = #roots
+		local lines = {}
+		local slow_names = {}
+		for _, r in ipairs(roots) do
+			if M.own_of(r) >= SLOW_MS and M.own_of(r) > 0 then
+				slow_names[#slow_names + 1] = r.event
+			end
 		end
-		-- 1-based line number of the first data row. The header above is a
-		-- variable length (the legacy-format note line appears only for old
-		-- logs), so the first row does NOT sit at a fixed line: a hardcoded
-		-- offset made <CR> off by one on every non-legacy log.
-		local first_row_line = #lines + 1
-		local durs = {}
-		for _, r in ipairs(rows) do
-			local line, dur = fmt_row(r)
+		lines[#lines + 1] = string.format(
+			"DistroTrace  —  %d action(s) at top level  —  %d row(s) in log  —  total measured %s ms  —  slowest %s ms (%s)",
+			actions,
+			#rows,
+			sum > 0 and string.format("%.2f", sum) or "-",
+			slowest > 0 and string.format("%.2f", slowest) or "-",
+			#slow_names > 0 and slow_names[1] or "n/a"
+		)
+		lines[#lines + 1] = string.format("file: %s", path)
+		lines[#lines + 1] = string.format(
+			"sort: %s   %s   %s   red >= %d ms, yellow >= %d ms",
+			sort,
+			sort == "time" and "slowest own time first" or "chronological",
+			flat and "LEGACY LOG: no span data, flat list" or "own time per node (not cumulative)",
+			VERY_SLOW_MS,
+			SLOW_MS
+		)
+		if flat then
+			lines[#lines + 1] = string.format(
+				"note: this log predates sub-stage timing and span ids (%d rows, no durations); shown as a flat list, not as a tree.",
+				legacy
+			)
+		else
+			lines[#lines + 1] = "legend: ▾/▸ expand/collapse   ├─/└─ real nested call (a synchronous Lua frame)   · happened during: NOT a nested call, just an event that arrived in between"
+		end
+		lines[#lines + 1] = ""
+		-- lineno -> node, for <CR>. Rebuilt every render because expansion
+		-- changes which lines exist.
+		local line_map, meta = {}, {}
+		-- An OPT-IN set: a node is expanded only if it is named here. An empty
+		-- table therefore means "everything collapsed", which is the required
+		-- default. Inverting this to a `collapsed` set made the default the
+		-- exact opposite of what the consumer asked for.
+		local expanded = state[b].expanded or {}
+		local shown = 0
+
+		-- Emit one node and, when expanded, its children.
+		-- `guide` is the vertical rail inherited from the ancestors; the
+		-- connector itself is drawn per level so the shape reads as a tree
+		-- rather than as a list that happens to be indented.
+		local function emit(r, depth, is_last, guide, kind_label)
+			local kids = r.children or {}
+			local happened = r.happened or {}
+			local expandable = (#kids + #happened) > 0
+			local key = r.span_id or ("s" .. tostring(r.seq))
+			local is_open = expandable and expanded[key] == true
+			local own = M.own_of(r)
+			local mark = "·"
+			if expandable then
+				mark = is_open and "▾" or "▸"
+			end
+			local label = r.event
+			if kind_label == "happened" then
+				-- Said out loud on the row itself: this is NOT a nested call.
+				label = "happened during: " .. r.event
+			end
+			local dur = own >= 0 and string.format("%9.2f ms", own) or string.format("%9s", "instant")
+			local connector = depth > 0 and ((is_last and "└─ " or "├─ ") or "") or ""
+			local line = string.format("%s%s%s %-34s %s", guide, connector, mark, label, dur)
+			if r.detail and r.detail ~= "" then
+				line = line .. "  " .. r.detail:sub(1, 44)
+			end
+			shown = shown + 1
+			local idx = #lines + 1
 			lines[#lines + 1] = line
-			durs[#durs + 1] = dur
+			line_map[idx] = r
+			meta[#meta + 1] = { row = idx, own = own, depth = depth, kind = kind_label and "h" or "n" }
+			if is_open then
+				local child_guide = guide
+				if depth > 0 then
+					child_guide = guide .. (is_last and "    " or "│   ")
+				end
+				for i, c in ipairs(kids) do
+					emit(c, depth + 1, i == #kids, child_guide, nil)
+				end
+				for i, h in ipairs(happened) do
+					emit(h, depth + 1, i == #happened, child_guide, "happened")
+				end
+			end
+		end
+
+		if #roots == 0 then
+			lines[#lines + 1] = "(no rows)"
+		elseif flat then
+			local sorted = vim.deepcopy(rows)
+			if sort == "time" then
+				table.sort(sorted, function(a, b)
+					return M.own_of(a) > M.own_of(b)
+				end)
+			end
+			for _, r in ipairs(sorted) do
+				local l = fmt_row(r)
+				lines[#lines + 1] = l
+			end
+		else
+			for i, r in ipairs(roots) do
+				emit(r, 0, i == #roots, "", nil)
+			end
 		end
 		lines[#lines + 1] = ""
-		lines[#lines + 1] = "<Enter> details   s — switch sort (time/seq)   q — close"
+		lines[#lines + 1] = string.format("<Enter> expand/collapse   s sort   e expand all   c collapse all   q close   (%d line(s) shown)", shown)
 		vim.api.nvim_buf_set_lines(b, 0, -1, false, lines)
-		-- Highlight the duration cell of slow rows, so an anomaly is visible
+		-- Highlight the duration cell of slow nodes, so an anomaly is visible
 		-- without reading numbers.
 		local ns = vim.api.nvim_create_namespace("distro_trace_hl")
 		vim.api.nvim_buf_clear_namespace(b, ns, 0, -1)
-		for i, dur in ipairs(durs) do
-			if dur and dur >= SLOW_MS then
-				-- Column 7 is the start of the duration cell ("#%-5d " = 6 ASCII
-				-- bytes) and it is 9 bytes wide. Computed directly instead of via
-				-- nvim_str_byteindex: that API does not exist in 0.11 (it is
-				-- 0.12+), so calling it crashed the viewer on the first slow row.
-				-- Safe because the prefix is pure ASCII by construction.
-				-- nvim_buf_add_highlight(buf, ns, hl_group, line, col_start, col_end):
-				-- hl_group is argument THREE on this build (same call shape as
-				-- lua/distro/ui.lua:685), not last as in the 0.10 API. Passing it
-				-- last made the group string land in col_end and raise
-				-- "Invalid 'col_end': Expected Lua number" on the first slow row.
-				vim.api.nvim_buf_add_highlight(b, ns, dur >= VERY_SLOW_MS and "DistroTraceVerySlow" or "DistroTraceSlow", i, 7, 7 + 9)
+		for _, m in ipairs(meta) do
+			-- The duration cell is the last whitespace-delimited run of the
+			-- line: locate it by searching backwards from the detail separator.
+			local text = lines[m.row]
+			local col = text:find(" ms", 1, true)
+			if col then
+				-- 9-wide right-aligned number plus the " ms" suffix.
+				local s0 = math.max(0, col - 9)
+				if m.own >= SLOW_MS then
+					vim.api.nvim_buf_add_highlight(
+						b,
+						ns,
+						m.own >= VERY_SLOW_MS and "DistroTraceVerySlow" or "DistroTraceSlow",
+						m.row - 1,
+						s0,
+						col + 3
+					)
+				end
+				if m.kind == "h" then
+					vim.api.nvim_buf_add_highlight(b, ns, "DistroTraceHappened", m.row - 1, 0, s0)
+				end
 			end
 		end
-		state[b] = { path = path, rows = rows, sort = sort, first_row_line = first_row_line }
+		state[b] = { path = path, rows = rows, roots = roots, sort = sort, line_map = line_map, expanded = expanded }
+		-- Title shows WHAT is open, per the requirement: which log, how many.
+		pcall(vim.api.nvim_win_set_config, win, {
+			relative = "editor",
+			title = string.format(" DistroTrace — %s — %d actions ", vim.fn.fnamemodify(path, ":t"), actions),
+		})
 	end
 	render()
 
@@ -301,15 +514,50 @@ function M.open(path, sort)
 		sort = (sort == "time") and "seq" or "time"
 		state[b].sort = sort
 		render()
-		vim.api.nvim_win_set_cursor(win, { 1, 0 })
+		pcall(vim.api.nvim_win_set_cursor, win, { 1, 0 })
 	end, { buffer = b, nowait = true, desc = "trace: toggle sort" })
+
+	-- Expand/collapse. This is the interaction the consumer asked for by name:
+	-- start at the top level, press Enter on an action to see its phases.
 	vim.keymap.set("n", "<CR>", function()
 		local info = state[b]
-		local r = info and info.rows and info.rows[vim.api.nvim_win_get_cursor(0)[1] - (info.first_row_line or 1) + 1]
-		if r then
-			M.detail(info.path, r)
+		local cur = vim.api.nvim_win_get_cursor(0)[1]
+		local r = info and info.line_map and info.line_map[cur]
+		if not r then
+			return
 		end
-	end, { buffer = b, nowait = true })
+		local kids = #(r.children or {}) + #(r.happened or {})
+		if kids == 0 then
+			-- Leaf: no subtree to show, so open the raw detail view instead of
+			-- silently doing nothing.
+			M.detail(info.path, r)
+			return
+		end
+		local key = r.span_id or ("s" .. tostring(r.seq))
+		local exp = info.expanded or {}
+		exp[key] = not exp[key]
+		state[b].expanded = exp
+		render()
+		-- Keep the cursor on the same node after the line count changes.
+		pcall(vim.api.nvim_win_set_cursor, win, { math.min(cur, vim.api.nvim_buf_line_count(b)), 0 })
+	end, { buffer = b, nowait = true, desc = "trace: expand/collapse node" })
+
+	vim.keymap.set("n", "e", function()
+		local exp = {}
+		for _, r in ipairs(state[b].roots or {}) do
+			if (r.children and #r.children > 0) or (r.happened and #r.happened > 0) then
+				exp[r.span_id or ("s" .. tostring(r.seq))] = true
+			end
+		end
+		state[b].expanded = exp
+		render()
+		pcall(vim.api.nvim_win_set_cursor, win, { 1, 0 })
+	end, { buffer = b, nowait = true, desc = "trace: expand all" })
+	vim.keymap.set("n", "c", function()
+		state[b].expanded = {}
+		render()
+		pcall(vim.api.nvim_win_set_cursor, win, { 1, 0 })
+	end, { buffer = b, nowait = true, desc = "trace: collapse all" })
 	return win
 end
 

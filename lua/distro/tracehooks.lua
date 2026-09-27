@@ -45,7 +45,13 @@ function M.wrap_pick()
 			return (uv.hrtime() - t0) / 1e6
 		end
 		local ev = "pick_lsp/" .. tostring(scope)
-		trace.log(ev, nil, "call", name, ft)
+		-- A real synchronous frame around the dispatch. It closes as soon as the
+		-- request is sent; the response arrives in a different frame, so the
+		-- response phases CANNOT be sync children of this span and are not
+		-- claimed as such. They are linked by `group` (a declared link written by
+		-- the caller in M.sub) so the viewer can show one "what did my gd cost"
+		-- node without pretending the await boundary was a call boundary.
+		trace.begin(ev)
 
 		-- We must not steal the shim's callback: it owns the jump/picker logic.
 		-- So wrap buf_request, hand the original callback a delegating wrapper,
@@ -59,6 +65,9 @@ function M.wrap_pick()
 			n = n + 1
 			-- 1. keypress -> request
 			trace.sub(ev, "keypress_to_request", el())
+			-- The synchronous frame closes here: everything after the request is
+			-- sent happens in a frame this call no longer owns.
+			trace.end_span(trace.current_span(), ev)
 			vim.lsp.buf_request = orig_req
 			return orig_req(bufnr, method, params, function(...)
 				-- 2. request -> response
@@ -72,7 +81,7 @@ function M.wrap_pick()
 				-- immediately, so anything timed after it excludes the server
 				-- round-trip and the jump entirely. Measured at dispatch that
 				-- "total" reads 0.1-0.6 ms while the real hop is 9-14 ms.
-				trace.log(ev, el(), "TOTAL (requests: " .. n .. ")", name, ft)
+				trace.log(ev, el(), "TOTAL (requests: " .. n .. ")", name, ft, { kind = "action", group = ev })
 				return unpack(res, 1, nargs)
 			end, bufnr2)
 		end
@@ -81,11 +90,12 @@ function M.wrap_pick()
 		vim.lsp.buf_request = orig_req
 		if not ok then
 			trace.log(ev, el(), "error: " .. tostring(r), name, ft)
+			trace.end_span(trace.current_span(), ev)
 			error(r, 0)
 		end
 		-- Dispatch only: how long the synchronous send took. Deliberately NOT
 		-- called "total" — the real TOTAL is logged from the response handler.
-		trace.log(ev, el(), "dispatch only (requests: " .. n .. ")", name, ft)
+		trace.log(ev, el(), "dispatch only (requests: " .. n .. ")", name, ft, { kind = "phase", group = ev })
 		trace.flush()
 		return r
 	end
@@ -170,12 +180,35 @@ end
 function M.setup_autocmds()
 	local grp = vim.api.nvim_create_augroup("DistroTraceHooks", { clear = true })
 	local trace = require("distro.trace")
+	-- CursorMoved is the ONLY event that can produce a million-line log (spec
+	-- §3.4: it is emitted for every keypress of j/k, and the user complaint is
+	-- precisely "I see every action at once"). It is aggregated instead of
+	-- written per event: at most one row per RATE_MS per buffer, carrying how
+	-- many movements it stands for. Nothing is lost — the count and the elapsed
+	-- window are both in the row — and the log stays readable.
+	local RATE_MS = 200
+	local last_seen, last_row = {}, {}
+	local suppressed = 0
 	local function on_cursor()
 		if not trace.enabled then
 			return
 		end
 		local buf, name, ft = ctx()
-		trace.log("autocmd/CursorMoved", nil, "line " .. vim.fn.line("."), name, ft)
+		local now = trace.now_ms()
+		local prev = last_row[buf]
+		if prev and (now - prev) < RATE_MS then
+			suppressed = suppressed + 1
+			last_seen[buf] = last_seen[buf] + 1
+			return
+		end
+		local n = last_seen[buf] or 0
+		suppressed = suppressed - n
+		last_row[buf], last_seen[buf] = now, 0
+		local detail = "line " .. vim.fn.line(".")
+		if n > 0 then
+			detail = detail .. string.format("  (+%d more in %.0f ms)", n, RATE_MS)
+		end
+		trace.log("autocmd/CursorMoved", nil, detail, name, ft)
 	end
 	vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
 		group = grp,
