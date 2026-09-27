@@ -21,7 +21,7 @@
 #         flags (no `date +%s%N`, no `timeout`, no `sed -i`, no `grep -P`).
 #       * No network access, no package installs, no secrets, no git writes.
 #       * stylua and luacheck are NOT installed locally and are never invoked;
-#         CI (.github/workflows/style_check.yml, lint_code.yml) covers Lua only.
+#         run them by hand (`stylua --check lua init.lua`) before committing.
 #       * A failing check caused by a broken CONFIG is reported, not hidden.
 # =============================================================================
 set -euo pipefail
