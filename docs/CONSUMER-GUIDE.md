@@ -197,6 +197,8 @@ diffview для сравнения веток и истории файла.
 где бинарник должен оказаться в системном `PATH` (npm-пакеты, часть
 форматтеров).
 
+Замечание про `tar`/`unzip`/`cl`: `:DistroTools` проверяет `tar` (нужен для распаковки `.tar.gz` архивов), а `unzip` проверяется только в `:ConfigHealth` как fallback для `.zip` на Linux (на macOS/Windows распаковка zip обычно уже есть в системе); `cl` (MSVC) тоже упоминается только в health как один из допустимых C-компиляторов для сборки парсеров, в `manifest.tools` его нет — рассинхрон осознанный, код не менялся.
+
 ---
 
 ## Если тормозит
@@ -272,6 +274,7 @@ C-компилятор — проверьте `cc --version` или `gcc --versi
 
 ```sh
 nvim --headless -c 'qa!' && echo OK
+nvim --headless -c 'checkhealth core' -c 'qa!' # именно с qa!, иначе вис
 ./scripts/smoke-test.sh
 ```
 

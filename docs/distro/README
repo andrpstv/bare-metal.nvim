@@ -1,0 +1,10 @@
+# distro: контракты и архив
+Контракты в корне: 00,01,03,04,05,08,09 (+06 appendix), 02,10.
+Всё остальное — в archive-2026-09/ (доказательства и ретроспективы).
+Архив distro: 07,11-15,16-32 (кроме 10), см. archive-2026-09/.
+Корень docs/: audit/review/perf-bench/opt-*/theme-*/weak-hw-*/PHASE1_* тоже в архиве.
+Скрипты-доказательства test-trace-*.lua и test-pick-supersede.lua — в архиве.
+lazy-lock.json в корне репозитория — legacy, НЕ удалять (внешний flake риск).
+Проверка: nvim --headless -c 'qa!', nvim --headless -c 'checkhealth core' -c 'qa!'.
+Решение о релизе перемещено целиком: см. archive-2026-09/28-release-decision.md.
+Smoke: ./scripts/smoke-test.sh — ждёт RESULT: PASS.

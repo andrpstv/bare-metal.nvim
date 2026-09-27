@@ -95,7 +95,7 @@ Two consequences:
 | `VimLeave` | `*` | `_wins` | `wshada` | fine |
 | `FocusGained` | `*` | `_wins` | **`checktime`** | full stat sweep of every open buffer; hurts on slow/network mounts |
 | `VimResized` | `*` | `_wins` | **`tabdo wincmd =`** | O(windows) |
-| `FileType` | `*`,`alpha`,`markdown`,`dap-repl`,`c,cpp` | `_ft` (vimscript) | option sets, `dap.ext.autocompl` | fine |
+| `FileType` | `*`,`markdown`,`dap-repl`,`c,cpp` | `_ft` (vimscript) | option sets, `dap.ext.autocompl` | fine |
 | `TextYankPost` | `*` | `_yank` | `highlight.on_yank` | trivial |
 | `BufReadPre,BufNewFile` | `*` | LargeFileDetect, `large_file.lua:17` | `uv.fs_stat` + `line_count`; sets syntax/ft/swap/undo off | **the size-dependent gate — see §4** |
 | `BufReadPost` | `*` | LargeFileDetectPost | `enforce()` | second line-count gate |

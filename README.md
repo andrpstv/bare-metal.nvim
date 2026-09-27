@@ -236,6 +236,8 @@ docs/                    отчёты по разработке (см. ниже)
 ## Проверка целостности
 
 ```sh
+nvim --headless -c 'qa!' && echo OK
+nvim --headless -c 'checkhealth core' -c 'qa!' # именно с qa!, иначе вис
 ./scripts/smoke-test.sh     # ждёт: RESULT: PASS
 ```
 
