@@ -252,21 +252,47 @@ end
 --- phases by what they actually cost, instead of ranking cumulative marks of
 --- different magnitudes against each other — the known defect this replaces.
 ---
+--- The baseline must come from the SAME INVOCATION as the value it is
+--- subtracted from. `ms` is elapsed since that invocation's own t0, so it is
+--- comparable only with a mark taken in the same invocation. Keying the
+--- baseline by `name` — a label shared by every invocation of the same command
+--- — broke that in two separate ways, both of which wrote a NEGATIVE own_ms:
+---
+---   * re-entry: the last cumulative of invocation N-1 was still in the slot
+---     when invocation N logged its first phase, so 0.112 - 9.786 = -9.674
+---     (a phase that cost 0.112 ms was charged -9.674);
+---   * overlap: two invocations in flight overwrote each other's slot, so
+---     444.965 (invocation B, measured from B's t0) was reduced by 5248.960
+---     (invocation A's total, from A's t0): 444.965 - 5248.960 = -4803.995.
+---
+--- `frame` is the caller's per-invocation identity (the id M.begin returned).
+--- The baseline is kept per frame, so the first phase of an invocation has no
+--- predecessor and correctly owns its whole `ms`. It is deliberately NOT
+--- clamped with max(0, ...): a clamp would silence both defects above while
+--- leaving the mismatched boundaries in place, and would still hide the
+--- positive half of the same bug — a leaked baseline also UNDER-reports (seq
+--- 118's own was 0.006 instead of its true 0.118: nothing to clamp, silently
+--- wrong anyway).
+---
 --- `group` links the phase to the span named `name`. It is a declared link
 --- written by the caller, not a time-inferred one: the viewer attaches the row
---- to the span whose event equals that name.
+--- to the span whose event equals that name. `frame` changes only which
+--- baseline slot is used and never reaches the log, so fields 12/13/14 and the
+--- viewer's grouping are untouched.
 ---@param name string
 ---@param stage string "keypress_to_request", "request_to_response", ...
 ---@param ms number|nil elapsed ms since the parent span started
 ---@param detail string|nil
-function M.sub(name, stage, ms, detail)
+---@param frame any|nil per-invocation identity; defaults to `name`
+function M.sub(name, stage, ms, detail, frame)
 	if not M.enabled then
 		return
 	end
+	local key = frame == nil and name or frame
 	local own = nil
 	if ms then
-		own = ms - (last_cum[name] or 0)
-		last_cum[name] = ms
+		own = ms - (last_cum[key] or 0)
+		last_cum[key] = ms
 	end
 	M.log(name .. "/" .. stage, ms, detail, nil, nil, {
 		own_ms = own,

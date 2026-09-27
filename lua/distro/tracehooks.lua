@@ -51,7 +51,11 @@ function M.wrap_pick()
 		-- claimed as such. They are linked by `group` (a declared link written by
 		-- the caller in M.sub) so the viewer can show one "what did my gd cost"
 		-- node without pretending the await boundary was a call boundary.
-		trace.begin(ev)
+		-- The span id doubles as the INVOCATION identity: every phase below is
+		-- measured from THIS t0, so each one's own_ms must be reduced only by a
+		-- mark of this same invocation, never by one of a later or concurrent
+		-- press of the same key (see M.sub).
+		local frame = trace.begin(ev)
 
 		-- We must not steal the shim's callback: it owns the jump/picker logic.
 		-- So wrap buf_request, hand the original callback a delegating wrapper,
@@ -64,18 +68,18 @@ function M.wrap_pick()
 		vim.lsp.buf_request = function(bufnr, method, params, handler, bufnr2)
 			n = n + 1
 			-- 1. keypress -> request
-			trace.sub(ev, "keypress_to_request", el())
+			trace.sub(ev, "keypress_to_request", el(), nil, frame)
 			-- The synchronous frame closes here: everything after the request is
 			-- sent happens in a frame this call no longer owns.
 			trace.end_span(trace.current_span(), ev)
 			vim.lsp.buf_request = orig_req
 			return orig_req(bufnr, method, params, function(...)
 				-- 2. request -> response
-				trace.sub(ev, "request_to_response", el())
+				trace.sub(ev, "request_to_response", el(), nil, frame)
 				local nargs = select("#", ...)
 				local res = { handler(...) }
 				-- 3. response -> cursor placed
-				trace.sub(ev, "response_to_cursor", el())
+				trace.sub(ev, "response_to_cursor", el(), nil, frame)
 				-- The honest end-to-end total, logged HERE rather than after
 				-- pcall(orig): the shim dispatches asynchronously and returns
 				-- immediately, so anything timed after it excludes the server
