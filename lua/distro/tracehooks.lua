@@ -271,6 +271,97 @@ function M.setup_autocmds()
 			trace.log("buf/BufReadPost", nil, "lines " .. tostring(vim.api.nvim_buf_line_count(ev.buf)), vim.api.nvim_buf_get_name(ev.buf), vim.bo[ev.buf].filetype)
 		end,
 	})
+
+
+	-- ---------------------------------------------------------------------
+	-- PERF-2E: the EDIT PATH (TextChanged / TextChangedI / BufWritePost).
+	--
+	-- Until this block the tracer covered the READ and NAVIGATION path only:
+	-- seven events, none of which can observe a character being typed or a
+	-- buffer reaching disk. So "what did my edit cost" had no row to point at,
+	-- and an empty result was indistinguishable from a broken hook. That is
+	-- zero coverage, not a defect in a hook, and it is closed here.
+	--
+	-- TextChanged fires on EVERY text mutation, so at typing speed it is the
+	-- same million-line hazard the RATE_MS block above was written for. It
+	-- therefore gets the SAME treatment, for the same stated reason: at most
+	-- one row per RATE_MS per buffer, and the row carries how many changes it
+	-- stands for. Nothing is lost (the count is in the row), the log stays
+	-- readable, and the default stays "logging ON".
+	--
+	-- The state is deliberately SEPARATE from the cursor's. A shared window
+	-- would let a burst of typing swallow the CursorMoved row for the same
+	-- buffer, and a burst of j/k swallow the typing row: they are different
+	-- events with different cadence, and neither has the right to censor the
+	-- other. The cursor block above is left byte-for-byte as it was.
+	local edit_last, edit_seen, edit_tick = {}, {}, {}
+	local function on_edit(ev)
+		if not trace.enabled then
+			return
+		end
+		local buf = ev.buf
+		local name = vim.api.nvim_buf_get_name(buf)
+		local ft = vim.bo[buf].filetype
+		local now = trace.now_ms()
+		local prev = edit_last[buf]
+		if prev and (now - prev) < RATE_MS then
+			edit_seen[buf] = (edit_seen[buf] or 0) + 1
+			return
+		end
+		local n = edit_seen[buf] or 0
+		edit_seen[buf] = 0
+		edit_last[buf] = now
+		-- changedtick counts EVERY mutation, including the ones the window
+		-- above swallowed, so "how much text actually changed" survives the
+		-- aggregation instead of disappearing together with the row.
+		local tick = vim.b[buf].changedtick or 0
+		local dtick = 0
+		if prev then
+			dtick = tick - (edit_tick[buf] or 0)
+		end
+		edit_tick[buf] = tick
+		local detail = "tick " .. tostring(tick)
+		if dtick > 0 then
+			detail = detail .. string.format("  (+%d ticks)", dtick)
+		end
+		if n > 0 then
+			detail = detail .. string.format("  (+%d more in %.0f ms)", n, RATE_MS)
+		end
+		-- Logged under the event Neovim ACTUALLY fired, not under a hardcoded
+		-- "TextChanged": TextChangedI is a distinct event, and collapsing the
+		-- two would make the log assert something that did not happen.
+		trace.log("autocmd/" .. tostring(ev.event), nil, detail, name, ft)
+	end
+	vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+		group = grp,
+		callback = on_edit,
+	})
+
+	-- BufWritePost is NOT rate-limited, and that asymmetry is deliberate.
+	-- A save is a discrete, user-initiated act, not a stream: at most one per
+	-- keystroke of :w, and aggregating them would hide exactly the moment the
+	-- owner asked to see. CursorMoved and TextChanged are rate-limited because
+	-- their frequency is a function of typing/navigation speed, which nobody
+	-- schedules; a write always is.
+	--
+	-- The same reasoning says: no `trace_textchanged` flag. A flag defaulting
+	-- to OFF would reproduce the very defect this ticket closes — a registered
+	-- hook that never fires, indistinguishable from a broken one — and a flag
+	-- defaulting to ON would put a config surface in front of a problem RATE_MS
+	-- already bounds, with no measurement yet saying the bound is too loose. If
+	-- the log is still too big after this, the honest response is to retune
+	-- RATE_MS with a measurement in hand, not to pre-ship a switch nobody has
+	-- asked to turn.
+	vim.api.nvim_create_autocmd("BufWritePost", {
+		group = grp,
+		callback = function(ev)
+			if not trace.enabled then
+				return
+			end
+			local buf = ev.buf
+			trace.log("autocmd/BufWritePost", nil, "lines " .. tostring(vim.api.nvim_buf_line_count(buf)), vim.api.nvim_buf_get_name(buf), vim.bo[buf].filetype)
+		end,
+	})
 end
 
 --- Install everything. Cheap: only a _G swap and one augroup.
