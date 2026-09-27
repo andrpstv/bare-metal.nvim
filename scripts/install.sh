@@ -14,6 +14,13 @@ CLONE_ATTR=("--progress")
 DEST_DIR="${HOME}/.config/nvim"
 BACKUP_DIR="${DEST_DIR}_backup-$(date +%Y%m%dT%H%M%S)"
 
+# Where this config is fetched from. Override to install a fork:
+#   NVIM_DISTRO_REPO=myfork/my-config ./scripts/install.sh
+REPO_SLUG="${NVIM_DISTRO_REPO:-andrpstv/bare-metal.nvim}"
+REPO_URL_HTTPS="https://github.com/${REPO_SLUG}.git"
+REPO_URL_SSH="git@github.com:${REPO_SLUG}.git"
+REPO_WEB="https://github.com/${REPO_SLUG}"
+
 abort() {
 	printf "%s\n" "$@" >&2
 	exit 1
@@ -246,7 +253,7 @@ if [[ -n "${NONINTERACTIVE-}" ]]; then
 	USE_SSH=0
 fi
 
-info "This script will install ayamir/nvimdots to:"
+info "This script will install ${REPO_SLUG} to:"
 echo "${DEST_DIR}"
 
 if [[ -d "${DEST_DIR}" ]]; then
@@ -270,9 +277,9 @@ fi
 
 info "Fetching in progress..."
 if [[ "${USE_SSH}" -eq "1" ]]; then
-	clone_repo "git@github.com:ayamir/nvimdots.git"
+	clone_repo "${REPO_URL_SSH}"
 else
-	clone_repo "https://github.com/ayamir/nvimdots.git"
+	clone_repo "${REPO_URL_HTTPS}"
 fi
 
 cd "${DEST_DIR}" || return
@@ -289,9 +296,9 @@ cat <<EOS
 
 Thank you for using this set of configuration!
 - Project Homepage:
-    ${tty_underline}https://github.com/ayamir/nvimdots${tty_reset}
+    ${tty_underline}${REPO_WEB}${tty_reset}
 - Further documentation (including executables you ${tty_bold}must${tty_reset} install for full functionality):
-    ${tty_underline}https://github.com/ayamir/nvimdots/wiki/Prerequisites${tty_reset}
+    ${tty_underline}${REPO_WEB}/blob/main/README.md${tty_reset}
 EOS
 
 if [[ -z "${NONINTERACTIVE-}" ]]; then

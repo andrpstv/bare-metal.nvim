@@ -321,7 +321,7 @@ settings["neovide_config"] = {
 
 -- Set the dashboard startup image here.
 -- Generate ASCII art with: https://github.com/TheZoraiz/ascii-image-converter
--- More info: https://github.com/ayamir/nvimdots/wiki/Issues#change-dashboard-startup-image
+-- One line per row of the picture, no trailing spaces.
 ---@type string[]
 settings["dashboard_image"] = {
 	[[⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿]],

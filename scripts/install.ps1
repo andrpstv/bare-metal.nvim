@@ -26,6 +26,13 @@ $env:CCLONE_BRANCH_LEGACY ??= '0.10'
 $env:CCDEST_DIR ??= "$env:XDG_CONFIG_HOME\nvim"
 $env:CCBACKUP_DIR = "$env:CCDEST_DIR" + "_backup-" + (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmss")
 
+# Where this config is fetched from. Override to install a fork:
+#   $env:NVIM_DISTRO_REPO='myfork/my-config'; ./scripts/install.ps1
+$env:CCREPO_SLUG = $env:NVIM_DISTRO_REPO ?? 'andrpstv/bare-metal.nvim'
+$CCREPO_URL_HTTPS = "https://github.com/$($env:CCREPO_SLUG).git"
+$CCREPO_URL_SSH = "git@github.com:$($env:CCREPO_SLUG).git"
+$CCREPO_WEB = "https://github.com/$($env:CCREPO_SLUG)"
+
 function _abort ([Parameter(Mandatory = $True)] [string]$Msg,[Parameter(Mandatory = $True)] [string]$Type,[Parameter(Mandatory = $False)] [string]$ExtMsg) {
 	if ($ExtMsg -ne $null) {
 		Write-Host $ExtMsg
@@ -349,7 +356,7 @@ You must install Git before installing this Nvim config. See:
 '@
 	}
 
-	info -Msg "This script will install ayamir/nvimdots to:"
+	info -Msg "This script will install $($env:CCREPO_SLUG) to:"
 	Write-Host $env:CCDEST_DIR
 
 	if ((Test-Path $env:CCDEST_DIR)) {
@@ -371,9 +378,9 @@ You must install Git before installing this Nvim config. See:
 	info -Msg "Fetching in progress..."
 
 	if ($USE_SSH) {
-		clone_repo -WithURL 'git@github.com:ayamir/nvimdots.git'
+		clone_repo -WithURL $CCREPO_URL_SSH
 	} else {
-		clone_repo -WithURL 'https://github.com/ayamir/nvimdots.git'
+		clone_repo -WithURL $CCREPO_URL_HTTPS
 	}
 
 	safe_execute -WithCmd { Set-Location -Path "$env:CCDEST_DIR" }
@@ -390,16 +397,11 @@ You must install Git before installing this Nvim config. See:
 
 	info -Msg "Spawning Neovim... (plugins are vendored inside the repo, no download needed)"
 	info -Msg 'If a plugin is missing, open Neovim and run `:Distro` (downloads only after your confirmation).'
-	Write-Host @'
-
-Thank you for using this set of configuration!
-- Project Homepage:
-    https://github.com/ayamir/nvimdots
-    ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
-- Further documentation (including executables you |must| install for full functionality):
-    https://github.com/ayamir/nvimdots/wiki/Prerequisites
-    ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
-'@
+	Write-Host "`nThank you for using this set of configuration!"
+	Write-Host '- Project Homepage:'
+	Write-Host "    $CCREPO_WEB"
+	Write-Host '- Further documentation (including executables you must install for full functionality):'
+	Write-Host "    $CCREPO_WEB/blob/main/README.md"
 
 	ring_bell
 	wait_for_user
