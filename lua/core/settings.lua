@@ -299,6 +299,12 @@ settings["treesitter_deps"] = {
 ---@type boolean
 settings["parser_bootstrap"] = true
 
+-- Показывать всплывающую подсказку с leader-хоткеями, когда начато сочетание
+-- и введённый префикс ещё не совпадает ни с одним маппингом целиком.
+-- Подсказка строится из живых маппингов, новых зависимостей не добавляет.
+---@type boolean
+settings["leader_help"] = true
+
 -- GUI settings for clients like `neovide` or `neovim-qt`.
 -- NOTE: Only the following GUI options are supported; others will be ignored.
 ---@type { font_name: string, font_size: number }

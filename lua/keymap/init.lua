@@ -48,3 +48,13 @@ local ok, def = pcall(require, "user.keymap.init")
 if ok then
 	require("modules.utils.keymap").replace(def)
 end
+
+-- Подсказка по leader. Индекс строится из живых маппингов, поэтому
+-- буферные LSP-хоткеи (<leader>li, <leader>rn) в него попадают не сразу —
+-- сбрасываем кэш на каждом LspAttach.
+require("keymap.leader_help").setup()
+vim.api.nvim_create_autocmd("LspAttach", {
+	callback = function()
+		require("keymap.leader_help").invalidate()
+	end,
+})
