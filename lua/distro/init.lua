@@ -208,6 +208,15 @@ function M.setup()
 			return { "status", "menu", "on", "off", "set-url", "set-args", "clear-args", "set-token", "test" }
 		end,
 	})
+
+	-- Автобустрап парсеров. Только чтение каталогов + один notify, через 2с
+	-- после старта: в окно инициализации это попадать не должно. Скачивание
+	-- не происходит здесь в принципе — его делает :DistroParsers с confirm.
+	vim.defer_fn(function()
+		pcall(function()
+			require("distro.treesitter").bootstrap()
+		end)
+	end, 2000)
 end
 
 return M

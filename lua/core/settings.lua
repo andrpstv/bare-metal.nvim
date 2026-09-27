@@ -291,6 +291,14 @@ settings["treesitter_deps"] = {
 	"yaml",
 }
 
+-- Проверять при старте, все ли парсеры из treesitter_deps на месте, и
+-- предлагать доставить недостающие. Проверка читает только каталоги
+-- (fs_scandir), сети не касается: скачивание остаётся за :DistroParsers,
+-- где стоит подтверждение. 2000 мс после старта, чтобы не мешать инициализации.
+-- Поставьте false, если парсеры ставит внешний процесс (образ/DevContainer).
+---@type boolean
+settings["parser_bootstrap"] = true
+
 -- GUI settings for clients like `neovide` or `neovim-qt`.
 -- NOTE: Only the following GUI options are supported; others will be ignored.
 ---@type { font_name: string, font_size: number }

@@ -45,6 +45,79 @@ function M.is_installed(lang)
 	return set[lang] == true
 end
 
+function M.missing_langs()
+	--- Языки из settings.treesitter_deps без собранного .so.
+	--- Один скан каталогов вместо is_installed() на каждый язык: install_all
+	--- дёргает is_installed в цикле, а тот пересканирует обе директории заново.
+	local set = {}
+	for _, l in ipairs(M.installed_langs()) do
+		set[l] = true
+	end
+	local out = {}
+	for _, l in ipairs(require("core.settings").treesitter_deps or {}) do
+		if not set[l] then
+			out[#out + 1] = l
+		end
+	end
+	return out
+end
+
+--- Отметка «пользователь отказался», чтобы не спрашивать на каждом запуске.
+function M.decline_marker()
+	return vim.fn.stdpath("cache") .. "/distro/parsers-declined"
+end
+
+--- Запомнить отказ. Пишем только на явном «нет»: иначе пользователь, у которого
+--- сборка парсеров не прошла, больше не увидит подсказку никогда.
+function M.mark_declined()
+	vim.fn.mkdir(vim.fn.fnamemodify(M.decline_marker(), ":h"), "p")
+	vim.fn.writefile({ tostring(os.time()) }, M.decline_marker())
+end
+
+--- Проверка на старте: не хватает ли парсеров.
+---
+--- Политика «никаких сетевых обращений без согласия» соблюдена жёстко: здесь
+--- выполняется ТОЛЬКО чтение каталогов (fs_scandir). Ни одного байта из сети,
+--- ни одного вызова install. Пользователю показывается список и точная
+--- команда; решение и скачивание остаются за подтверждением в
+--- :DistroParsers, где стоит confirm.
+---
+--- Вызывается отложенно (defer), чтобы не попасть в окно старта: проверка
+--- дёшева, но всё же это два fs_scandir на каждом запуске редактора.
+function M.bootstrap()
+	if vim.env.NVIM_MINIMAL == "1" then
+		return
+	end
+	if require("core.settings").parser_bootstrap == false then
+		return
+	end
+	-- Без UI подтверждать нечем, аnotify-ить некуда.
+	if #vim.api.nvim_list_uis() == 0 then
+		return
+	end
+	local missing = M.missing_langs()
+	if #missing == 0 then
+		return
+	end
+	if vim.uv.fs_stat(M.decline_marker()) then
+		return
+	end
+	local preview = {}
+	for i = 1, math.min(#missing, 8) do
+		preview[#preview + 1] = missing[i]
+	end
+	if #missing > 8 then
+		preview[#preview + 1] = "... (" .. (#missing - 8) .. " more)"
+	end
+	vim.notify(
+		"[parsers] Missing " .. #missing .. " treesitter parser(s): " .. table.concat(preview, ", ") .. "\n"
+			.. "No syntax highlighting for those languages yet. Nothing was downloaded.\n"
+			.. "Install: :DistroParsers --all   (asks first)   |   list: :DistroParsers",
+		vim.log.levels.WARN,
+		{ title = "distro" }
+	)
+end
+
 local function lockfile_revisions()
 	local p = vim.fn.stdpath("config") .. "/pack/distro/opt/nvim-treesitter/lockfile.json"
 	local f = io.open(p, "r")
@@ -229,6 +302,7 @@ function M.install_all(opts)
 		return true, "All " .. #deps .. " parsers already installed. Nothing was downloaded."
 	end
 	if vim.fn.confirm("Build " .. #missing .. " missing parser(s)?\n" .. table.concat(missing, ", ") .. "\n[This downloads + compiles each one.]", "&Yes\n&No", 2) ~= 1 then
+		M.mark_declined()
 		return false, "Parser install canceled. No changes were made."
 	end
 	local done, failed = 0, {}
