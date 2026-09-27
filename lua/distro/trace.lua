@@ -105,7 +105,15 @@ function M.span(name, fn)
 	local t0 = uv.hrtime()
 	local ok, res = pcall(fn)
 	local dt = (uv.hrtime() - t0) / 1e6
-	M.log(name, dt, ok and nil or ("error: " .. tostring(res)))
+	-- ВНИМАНИЕ, здесь была ошибка: `ok and nil or ("error: "..res)` из-за
+	-- приоритета `and/or` даёт "error: ..." ПРИ УСПЕХЕ (ok=true -> (ok and nil)=nil
+	-- -> nil or X = X). Каждый успешный спан писал в detail строку "error: true".
+	-- Поэтому только через явную ветку, а не тернарником.
+	local detail = nil
+	if not ok then
+		detail = "error: " .. tostring(res)
+	end
+	M.log(name, dt, detail)
 	if not ok then
 		error(res, 0)
 	end
