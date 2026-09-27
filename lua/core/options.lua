@@ -26,7 +26,9 @@ local function load_options()
 		fileencodings = "ucs-bom,utf-8,default,big5,latin1",
 		fileformats = "unix,mac,dos",
 		foldlevelstart = 99,
-		grepformat = "%f:%l:%c:%m",
+		-- grepformat НЕ задаётся здесь намеренно: он зависит от grepprg, который
+		-- выбирается ниже (rg vs платформенный дефолт). Значение ставится
+		-- ПОСЛЕ цикла extend_config, иначе цикл перезапишет его этой таблицей.
 		-- grepprg НЕ задаётся, если нет rg: платформенный дефолт Neovim
 		-- корректен на каждой ОС (grep на *nix, findstr на Windows). Старый
 		-- фолбэк "grep -n $* /dev/null" ломал :grep на Windows: /dev/null там
@@ -137,20 +139,27 @@ local function load_options()
 	-- Ставим grepprg только когда rg реально есть. Без rg оставляем
 	-- платформенный дефолт Neovim: на *nix это grep, на Windows — findstr.
 	-- Это работает и без E149, и на любой ОС.
-	if vim.fn.executable("rg") == 1 then
-		vim.api.nvim_set_option_value("grepprg", "rg --hidden --vimgrep --smart-case --", {})
-		vim.api.nvim_set_option_value("grepformat", "%f:%l:%c:%m", {})
-	elseif is_win then
-		-- Без rg на Windows платформенный дефолт — findstr, а он печатает
-		-- file:line:text, БЕЗ колонки. Формат с %c там разъезжается, поэтому
-		-- сужаем grepformat до %f:%l:%m. На *nix дефолтный grep колонку даёт
-		-- (grep -n печатает file:line:text, и %c был бы лишним) — там оставляем
-		-- как есть, поведение не меняем.
-		vim.api.nvim_set_option_value("grepformat", "%f:%l:%m", {})
+	local merged = require("modules.utils").extend_config(options, "user.options")
+	for name, value in pairs(merged) do
+		vim.api.nvim_set_option_value(name, value, {})
 	end
 
-	for name, value in pairs(require("modules.utils").extend_config(options, "user.options")) do
-		vim.api.nvim_set_option_value(name, value, {})
+	-- ВАЖНО: этот блок идёт ПОСЛЕ цикла выше. grepformat обязан соответствовать
+	-- ИТОГОВОМУ grepprg, а цикл extend_config перезаписывает любые значения,
+	-- заданные в таблице options. Раньше grepformat ставился ДО цикла, и цикл
+	-- молча возвращал "%f:%l:%c:%m" — ветка с %f:%l:%m была мёртвым кодом,
+	-- и :grep ломался везде, где нет rg (findstr на Windows, grep -n на *nix).
+	local user_overrides_grepformat = merged.grepformat ~= nil
+	-- rg --vimgrep печатает file:line:col:match → нужен %c.
+	-- Платформенный дефолт без rg (findstr на Windows, grep -n на *nix) печатает
+	-- file:line:text, колонки НЕТ → %c разъезжается. Поэтому %f:%l:%m.
+	if vim.fn.executable("rg") == 1 then
+		vim.api.nvim_set_option_value("grepprg", "rg --hidden --vimgrep --smart-case --", {})
+		if not user_overrides_grepformat then
+			vim.api.nvim_set_option_value("grepformat", "%f:%l:%c:%m", {})
+		end
+	elseif not user_overrides_grepformat then
+		vim.api.nvim_set_option_value("grepformat", "%f:%l:%m", {})
 	end
 end
 
