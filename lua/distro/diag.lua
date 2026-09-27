@@ -377,7 +377,8 @@ end
 
 --- Measure the gd path via the real mapping function.
 local function measure_gd_path(bufnr)
-	local out = { symbol = "n/a", to_response_ms = nil, jump_ms = nil, slow_response_notice = "NO" }
+	-- dispatch_return_ms — отдельное, честно названное поле: это НЕ ответ.
+	local out = { symbol = "n/a", dispatch_return_ms = nil, to_response_ms = nil, jump_ms = nil, slow_response_notice = "NO" }
 
 	local clients = vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/definition" })
 	if #clients == 0 then
@@ -389,22 +390,86 @@ local function measure_gd_path(bufnr)
 	end
 
 	local before = vim.api.nvim_win_get_cursor(0)
+
+	-- _pick_lsp АСИНХРОНЕН (keymap/pick.lua -> vim.lsp.buf_request), поэтому
+	-- время возврата из pcall(pick_lsp, ...) — это диспетчеризация, а НЕ
+	-- время до ответа. Замерять его и называть "to_response" — ровно тот
+	-- дефект, который 6fa8fde починил в трейсе. Поэтому мы перехватываем
+	-- vim.lsp.buf_request на время прогона и снимаем реальные метки:
+	--   t_send     — запрос ушёл серверу
+	--   t_response — сервер ответил (колбэк вызван)
+	--   курсор     — наблюдаем до реального прыжка
+	local orig_buf_request = vim.lsp.buf_request
+	local t_send, t_response, saw_request = nil, nil, false
+	vim.lsp.buf_request = function(b, method, params, handler)
+		if method ~= "textDocument/definition" then
+			return orig_buf_request(b, method, params, handler)
+		end
+		saw_request = true
+		t_send = uv.hrtime()
+		return orig_buf_request(b, method, params, function(...)
+			if t_response == nil then
+				t_response = uv.hrtime()
+			end
+			return handler(...)
+		end)
+	end
+
 	local t0 = uv.hrtime()
 	local ok, err = pcall(pick_lsp, "definition", { jump1 = true })
-	local dt = (uv.hrtime() - t0) / 1e6
-	local after = vim.api.nvim_win_get_cursor(0)
-
-	out.symbol = vim.fn.expand("<cword>")
-	out.to_response_ms = dt
-	if before[1] ~= after[1] or before[2] ~= after[2] then
-		out.jump_ms = dt
-	end
+	out.dispatch_return_ms = (uv.hrtime() - t0) / 1e6
 	if not ok then
+		vim.lsp.buf_request = orig_buf_request
+		out.symbol = vim.fn.expand("<cword>")
 		out.slow_response_notice = "YES"
 		pcall(vim.api.nvim_win_set_cursor, 0, before)
 		return out, "gd raised: " .. tostring(err)
 	end
-	if dt > 2000 then
+
+	-- Ждём ответа, крутя цикл событий (иначе колбэк не придёт).
+	local budget_ms = 15000
+	local w0 = uv.hrtime()
+	while t_response == nil and (uv.hrtime() - w0) / 1e6 < budget_ms do
+		vim.wait(10)
+	end
+	vim.lsp.buf_request = orig_buf_request
+
+	out.symbol = vim.fn.expand("<cword>")
+
+	if not saw_request then
+		out.slow_response_notice = "YES"
+		return out, "gd did not issue textDocument/definition (client missing, or request rejected before dispatch)"
+	end
+	if t_response == nil then
+		out.slow_response_notice = "YES"
+		return out, string.format("no server response to textDocument/definition within %dms", budget_ms)
+	end
+
+	-- Время ДО ОТВЕТА: отправка -> колбэк сервера.
+	out.to_response_ms = (t_response - t_send) / 1e6
+
+	-- Прыжок происходит в том же колбэке (vim.cmd.edit + set_cursor), плюс
+	-- возможен асинхронный hop. Наблюдаем курсор, пока тот не уедет.
+	local t_jump = nil
+	local jw0 = uv.hrtime()
+	local jbudget = 5000
+	while (uv.hrtime() - jw0) / 1e6 < jbudget do
+		local cur = vim.api.nvim_win_get_cursor(0)
+		if cur[1] ~= before[1] or cur[2] ~= before[2] then
+			t_jump = uv.hrtime()
+			break
+		end
+		vim.wait(10)
+	end
+
+	if t_jump then
+		-- Время ДО ПРЫЖКА: от отправки запроса до движения курсора.
+		out.jump_ms = (t_jump - t_send) / 1e6
+	else
+		-- Нет прыжка — это не ноль и не "быстро": такого измерения нет.
+		out.no_jump_reason = "cursor did not move within 5s (multi-result picker, no results, or cursor moved first)"
+	end
+	if out.to_response_ms > 2000 then
 		out.slow_response_notice = "YES"
 	end
 	return out, nil
@@ -577,8 +642,15 @@ local function gd_block_lines(result, err)
 	local lines = {}
 	lines[#lines + 1] = "--- gd path ---"
 	lines[#lines + 1] = "gd_symbol       : " .. (result.symbol or "n/a")
-	lines[#lines + 1] = "gd_to_response_ms : " .. fmt_ms(result.to_response_ms)
-	lines[#lines + 1] = "gd_jump_ms      : " .. fmt_ms(result.jump_ms)
+	-- Имена намеренно длинные: gd_response_wait_ms — от отправки запроса до
+	-- ОТВЕТА сервера; gd_dispatch_return_ms — синхронный возврат _pick_lsp
+	-- (диспетчеризация, НЕ время до ответа). Одно нельзя прочитать как другое.
+	lines[#lines + 1] = "gd_dispatch_return_ms (_pick_lsp sync return, NOT a response time) : " .. fmt_ms(result.dispatch_return_ms)
+	lines[#lines + 1] = "gd_response_wait_ms (request sent -> server response) : " .. fmt_ms(result.to_response_ms)
+	lines[#lines + 1] = "gd_jump_ms (request sent -> cursor moved on result) : " .. fmt_ms(result.jump_ms)
+	if result.no_jump_reason then
+		lines[#lines + 1] = "gd_jump_not_measured : " .. result.no_jump_reason
+	end
 	lines[#lines + 1] = "slow_response_notice : " .. (result.slow_response_notice or "NO")
 	if err then
 		lines[#lines + 1] = "NOT MEASURED: gd path: " .. err
