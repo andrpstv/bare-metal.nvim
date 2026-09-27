@@ -768,28 +768,81 @@ function M.detail(path, r)
 		string.format("  filetype   %s", r.ft or "-"),
 		string.format("  detail     %s", r.detail or "-"),
 		"",
-		string.format("=== phases in window (%d) ===", #subs),
+		string.format("=== rows in window (%d) ===", #subs),
 	}
 	if #subs == 0 then
 		lines[#lines + 1] = "(none recorded)"
+	else
+		lines[#lines + 1] = "  own = this row's own cost (log field 11).  gap = wall-clock"
+		lines[#lines + 1] = "  since the previous row — it belongs to NO row: waiting, not work."
+		lines[#lines + 1] = "  [idle] rows are instant events that happened during the span; they"
+		lines[#lines + 1] = "  are listed, because the tracer records them on purpose"
+		lines[#lines + 1] = "  (trace.lua:242-256), but no cost is ever charged to them."
 	end
-	-- Sub-stage rows are CUMULATIVE (ms since the span started), so the phase
-	-- cost is the difference from the previous row — printing the raw value
-	-- made every phase look like it cost the full span. The delta column is
-	-- what actually answers "where did the time go".
-	local prev_at = (r.at - (r.dur or 0))
-	local sub_durs = {}
+	-- A row's cost is NOT the difference to the previous row. That difference is
+	-- the wall-clock GAP between two rows, and it belongs to neither of them: it
+	-- is time in which the emitter recorded nothing. Printing it as the row's
+	-- cost made an instant event (dur=nil) swallow the whole idle in front of
+	-- it, while the row that was really waiting showed a near-zero cost — the
+	-- card then claimed "autocommands ate 4.5 s" about an autocommand that
+	-- waited for nothing. On distro-trace-484230425125 that was CursorMoved
+	-- charged 4478.898 ms while the real work, request_to_response, showed
+	-- 433.717 ms for its own 5237.924 ms.
+	--
+	-- So: own is the row's own cost, read from log field 11 (own_ms) under its
+	-- real name; gap is idle since the previous row, shown for timed rows only
+	-- and never charged to anybody. Instant events are kept and marked, not
+	-- dropped — dropping them would lose the "happened during" distinction the
+	-- tracer goes out of its way to record.
+	--
+	-- own_ms can be negative in the log (seq 114 = -9.674, seq 124 =
+	-- -4803.995). That is an emiter defect belonging to Lane B; this label no
+	-- longer conceals it behind a cumulative number.
+	local prev_at = r.at - r.dur
+	local own_sum, work_idle, idle_idle = 0.0, 0.0, 0.0
 	for _, x in ipairs(subs) do
-		local delta = x.at - prev_at
+		local gap = x.at - prev_at
 		prev_at = x.at
-		sub_durs[#sub_durs + 1] = { delta = delta, event = x.event }
+		local instant = (x.dur == nil)
+		local note = ""
+		if instant then
+			idle_idle = idle_idle + gap
+			note = x.async_from and ("(happened during #%d — no work of its own)"):format(x.async_from)
+				or "(happened during — no work of its own)"
+		else
+			work_idle = work_idle + gap
+		end
+		own_sum = own_sum + (x.own_ms or 0)
 		lines[#lines + 1] = string.format(
-			"  cum %8.3f  Δ %8.3f ms  %-38s %s",
-			x.at - r.at + (r.dur or 0),
-			delta,
+			"  %-4s own %9s  gap %9s  #%-5d %-38s %s",
+			instant and "idle" or "work",
+			x.own_ms and ("%.3f"):format(x.own_ms) or "—",
+			instant and "—" or ("%.3f ms"):format(gap),
+			x.seq,
 			x.event,
-			x.dur and ("(own dur %.3f)"):format(x.dur) or ""
+			note
 		)
+	end
+	if #subs > 0 then
+		-- The tail used to be dropped without a word: prev_at stopped at the
+		-- last row and the remainder of the window was simply never printed.
+		-- It belongs to no row either, so it is now stated out loud.
+		local tail = r.at - prev_at
+		lines[#lines + 1] = ""
+		lines[#lines + 1] = "  --- accounting (no interval is silently dropped) ---"
+		lines[#lines + 1] = string.format("  span wall-clock   %11.3f ms", r.dur)
+		lines[#lines + 1] = string.format("  own_ms total      %11.3f ms  (sum over timed rows, field 11)", own_sum)
+		lines[#lines + 1] = string.format("  idle before work  %11.3f ms  (charged to no row)", work_idle)
+		lines[#lines + 1] = string.format("  idle before idle  %11.3f ms  (charged to no row)", idle_idle)
+		if tail >= 0 then
+			lines[#lines + 1] = string.format("  tail after last   %11.3f ms  (to end of span, charged to no row)", tail)
+		else
+			-- The window runs to r.at + 1, so rows emitted in that last
+			-- millisecond fall inside it. Say so rather than print a tail that
+			-- has quietly gone backwards.
+			lines[#lines + 1] =
+				string.format("  past span end     %11.3f ms  (last rows lie beyond the span; window slack ±1 ms)", -tail)
+		end
 	end
 	lines[#lines + 1] = ""
 	lines[#lines + 1] = "q — назад"
