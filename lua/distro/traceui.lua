@@ -159,6 +159,14 @@ M.SORTS = { "time", "seq" }
 ---    phases), which is a declaration, not a guess.
 ---  * Rows with no span data at all (legacy 8-field logs) all stay at the top
 ---    level, so an old log still opens.
+---  * kind=action is the node the consumer asked about. It carries the FULL
+---    end-to-end time of the action (keypress -> response -> cursor), so it is
+---    the TOP node, and the synchronous span frame of the same name plus every
+---    `group` phase hang under it. Filing the action row under the synchronous
+---    span instead — which is what the pure `group` rule did, because the span
+---    is the only row of that name carrying a span_id — made the viewer lead
+---    with the cost of *sending* the request (4.24 ms) for an action that really
+---    took 343 ms. That is the same off-by-80x defect we already fixed twice.
 ---@param rows table[]
 ---@return table[] roots
 function M.build_tree(rows)
@@ -174,6 +182,14 @@ function M.build_tree(rows)
 		r.is_child = nil
 		r.happened_parent = nil
 		r.own = r.own_ms or r.dur
+		r.is_action = (r.kind == "action")
+		-- An action node has no writer-side own cost column filled: the log
+		-- format predates it for kind=action. Leaving it "-" ranked the node as
+		-- "untimed" against every phase that did carry own_ms, so filling it
+		-- with the action's full dur keeps sorting and display consistent.
+		if r.is_action and not r.own_ms and r.dur then
+			r.own_ms = r.dur
+		end
 	end
 	-- children by proven parent
 	for _, r in ipairs(rows) do
@@ -184,14 +200,53 @@ function M.build_tree(rows)
 			r.is_child = true
 		end
 	end
-	-- declared group members, but only if not already a proven child
+	-- Declared group members, but only if not already a proven child.
+	-- The owner of a group is the row of that name that ANSWERS THE QUESTION:
+	-- the kind=action row when there is one (full end-to-end time), otherwise
+	-- the synchronous span frame. Falling back unconditionally to the span —
+	-- the only row of that name that has a span_id — is exactly what buried the
+	-- action total under a 4 ms dispatch frame.
 	for _, r in ipairs(rows) do
-		if r.group and not r.is_child then
+		if r.group and not r.is_child and not r.is_action then
+			local owner
+			-- Prefer the kind=action row: it is the row that answers "how long
+			-- did this take", so the phases belong directly under it and its
+			-- arithmetic adds up. Fall back to the synchronous span frame for
+			-- groups that have no action row at all.
 			for _, c in ipairs(rows) do
-				if c.event == r.group and c.span_id and c.span_id ~= r.span_id then
-					c.children = c.children or {}
-					c.children[#c.children + 1] = r
-					r.is_child = true
+				if c.event == r.group and c.is_action then
+					owner = c
+					break
+				end
+			end
+			if not owner then
+				for _, c in ipairs(rows) do
+					if c.event == r.group and not c.is_action and c.span_id and c.span_id ~= r.span_id then
+						owner = c
+						break
+					end
+				end
+			end
+			if owner then
+				owner.children = owner.children or {}
+				owner.children[#owner.children + 1] = r
+				r.is_child = true
+			end
+		end
+	end
+	-- The synchronous span frame of an action becomes a child of that action:
+	-- the action row is the same action measured honestly end to end, so the
+	-- frame is a detail of it, not the node the viewer leads with. The action
+	-- row is skipped in the loop above precisely to keep this from becoming a
+	-- cycle (action is the span's parent AND the span's child -> both roots
+	-- disappear and the action vanishes from the viewer entirely).
+	for _, r in ipairs(rows) do
+		if r.is_action then
+			for _, c in ipairs(rows) do
+				if not c.is_action and c.event == r.event and c.span_id and not c.is_child then
+					r.children = r.children or {}
+					table.insert(r.children, 1, c)
+					c.is_child = true
 					break
 				end
 			end
@@ -215,10 +270,54 @@ function M.build_tree(rows)
 			roots[#roots + 1] = r
 		end
 	end
-	-- A row that is both a declared group member AND has children is a root of
-	-- its own action; keep roots sorted below.
+	-- An action row is the answer to "how long did that take", so it is always a
+	-- root even if something already claimed it: a top level that shows 4 ms
+	-- for a 343 ms action is the defect, not the nesting. Detach it from
+	-- whatever claimed it first, so nothing can hide the action.
+	for _, r in ipairs(rows) do
+		if r.is_action and r.happened_parent then
+			r.happened_parent = nil
+			roots[#roots + 1] = r
+		end
+		if r.is_action and r.is_child then
+			for _, p in ipairs(rows) do
+				local kids = p.children
+				if kids then
+					for i = #kids, 1, -1 do
+						if kids[i] == r then
+							table.remove(kids, i)
+						end
+					end
+					if #kids == 0 then
+						p.children = nil
+					end
+				end
+			end
+			r.is_child = false
+			roots[#roots + 1] = r
+		end
+	end
 	for _, r in ipairs(roots) do
 		r.depth = 0
+	end
+	-- Children are ordered by seq, ALWAYS. They inherit insertion order, which
+	-- comes from the row list, and that list is re-sorted by duration in "time"
+	-- mode — so without this a node's phases printed as 3.88 + 1.32 + 27.95,
+	-- the second phase before the first, and the sum became unreadable. The
+	-- order of a node's own phases is a property of the run, not of the sort.
+	local function by_seq(list)
+		table.sort(list, function(a, b)
+			return a.seq < b.seq
+		end)
+		return list
+	end
+	for _, r in ipairs(rows) do
+		if r.children then
+			by_seq(r.children)
+		end
+		if r.happened then
+			by_seq(r.happened)
+		end
 	end
 	return roots
 end
@@ -229,6 +328,67 @@ end
 ---@return number
 function M.own_of(r)
 	return r.own_ms or r.dur or -1
+end
+
+--- The number to PRINT next to a node — which is not always own_ms.
+---
+--- Top level and action nodes show the FULL time of the action: the person
+--- pressed a key and wants the wall time until the cursor moved, not the cost
+--- of the synchronous frame. Details (phases) show own_ms, because there
+--- "cost of this phase alone" is both true and the useful question.
+---@param r table
+---@param depth integer
+---@return number
+function M.cost_of(r, depth)
+	if r.kind == "action" then
+		return r.dur or -1
+	end
+	if (depth or 0) == 0 then
+		return r.dur or r.own_ms or -1
+	end
+	return r.own_ms or r.dur or -1
+end
+
+--- "332.09 + 7.17 + 4.23 (sync dispatch) = 343.49" — the arithmetic behind a
+--- node's total.
+---
+--- Only kind="sub" rows are ADDED: they are the disjoint phases (own_ms = cost
+--- of that phase alone), so their sum is the time the action really spent
+--- waiting. The synchronous span frame is NOT added: it measures the same
+--- keypress->dispatch window as the first phase, so including it would double
+--- count. Its cost is printed as an explicit remainder instead, which is what
+--- makes the printed equation literally true and auditable rather than a
+--- plausible-looking sum.
+---@param r table
+---@param depth integer
+---@return string|nil
+function M.phase_sum(r, depth)
+	local kids = r.children or {}
+	if (depth or 0) > 0 or #kids == 0 then
+		return nil
+	end
+	local parts, sum = {}, 0
+	for _, c in ipairs(kids) do
+		if c.kind == "sub" then
+			local ms = M.cost_of(c, 1)
+			if ms and ms >= 0 then
+				parts[#parts + 1] = string.format("%.2f", ms)
+				sum = sum + ms
+			end
+		end
+	end
+	if #parts == 0 then
+		return nil
+	end
+	local total = M.cost_of(r, 0)
+	local rest = total - sum
+	local eq = "= " .. table.concat(parts, " + ")
+	if rest > 0.05 then
+		eq = eq .. string.format(" + %.2f (sync dispatch)", rest)
+	elseif rest < -0.05 then
+		eq = eq .. string.format(" - %.2f (overlap)", -rest)
+	end
+	return string.format("%s = %.2f", eq, total)
 end
 
 --- Anomaly thresholds, ms. Slow >= SLOW, very slow >= VERY_SLOW.
@@ -345,39 +505,43 @@ function M.open(path, sort)
 		-- screen. Same data, same order, no crash.
 		local flat = (legacy > 0)
 		-- Headline numbers: what a consumer actually reports.
-		local slowest, total, sum = 0, 0, 0
+		--
+		-- "slowest" MUST be derived from the list the user is looking at, i.e.
+		-- from `roots` after the current sort, with the SAME value the row
+		-- prints. It used to be a max over every row by raw dur, so the header
+		-- could name one event while the first line of the list showed another
+		-- with a different magnitude — the exact "the summary and the list
+		-- disagree" defect.
+		local total, sum = 0, 0
 		for _, r in ipairs(rows) do
-			local own = M.own_of(r)
 			if r.dur and r.dur > 0 then
 				total = total + 1
 				sum = sum + r.dur
-				if r.dur > slowest then
-					slowest = r.dur
-				end
 			end
 		end
+		local top = roots[1]
+		local top_cost = top and M.cost_of(top, 0) or -1
 		local actions = #roots
 		local lines = {}
-		local slow_names = {}
-		for _, r in ipairs(roots) do
-			if M.own_of(r) >= SLOW_MS and M.own_of(r) > 0 then
-				slow_names[#slow_names + 1] = r.event
-			end
-		end
+		-- The label follows the sort: under "time" the first row really is the
+		-- slowest, under "seq" it is merely the first in time and may well have
+		-- no duration at all. Calling that row "slowest" is the same summary/list
+		-- disagreement, only with a different word in it.
 		lines[#lines + 1] = string.format(
-			"DistroTrace  —  %d action(s) at top level  —  %d row(s) in log  —  total measured %s ms  —  slowest %s ms (%s)",
+			"DistroTrace  —  %d action(s) at top level  —  %d row(s) in log  —  total measured %s ms  —  %s %s ms (%s)",
 			actions,
 			#rows,
 			sum > 0 and string.format("%.2f", sum) or "-",
-			slowest > 0 and string.format("%.2f", slowest) or "-",
-			#slow_names > 0 and slow_names[1] or "n/a"
+			sort == "time" and "slowest" or "first",
+			top_cost > 0 and string.format("%.2f", top_cost) or "-",
+			top and top.event or "n/a"
 		)
 		lines[#lines + 1] = string.format("file: %s", path)
 		lines[#lines + 1] = string.format(
 			"sort: %s   %s   %s   red >= %d ms, yellow >= %d ms",
 			sort,
 			sort == "time" and "slowest own time first" or "chronological",
-			flat and "LEGACY LOG: no span data, flat list" or "own time per node (not cumulative)",
+			flat and "LEGACY LOG: no span data, flat list" or "top level = full action time, children = phase own_ms",
 			VERY_SLOW_MS,
 			SLOW_MS
 		)
@@ -388,6 +552,7 @@ function M.open(path, sort)
 			)
 		else
 			lines[#lines + 1] = "legend: ▾/▸ expand/collapse   ├─/└─ real nested call (a synchronous Lua frame)   · happened during: NOT a nested call, just an event that arrived in between"
+			lines[#lines + 1] = "        TOP LEVEL number = FULL time of the action (keypress -> cursor), what you actually waited.   CHILD number = own_ms = cost of that phase alone.   The two are different quantities; an action's own_ms column is its full dur."
 		end
 		lines[#lines + 1] = ""
 		-- lineno -> node, for <CR>. Rebuilt every render because expansion
@@ -410,7 +575,7 @@ function M.open(path, sort)
 			local expandable = (#kids + #happened) > 0
 			local key = r.span_id or ("s" .. tostring(r.seq))
 			local is_open = expandable and expanded[key] == true
-			local own = M.own_of(r)
+			local own = M.cost_of(r, depth)
 			local mark = "·"
 			if expandable then
 				mark = is_open and "▾" or "▸"
@@ -425,6 +590,14 @@ function M.open(path, sort)
 			local line = string.format("%s%s%s %-34s %s", guide, connector, mark, label, dur)
 			if r.detail and r.detail ~= "" then
 				line = line .. "  " .. r.detail:sub(1, 44)
+			end
+			-- An expanded top-level action always shows its arithmetic: without
+			-- it a 343 ms total is a number the reader cannot audit.
+			if is_open then
+				local eq = M.phase_sum(r, depth)
+				if eq then
+					line = line .. "   [ " .. eq .. " ]"
+				end
 			end
 			shown = shown + 1
 			local idx = #lines + 1
