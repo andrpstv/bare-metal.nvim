@@ -192,7 +192,7 @@ fi
 #   Two working methods: grep the source for nvim_create_user_command (source
 #   of truth, static) and vim.fn.exists(":Cmd") == 2 (runtime, works in headless
 #   for everything already loaded).
-COMMANDS="ConfigHealth Distro DistroBench DistroBenchUI DistroBinaries DistroCheck DistroClean DistroDiag DistroInstall DistroMirror DistroParsers DistroTools DistroTrace DistroUpdate Format FormatterToggleFt FormatToggle LeaderHelp PairsStatus TreesitterTier TurboOff TurboOn TurboStatus WeakHwOff WeakHwOn WeakHwStatus"
+COMMANDS="ConfigHealth Distro DistroBench DistroBenchUI DistroBinaries DistroCheck DistroClean DistroDiag DistroInstall DistroMirror DistroParsers DistroSetup DistroTools DistroTrace DistroUpdate Format FormatterToggleFt FormatToggle LeaderHelp PairsStatus TreesitterTier TurboOff TurboOn TurboStatus WeakHwOff WeakHwOn WeakHwStatus"
 CMD_COUNT="$(printf '%s\n' $COMMANDS | wc -l | tr -d ' ')"
 section "4. user commands exist ($CMD_COUNT names)"
 STATIC_MISSING=""

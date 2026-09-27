@@ -301,7 +301,7 @@ function M.install_all(opts)
 	if #missing == 0 then
 		return true, "All " .. #deps .. " parsers already installed. Nothing was downloaded."
 	end
-	if vim.fn.confirm("Build " .. #missing .. " missing parser(s)?\n" .. table.concat(missing, ", ") .. "\n[This downloads + compiles each one.]", "&Yes\n&No", 2) ~= 1 then
+	if not opts.preconfirmed and vim.fn.confirm("Build " .. #missing .. " missing parser(s)?\n" .. table.concat(missing, ", ") .. "\n[This downloads + compiles each one.]", "&Yes\n&No", 2) ~= 1 then
 		M.mark_declined()
 		return false, "Parser install canceled. No changes were made."
 	end

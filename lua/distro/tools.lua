@@ -187,7 +187,10 @@ function M.install_tool(name, opts)
 		preview_lines[#preview_lines + 1] = l
 	end
 	local preview = table.concat(preview_lines, "\n")
-	if vim.fn.confirm(preview, "&Yes\n&No", 2) ~= 1 then
+	-- preconfirmed: вызывающий (:DistroSetup) уже показал этот пункт в общем
+	-- плане и получил одно подтверждение — второй вопрос про тот же самый
+	-- архив был бы просто раздражением. require_consent выше всё равно стоит.
+	if not opts.preconfirmed and vim.fn.confirm(preview, "&Yes\n&No", 2) ~= 1 then
 		return false, "Tool install canceled. No changes were made."
 	end
 	local tmp = install.tmpdir() .. "/tool-" .. name
@@ -258,7 +261,7 @@ function M.install_go(bin, opts)
 	if vim.fn.executable("go") ~= 1 then
 		return false, "'go' not found. Install Go first (see :DistroTools hints). No changes made."
 	end
-	if vim.fn.confirm("Run `go install " .. spec.pkg .. "`?\nUses your GOPROXY/GOPATH (outside the config).", "&Yes\n&No", 2) ~= 1 then
+	if not opts.preconfirmed and vim.fn.confirm("Run `go install " .. spec.pkg .. "`?\nUses your GOPROXY/GOPATH (outside the config).", "&Yes\n&No", 2) ~= 1 then
 		return false, "Go install canceled. No changes were made."
 	end
 	local install = require("distro.install")
