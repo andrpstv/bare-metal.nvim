@@ -201,23 +201,48 @@ local function measure_lsp_rtt(bufnr, sink)
 
 	-- Put the cursor on a known symbol so the request has something to
 	-- resolve. Prefer an identifier word over whitespace.
-	local function park_cursor_on_symbol()
+	--
+	-- Возвращает позицию (строка, колонка) и само слово, либо nil. Раньше
+	-- park_cursor_on_symbol() всегда сканировал с первой строки и в��звращал
+	-- курсор в ТУ ЖЕ позицию: "nudge" не менял символ, поэтому RTT2 был
+	-- вторым запросом к тому же самому слову и не был тёплым (warm не был
+	-- быстрее cold -- именно это и видели 12.6/12.7 против 12.2/12.9).
+	-- Теперь skip_known уводит на ДРУГОЙ идентификатор, и символ попадает
+	-- в отчёт, чтобы это можно было проверить по числам.
+	local function park_cursor_on_symbol(skip_known)
+		local known_word = nil
+		if skip_known then
+			local cur = vim.api.nvim_win_get_cursor(0)
+			local text = vim.api.nvim_buf_get_lines(bufnr, cur[1] - 1, cur[1], false)[1] or ""
+			known_word = text:sub(cur[2] + 1):match("^[%a_][%w_]*")
+		end
 		local lines = vim.api.nvim_buf_get_lines(bufnr, 0, math.min(400, vim.api.nvim_buf_line_count(bufnr)), false)
 		for i, text in ipairs(lines) do
-			local s, e = text:find("[%a_][%w_]*")
-			if s then
-				local col = math.max(s - 1, 0)
-				pcall(vim.api.nvim_win_set_cursor, 0, { i, col })
-				return true
+			local from = 1
+			while true do
+				local s, e = text:find("[%a_][%w_]*", from)
+				if not s then
+					break
+				end
+				local word = text:sub(s, e)
+				-- Пропускаем именно то слово, на котором стояли при RTT1.
+				if not (known_word and word == known_word) then
+					local col = math.max(s - 1, 0)
+					pcall(vim.api.nvim_win_set_cursor, 0, { i, col })
+					return { i, col }, word
+				end
+				from = e + 1
 			end
 		end
-		return false
+		return nil, nil
 	end
 
-	if not park_cursor_on_symbol() then
+	local rtt1_pos, rtt1_word = park_cursor_on_symbol()
+	if not rtt1_pos then
 		sink[#sink + 1] = "gopls_RTT: no identifier found in buffer"
 		return out
 	end
+	out.symbol1 = rtt1_word
 
 	local function do_request()
 		local clients = vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/hover" })
@@ -274,10 +299,17 @@ local function measure_lsp_rtt(bufnr, sink)
 		sink[#sink + 1] = "gopls_RTT1 (cold): " .. tostring(err1)
 	end
 
-	-- Warm: second request. Nudge the cursor so the server is not simply
-	-- replaying a cached identical response, then ask again.
-	vim.api.nvim_win_set_cursor(0, { 1, 0 })
-	park_cursor_on_symbol()
+	-- Warm: второй запрос. Уводим курсор на ДРУГОЙ идентификатор, иначе это
+	-- тот же самый запрос к тому же слову и "warm" ничего не значит.
+	local rtt2_pos, rtt2_word = park_cursor_on_symbol(true)
+	if not rtt2_pos then
+		-- Единственного-различного-символа в буфере нет: честно NOT MEASURED,
+		-- а не выдаём повтор того же запроса за тёплый.
+		sink[#sink + 1] = "gopls_RTT2 (warm): buffer has no second identifier distinct from '" .. tostring(rtt1_word) .. "'"
+		out.note = note
+		return out
+	end
+	out.symbol2 = rtt2_word
 	local rtt2, err2 = do_request()
 	if rtt2 then
 		out.RTT2_ms = rtt2
@@ -402,6 +434,8 @@ local function measure_file_open(file_path, label)
 	local rtt = measure_lsp_rtt(bufnr, result.not_measured)
 	result.gopls_RTT1_ms = rtt.RTT1_ms
 	result.gopls_RTT2_ms = rtt.RTT2_ms
+	result.symbol1 = rtt.symbol1
+	result.symbol2 = rtt.symbol2
 
 	result.EDIT_total_ms = ms(t0)
 	result.phases = seq
@@ -665,8 +699,8 @@ local function file_block_lines(result, label)
 	lines[#lines + 1] = "modules_first_frame : " .. tostring(result.modules_first_frame or "n/a")
 	lines[#lines + 1] = "modules_settled : " .. tostring(result.modules_settled or "n/a")
 	lines[#lines + 1] = "modules_loaded_by_edit : " .. tostring(result.modules_loaded_by_edit or "n/a")
-	lines[#lines + 1] = "gopls_RTT1_ms (cold) : " .. fmt_ms(result.gopls_RTT1_ms)
-	lines[#lines + 1] = "gopls_RTT2_ms (warm) : " .. fmt_ms(result.gopls_RTT2_ms)
+	lines[#lines + 1] = "gopls_RTT1_ms (cold, symbol '" .. tostring(result.symbol1 or "?") .. "') : " .. fmt_ms(result.gopls_RTT1_ms)
+	lines[#lines + 1] = "gopls_RTT2_ms (warm, DIFFERENT symbol '" .. tostring(result.symbol2 or "?") .. "') : " .. fmt_ms(result.gopls_RTT2_ms)
 
 	for _, nm in ipairs(result.not_measured) do
 		lines[#lines + 1] = "NOT MEASURED: " .. nm
