@@ -126,6 +126,12 @@ function M.setup()
 		vim.notify(msg, ok and vim.log.levels.INFO or vim.log.levels.WARN)
 	end, { nargs = "?", desc = "distro: parsers (confirm-gated)" })
 
+	vim.api.nvim_create_user_command("DistroDiag", function()
+		require("distro.diag").run()
+	end, { nargs = "?", desc = "distro: consumer diagnostic (LspAttach, paths, timings)", complete = function()
+		return {}
+	end })
+
 	vim.api.nvim_create_user_command("DistroBench", function()
 		require("distro.bench").run()
 	end, { desc = "distro: benchmark this machine (open times, gd/gr RTT)" })
