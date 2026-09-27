@@ -134,7 +134,14 @@ local function card(path, rows, seq)
 	if not r then
 		return nil, nil, "нет строки seq=" .. seq
 	end
-	traceui.detail(path, r)
+	-- M.detail на строке dur=nil падал arithmetic-on-nil, и падаЛ ВНУТРИ себя,
+	-- до всякой проверки: необработанная ошибка оборвала бы весь скрипт, и прогон
+	-- завис бы вместо того, чтобы отдать внятный FAIL. Поэтому ошибка вьюера
+	-- снимается здесь и становится значением, которое можно проверить.
+	local ok, err = pcall(traceui.detail, path, r)
+	if not ok then
+		return nil, nil, r, ("вьюер упал: %s"):format(tostring(err))
+	end
 	local b = vim.api.nvim_get_current_buf()
 	local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
 	pcall(vim.api.nvim_win_close, 0, true)
@@ -201,6 +208,91 @@ local function verify(path, span_seq, headline, want_own, want_not_own, label)
 	check(has_accounting, ("%s %s карточка печатает блок accounting (хвост окна не теряется молча)"):format(tag, label))
 end
 
+-- ---------------------------------------------------------------------------
+-- КЕЙС dur=nil: карточка, открытая НА МГНОВЕННОЙ СТРОКЕ.
+--
+-- Это отдельный кейс, а не ещё одна проверка внутри verify(), потому что
+-- проверяет он другую ветку: verify() открывает ТАЙМИРОВАННЫЙ span, где у
+-- r.dur есть, и #subs > 0. Мгновенная строка (dur=nil, kind=event) — это
+-- все autocmd/*: CursorMoved, BufEnter, FileType, DiagnosticChanged, плюс
+-- trace/enable. В логе 484230425125 это 268 строк из 327, и именно они самые
+-- частые узлы дерева, на которых владелец кликает. Регресс 3330de3 унёс гард
+-- `r.dur or 0` ровно на этом пути: строка шла ДО проверки #subs, то есть
+-- падала ВСЕГДА, а не на каком-то краю. Проверок выше это не ловили ни одной —
+-- отсюда и 14/14 на сломанном коде.
+-- ---------------------------------------------------------------------------
+local function verify_instant_card(path, seq, label)
+	print("")
+	print(("== %s (%s, мгновенная строка seq %d) =="):format(label, vim.fn.fnamemodify(path, ":t"), seq))
+	local rows = read_log(path)
+
+	-- Сколько в логе строк без собственного времени: это и есть «частые узлы».
+	-- Печатаем, потому что сам по себе факт «ветка покрыта» ничего не значит,
+	-- если ветка пустая.
+	local instant_total = 0
+	for _, x in ipairs(rows) do
+		if x.dur == nil then
+			instant_total = instant_total + 1
+		end
+	end
+	print(("  в логе строк с dur=nil: %d из %d — ветка не пустая, карточку открыть есть на чем"):format(
+		instant_total, #rows))
+
+	-- 1. Кейс не вырожденный: мы правда открываем строку БЕЗ собственного
+	--    времени. Иначе проверка ниже проходила бы на любой строке.
+	local target
+	for _, x in ipairs(rows) do
+		if x.seq == seq then
+			target = x
+		end
+	end
+	if not target then
+		check(false, label .. ": нет строки seq=" .. seq)
+		return
+	end
+	check(target.dur == nil, ("%s seq %d %s действительно мгновенная (dur=nil), а не таймированная"):format(
+		label, seq, target.event))
+
+	-- 2. ГЛАВНОЕ. Регресс 3330de3: M.detail падал на
+	--    `local prev_at = r.at - r.dur` для ЛЮБОЙ строки с dur=nil, потому
+	--    что строка шла безусловно, до `#subs`. Карточка обязана открыться.
+	local lines, got, r, err = card(path, rows, seq)
+	if not lines then
+		check(false, ("%s карточка на мгновенной строке seq %d %s открылась (dur=nil, kind=%s)"):format(
+			label, seq, target.event, tostring(target.kind)) .. " — " .. tostring(err))
+		return
+	end
+	check(true, ("%s карточка на мгновенной строке seq %d %s открылась (dur=nil, kind=%s)"):format(
+		label, seq, target.event, tostring(target.kind)))
+
+	-- 3. Это именно карточка span-а, а не пустой буфер после ошибки.
+	local has_head, has_dur, has_ev = false, false, false
+	for _, l in ipairs(lines) do
+		if l:match("^=== span ===$") then
+			has_head = true
+		end
+		if l:match("n/a %(instant event%)") then
+			has_dur = true
+		end
+		if l:match("^%s+event%s+" .. vim.pesc(target.event) .. "$") then
+			has_ev = true
+		end
+	end
+	check(has_head, label .. ": карточка на мгновенной строке напечатала заголовок === span ===")
+	check(has_dur, label .. ": карточка на мгновенной строке напечатала duration как \"n/a (instant event)\"")
+	check(has_ev, ("%s: карточка на мгновенной строке назвала событие %s"):format(label, target.event))
+
+	-- 4. Строка-окно на мгновенной строке пуста по построению (окно строится
+	--    только при r.dur), и это должно быть сказано вслух, а не молча пропущено.
+	local said_none = false
+	for _, l in ipairs(lines) do
+		if l == "(none recorded)" then
+			said_none = true
+		end
+	end
+	check(said_none, label .. ": пустое окно мгновенной строки сказано вслух — \"(none recorded)\"")
+end
+
 print("DistroTrace card regression — PERF-1D")
 print("Логи: " .. LOGDIR)
 
@@ -209,6 +301,10 @@ verify(LOGDIR .. "/distro-trace-484230425125.log", 123,
 
 verify(LOGDIR .. "/distro-trace-544190817791.log", 107,
 	"pick_lsp/definition/request_to_response", 142.046, 142.172, "лог 544190817791")
+
+-- Карточка на МГНОВЕННОЙ строке: seq 117 = autocmd/CursorMoved, поле 4 = "-",
+-- то есть dur=nil. Именно на ней 3330de3 ронял арифметику.
+verify_instant_card(LOGDIR .. "/distro-trace-484230425125.log", 117, "лог 484230425125")
 
 -- ---------------------------------------------------------------------------
 -- Третий лог НЕ является опровержением: там нечем открыть карточку.

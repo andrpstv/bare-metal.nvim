@@ -798,7 +798,13 @@ function M.detail(path, r)
 	-- own_ms can be negative in the log (seq 114 = -9.674, seq 124 =
 	-- -4803.995). That is an emiter defect belonging to Lane B; this label no
 	-- longer conceals it behind a cumulative number.
-	local prev_at = r.at - r.dur
+	-- Гард `(r.dur or 0)` не декоративный: он был здесь и до переноса блока
+	-- учёта (3330de3^:780), а перенос его унёс. Строка выполняется
+	-- безусловно, ДО проверки #subs, поэтому без гарда карточка падала на
+	-- arithmetic-on-nil для ЛЮБОЙ мгновенной строки (dur=nil) — то есть
+	-- на всех autocmd/*, самых частых узлах дерева. `or 0` означает «своего
+	-- времени нет, окно считаем от того же момента».
+	local prev_at = r.at - (r.dur or 0)
 	local own_sum, work_idle, idle_idle = 0.0, 0.0, 0.0
 	for _, x in ipairs(subs) do
 		local gap = x.at - prev_at
