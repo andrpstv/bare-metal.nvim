@@ -397,6 +397,30 @@ function M.boot()
 
 	-- Phase 2 (variant A): one-shot idle preload. Warms the cmp chain ~300ms
 	-- after startup so the first InsertEnter is instant. Invisible if unused.
+	--
+	-- H3 FIX. This watchdog used to drain `pending` in ONE synchronous loop inside
+	-- a single scheduled callback: every still-pending plugin was loaded back-to-
+	-- back, so ~300ms after startup the user paid the whole deferred bill as a
+	-- single blocking spike, usually while already typing or moving the cursor.
+	-- That is the 'freezes for no visible reason' symptom (docs/distro/
+	-- 10-largefile-analysis.md, hypothesis H3).
+	--
+	-- The tail is now drained one entry per event-loop tick. Total work is
+	-- unchanged, but no single frame pays for all of it, so the editor stays
+	-- responsive between slices. nvim-cmp stays on the watchdog tick because it is
+	-- the first-insert path; whatever is queued behind it spills onto later ticks.
+	local function flush_pending_slice()
+		local name = next(pending)
+		if not name then
+			-- queue empty; the idle queue is a separate list, drain it as before
+			drain_idle()
+			return
+		end
+		pending[name] = nil
+		M.load(name)
+		vim.schedule(flush_pending_slice)
+	end
+
 	local idle_timer = vim.uv.new_timer()
 	vim.api.nvim_create_autocmd("VimEnter", {
 		group = group,
@@ -407,26 +431,16 @@ function M.boot()
 					return
 				end
 				-- MINIMAL trace: один спан на idle-preload (внутри M.load /
-				-- drain_idle уже свои спаны; каждый require не трогаем).
+				-- drain_idle уже свои спены; каждый require не трогаем).
 				local t = trace()
 				if t and t.enabled then
 					t.span("loader:idle-preload", function()
 						M.load("nvim-cmp")
-						-- watchdog: anything still pending gets flushed synchronously
-						for name in pairs(pending) do
-							pending[name] = nil
-							M.load(name)
-						end
-						drain_idle()
+						vim.schedule(flush_pending_slice)
 					end)
 				else
 					M.load("nvim-cmp")
-					-- watchdog: anything still pending gets flushed synchronously
-					for name in pairs(pending) do
-						pending[name] = nil
-						M.load(name)
-					end
-					drain_idle()
+					vim.schedule(flush_pending_slice)
 				end
 			end))
 		end,
