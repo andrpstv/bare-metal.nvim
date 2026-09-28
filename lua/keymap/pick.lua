@@ -163,8 +163,10 @@ _G._pick_lsp = function(scope, opts)
 	-- сотни мс — единицы секунд: нажатие gd на символе из go/pkg/mod
 	-- (например mongo.Client) подвисало до завершения всего сканирования.
 	-- Теперь UI не блокируется ни на одном этапе.
+	---@param dir string|nil каталог для rg. nil = старый путь «каталог текущего буфера,
+	---причём только если буфер сам является go-lib».
 	---@return boolean ok true, если сканирование запущено (результат придёт в колбэке)
-	local function lib_grep_fallback(bufnr, symbol, scope)
+	local function lib_grep_fallback(bufnr, symbol, scope, dir)
 		if not symbol or symbol == "" then
 			return false
 		end
@@ -174,11 +176,16 @@ _G._pick_lsp = function(scope, opts)
 		if vim.fn.executable("rg") ~= 1 then
 			return false
 		end
-		local fname = vim.api.nvim_buf_get_name(bufnr)
-		if not require("modules.utils").is_go_lib(fname) then
+		if not dir then
+			local fname = vim.api.nvim_buf_get_name(bufnr)
+			if not require("modules.utils").is_go_lib(fname) then
+				return false
+			end
+			dir = vim.fn.fnamemodify(fname, ":p:h")
+		end
+		if vim.uv.fs_stat(dir) == nil then
 			return false
 		end
-		local dir = vim.fn.fnamemodify(fname, ":p:h")
 		-- Снимок позиции пользователя на момент старта: copen не должен вырывать
 		-- фокус, если к моменту ответа пользователь печатал или ушёл курсором.
 		local start_win = vim.api.nvim_get_current_win()
@@ -226,20 +233,129 @@ _G._pick_lsp = function(scope, opts)
 					vim.notify("[lsp] no results for " .. (scope or symbol) .. " (text search in package sources found nothing)", vim.log.levels.INFO, { title = "lsp" })
 					return
 				end
-				vim.fn.setqflist({}, " ", { title = "lib refs: " .. symbol, items = items })
-				if user_idle() then
+				-- vim.system delivers its callback in a FAST EVENT context, where
+				-- nvim_exec2/setqflist are forbidden: E5560. Running setqflist and
+				-- copen here threw and killed the whole search, so the text fallback
+				-- for external packages never actually worked. Hop to the main loop.
+				vim.schedule(function()
+					vim.fn.setqflist({}, " ", { title = "lib refs: " .. symbol, items = items })
+					if not user_idle() then
+						vim.notify("[lsp] " .. #items .. " lib refs in quickfix (not opening — you moved)", vim.log.levels.INFO, { title = "lsp" })
+						return
+					end
 					vim.cmd("copen")
-				else
-					-- Пользователь печатал или курсор ушёл: quickfix заполнен,
-					-- но фокус не забираем.
-					vim.notify("[lsp] " .. #items .. " lib refs in quickfix (not opening — you moved)", vim.log.levels.INFO, { title = "lsp" })
-				end
+				end)
 			end
 		)
 		-- Уже запустили поиск: результат придёт в колбэке, UI свободен.
 		return true
 	end
+	-- Qualified symbol in the USER's own file: `mongo.Client`, `errors.Is`, ...
+	--
+	-- The case that was actually reported. Cursor on the type after the dot,
+	-- file is the user's own source, so `lib_grep_fallback`'s is_go_lib check
+	-- was false and the text search never started: gd went to gopls only, and
+	-- gopls was busy rebuilding the module index after the save that fired
+	-- organizeImports. That is the multi-second freeze on mongo.Client.
+	--
+	-- So: read the buffer's import block, find the import whose last path
+	-- segment (or explicit alias) matches the qualifier, let `go list` resolve
+	-- it to a real directory (it handles GOROOT, the module cache and the
+	-- @version suffix correctly), and hand that directory to the text search.
+	-- Two async steps, UI never blocked, no gopls round-trip.
+	local function go_qualified_grep(bufnr, qual, symbol, scope)
+		if vim.fn.executable("go") ~= 1 or lib_searching then
+			return false
+		end
+		if vim.api.nvim_buf_get_option(bufnr, "filetype") ~= "go" then
+			return false
+		end
+		-- Scan the whole buffer for the import. The individual entries of a
+		-- grouped `import ( ... )` block are separate lines that do NOT start
+		-- with the keyword, so gating on `^%s*import` missed every one of them.
+		-- Requiring the last path segment (or an explicit alias) to equal the
+		-- qualifier is specific enough that a stray string literal will not match.
+		local import_path
+		for _, l in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) do
+			local alias, p = l:match('^%s*(%a[%w]*)%s+"([^"]+)"')
+			if not p then
+				p = l:match('^%s*"([^"]+)"')
+			end
+			if p then
+				local last = p:match("([^/]+)$")
+				if alias == qual or (not alias and last == qual) then
+					import_path = p
+					break
+				end
+			end
+		end
+		if not import_path then
+			return false
+		end
+		local cwd = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":p:h")
+		if vim.uv.fs_stat(cwd) == nil then
+			return false
+		end
+		lib_searching = true
+		-- GOFLAGS=-mod=mod: a module whose go.sum is incomplete makes `go list`
+		-- fail outright, which is exactly the state a user is in right after
+		-- adding an import and saving.
+		local env = vim.fn.environ()
+			env.GOFLAGS = "-mod=mod"
+		vim.system({ "go", "list", "-f", "{{.Dir}}", import_path }, { text = true, cwd = cwd, env = env, timeout = 10000 }, function(res)
+			-- Release the guard BEFORE delegating: lib_grep_fallback takes it
+			-- itself for the duration of the rg scan.
+			lib_searching = false
+			-- Every refusal path must say something. A silent return here is what
+			-- made this look like "the fix did nothing" instead of "it failed".
+			if not res then
+				vim.notify("[lsp] go list produced no result for " .. import_path, vim.log.levels.WARN, { title = "lsp" })
+				return
+			end
+			if res.code ~= 0 then
+				vim.notify("[lsp] go list failed for " .. import_path .. ": " .. (res.stderr or ""):gsub("%s+", " "):sub(1, 160), vim.log.levels.WARN, { title = "lsp" })
+				return
+			end
+			local dir = vim.trim(res.stdout or "")
+			if dir == "" then
+				vim.notify("[lsp] go list gave an empty directory for " .. import_path, vim.log.levels.WARN, { title = "lsp" })
+				return
+			end
+			-- go list's callback is a FAST EVENT context. lib_grep_fallback
+			-- starts with nvim_get_current_win / nvim_win_get_cursor, which are
+			-- forbidden there (E5560) - so the whole thing died before rg ran.
+			-- Hop to the main loop first, then delegate.
+			vim.schedule(function()
+				if not lib_grep_fallback(bufnr, symbol, scope, dir) then
+					vim.notify("[lsp] text search for " .. symbol .. " in " .. import_path .. " could not start (falling back)", vim.log.levels.INFO, { title = "lsp" })
+				end
+			end)
+		end)
+		return true
+	end
+
 	if opts.jump1 then
+		-- Квалифицированный символ в СВОЁМ файле: курсор на типе после точки
+		-- (`mongo.Client`, `errors.Is`). cWORD даёт `mongo.Client`, cWORD даёт
+		-- квалификатор, а <cword> — имя типа, когда курсор стоит после точки.
+		-- Именно этот случай жаловался как «gd на mongo.Client тупит».
+		if vim.bo.filetype == "go" then
+			-- NB: req_buf / req_symbol are declared LATER in this branch, so
+			-- referencing them here saw nil and the branch never fired.
+			-- Read the cursor state directly instead.
+			local gbuf = vim.api.nvim_get_current_buf()
+			local full = vim.fn.expand("<cWORD>")
+			local cur_word = vim.fn.expand("<cword>")
+			local qual, sym = full:match("^([%a][%w_]*)%.([%a][%w_]*)$")
+			-- cur_word == sym means the cursor sits on the TYPE after the dot,
+			-- which is what the user wants. Cursor on the qualifier means they
+			-- want the package itself, and gopls answers that quickly - leave it.
+			if qual and sym and cur_word == sym then
+				if go_qualified_grep(gbuf, qual, sym, scope) then
+					return
+				end
+			end
+		end
 		local method = "textDocument/" .. (scope == "type_definition" and "typeDefinition" or scope == "references" and "references" or scope == "implementation" and "implementation" or "definition")
 		if #vim.lsp.get_clients({ bufnr = 0, method = method }) == 0 then
 			vim.notify("[lsp] no client for " .. scope .. " here", vim.log.levels.INFO, { title = "lsp" })
