@@ -220,12 +220,62 @@ _G._pick_lsp = function(scope, opts)
 				end
 				local items = {}
 				if obj.stdout and obj.stdout ~= "" then
+					-- rg --vimgrep prints ONE RECORD PER MATCH, not per line, so a
+					-- line mentioning the symbol twice yields two entries at different
+					-- columns (`func (db *Database) Client() *Client {`). Dedupe on
+					-- file:line or the user scrolls past the same line twice.
+					local seen = {}
 					for _, line in ipairs(vim.split(obj.stdout, "\n", { plain = true })) do
 						local f, l, c, text = line:match("^(.-):(%d+):(%d+):(.*)$")
 						if f then
-							items[#items + 1] = { filename = f, lnum = tonumber(l), col = tonumber(c), text = text }
+							local key = f .. ":" .. l
+							if not seen[key] then
+								seen[key] = true
+								items[#items + 1] = { filename = f, lnum = tonumber(l), col = tonumber(c), text = text }
+							end
 						end
 					end
+				end
+				-- A bare text search over a package returns every MENTION, not the
+				-- declaration: `rg Client` in mongo-driver/mongo returns 2140 hits,
+				-- most of them comments like "// Set up a new Client using ...".
+				-- The user wants the one line that declares it, so when any real
+				-- declaration is present, keep only those. The other ~2136 rows are
+				-- noise they then have to scroll past.
+				local esc = vim.pesc(symbol)
+				-- NO ALTERNATION: Lua patterns have no `|`. "(type|var|const)" matches
+				-- the literal text "type|var|const", so `type Client struct` and
+				-- `var Client` silently failed to be recognised as declarations.
+				-- One pattern per keyword instead.
+				local def_pats = {
+					"^%s*type%s+" .. esc .. "%f[%W]",
+					"^%s*var%s+" .. esc .. "%f[%W]",
+					"^%s*const%s+" .. esc .. "%f[%W]",
+					"^%s*func%s+" .. esc .. "%f[%W]",
+					"^%s*func%s*%([^)]*%)%s+" .. esc .. "%f[%W]",
+				}
+				local is_decl = function(t)
+					for _, pat in ipairs(def_pats) do
+						if t:match(pat) then
+							return true
+						end
+					end
+					return false
+				end
+				local decls, rest = {}, {}
+				for _, it in ipairs(items) do
+					if is_decl(it.text) then
+						decls[#decls + 1] = it
+					else
+						rest[#rest + 1] = it
+					end
+				end
+				if #decls > 0 then
+					-- declarations first, then the tail, so a single hit still jumps
+					for _, it in ipairs(rest) do
+						decls[#decls + 1] = it
+					end
+					items = decls
 				end
 				-- Пустой результат = «ничего не найдено», а не «ошибка»: тот же
 				-- тон, что у "no results for <scope>".
