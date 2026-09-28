@@ -47,13 +47,28 @@ local function go_skip_notify(what)
 	)
 end
 
-vim.api.nvim_create_autocmd("BufWritePost", {
-	group = vim.api.nvim_create_augroup("GoSave", { clear = true }),
-	pattern = "*.go",
-	callback = function()
-		local bufnr = vim.api.nvim_get_current_buf()
-		if vim.b[bufnr].large_file then return end
-		local client = go_client(bufnr)
+-- Coalesce rapid saves.
+--
+-- Without this, every single :write fires a fresh `source.organizeImports` at
+-- gopls. Three quick saves queue three module-index rebuilds, and whatever the
+-- user presses next (gd especially) waits behind all of them - that queueing is
+-- the multi-second freeze reported on external packages.
+--
+-- Module-level on purpose: a flag declared inside the autocmd closure is
+-- re-created on every save, so the guard would be dead code. This is the same
+-- trap as the lib_searching flag in keymap/pick.lua.
+local organize_busy = {}
+local organize_rerun = {}
+
+local function go_save_pipeline(bufnr)
+	if vim.b[bufnr].large_file then return end
+	if organize_busy[bufnr] then
+		-- One is already in flight; remember that the world moved on and do a
+		-- single catch-up run when it finishes, instead of stacking a new one.
+		organize_rerun[bufnr] = true
+		return
+	end
+	local client = go_client(bufnr)
 		if not client or client:is_stopped() then
 			return
 		end
@@ -70,10 +85,12 @@ vim.api.nvim_create_autocmd("BufWritePost", {
 			fn()
 			tick = vim.api.nvim_buf_get_changedtick(bufnr)
 		end
+		organize_busy[bufnr] = true
 		local params = vim.lsp.util.make_range_params(0, enc)
 		params.context = { only = { "source.organizeImports" } }
 		client.request("textDocument/codeAction", params, function(err, result)
 			if err then
+				organize_busy[bufnr] = nil
 				vim.notify(
 					"[go] async organize failed: " .. (err.message or "?"),
 					vim.log.levels.ERROR,
@@ -103,7 +120,24 @@ vim.api.nvim_create_autocmd("BufWritePost", {
 					end
 				end)
 			end, bufnr)
+			organize_busy[bufnr] = nil
+			if organize_rerun[bufnr] then
+				organize_rerun[bufnr] = nil
+				-- client.request callbacks are fast-event; vim.schedule is required.
+				vim.schedule(function()
+					if vim.api.nvim_buf_is_valid(bufnr) then
+						go_save_pipeline(bufnr)
+					end
+				end)
+			end
 		end, bufnr)
+end
+
+vim.api.nvim_create_autocmd("BufWritePost", {
+	group = vim.api.nvim_create_augroup("GoSave", { clear = true }),
+	pattern = "*.go",
+	callback = function()
+		go_save_pipeline(vim.api.nvim_get_current_buf())
 	end,
 })
 
