@@ -169,7 +169,24 @@ exists, so `lua/distro/loader.lua:295` (`defer_until_idle`), `:299` (`defer_idle
 vs `-u NONE`). The headless `188`-equivalent never happens, which is precisely why headless
 numbers must not be quoted as the interactive experience.
 
-### 3.3 Full require tree, before first paint — measured, not estimated
+### 3.3 Full require tree, before first paint — **RETIRED, DO NOT USE FOR DECISIONS**
+
+> **REFUTED (coordinator, 2026-09-28 22:20). The table below is retained for provenance
+> only. Its numbers are wrong and must not be cited.**
+>
+> **The arithmetic cannot be true:** the section claims a sum of exclusive self-time of
+> **47.36 ms** against a measured wall clock of **37.4 ms** (§2.1). Exclusive time summed
+> over a call tree is bounded above by wall-clock time. 47.36 > 37.4, so the attribution is
+> invalid by construction.
+>
+> **The `vim.lsp` rows are fabricated as a startup cost.** Direct verification on this
+> machine (`/tmp/nvim31/lspgate.json`, probe hooks `vim.lsp` on first field access):
+> `at_startup: []`, `at_vimenter: []`, and the nine `vim.lsp*` modules appear only in
+> `after_access`. Independently confirmed: `nvim -u init.lua -i NONE --headless` yields
+> **0** `vim.lsp*` entries in `package.loaded`, and `grep -i lsp` over the real
+> `--startuptime` output returns **0** hits. All `vim.lsp` access in `lua/core/event.lua`
+> sits inside `LspAttach` handlers (lines 57-77), never on the startup path. The claimed
+> "≈12.6 ms LSP tree" does not exist. See §4 for the replacement measurement.
 
 `/tmp/nvim31/reqexcl.lua` wraps `require` before `init.lua` is sourced and snapshots at
 `VimEnter` (= before first paint) and again after a 4 s settle. **UI attached (`uis=1`),
@@ -214,8 +231,8 @@ before first paint. Cost column: measured where marked, clearly-labelled estimat
 
 | # | Work | file:line | Cost | Class |
 |---|---|---|---|---|
-| 1 | Whole `load_core` body: `createdir`, `leader_map`, `gui_config`, `neovide_config`, `clipboard_config`, `shell_config`, 4 `create_autocmd`/`create_user_command`, `term_guard.enforce`, turbo/perf/weak_hw `setup()` — **excluding nested requires** | `lua/core/init.lua:152-226` | **15.33 ms measured** (exclusive, UI, n=1) | before first paint |
-| 2 | `vim.lsp` module tree (7 of the top-14 entries are `vim.lsp*`: lsp, log, util, protocol, _changetracking, rpc, client) | reached from config's LSP setup; `core.event` at `lua/core/init.lua:168` is the nearest cited site | **≈12.6 ms measured as the sum of the exclusive `vim.lsp*` rows** (6.45+1.72+1.30+1.23+1.03+0.91+0.77) | before first paint |
+| 1 | ~~Whole `load_core` body, excluding nested requires~~ **REFUTED as an exclusive figure** | `lua/core/init.lua:152-226` | **Refuted:** exclusive is **1.15 ms** (the non-require items). The 15.33 ms figure is `core.distro.setup`, which is **inclusive** of its own nested requires — mislabelled one level up. Replacement measurement in §4.1 | before first paint |
+| 2 | ~~`vim.lsp` module tree~~ **REFUTED — does not load at startup** | `lspgate.json`: `at_startup=[]`, `at_vimenter=[]`; 0 `vim.lsp*` in `package.loaded`; 0 hits in real `--startuptime` | **0.000 ms on the startup path.** All `vim.lsp` use in `lua/core/event.lua:57-77` is inside `LspAttach` handlers | not on startup path |
 | 3 | `require("keymap")` | `lua/core/init.lua:170` | **2.49 ms measured** (exclusive) | before first paint |
 | 4 | `require("core.event")` | `lua/core/init.lua:168` | **1.73 ms measured** (exclusive) | before first paint |
 | 5 | `createdir()` — 5 × `vim.fn.isdirectory` + conditional `mkdir` | `lua/core/init.lua:3-21`, called `:153` | <0.1 ms estimated — 5 cached stat calls on an existing cache dir | before first paint |
@@ -240,6 +257,61 @@ high confidence, but I did **not** isolate a clean per-deferred-item cost — my
 carry no independent number.
 
 ---
+
+### 4.1 REPLACEMENT measurement — where the 24.6 ms actually goes
+
+The §3.3 attribution is retired (see its banner). The figures below come from a
+**different instrument**: `vim.uv.hrtime()` wrappers placed around each statement in
+`load_core` (`/tmp/nvim31/loadcore.prof`) and inside `distro.setup`
+(`/tmp/nvim31/distro.prof`). These are **inclusive** per-call times from a direct
+measurement, not inferred from a require-graph. n=1 session, UI attached, same host.
+
+**Machine: MacBookPro18,1 / M1 Pro / nvim v0.12.5. n=1. Labelled n=1 — a ranking, not a
+±0.1 ms claim.**
+
+`load_core` budget, summing to **25.09 ms**:
+
+| call | ms | note |
+|---|---|---|
+| `core.distro.setup` | **14.993** | inclusive; see its own breakdown |
+| `require("keymap")` | 5.113 | |
+| `require("core.event")` | 3.138 | |
+| `require("core.options")` | 0.766 | |
+| `clipboard_config` | 0.619 | 2× `vim.fn.executable`, no spawn |
+| `core.weak_hw.setup` | 0.271 | |
+| theme palette require | 0.194 | the *palette module*, not the plugin |
+| everything else | ~0.06 | createdir, leader_map, gui/neovide/shell, term_guard, turbo, perf |
+
+**Non-require work in `load_core` is 1.15 ms total — not 15.33 ms.** That is the exclusive
+figure the retired table claimed. The 15.33 ms in the old §4 row 1 is
+`core.distro.setup`'s *inclusive* time, mislabelled one level up.
+
+`core.distro.setup` decomposes, and this is the actual finding:
+
+| call | ms |
+|---|---|
+| **`load:black-metal-theme-neovim`** | **11.992** |
+| `distro.init.setup` | 0.623 |
+| `require distro.loader` | 0.352 |
+| `load:nvim-web-devicons` | 0.044 |
+| `loader.boot` TOTAL | 13.481 |
+
+**A single `M.load("black-metal-theme-neovim")` call in `lua/distro/loader.lua:353`
+(the `kind == "start"` loop in `boot()`) costs 11.99 ms — 49% of the entire 24.6 ms
+overhead over the `-u NONE` floor.** The palette require is 0.194 ms; the cost is the
+plugin's own load, not our Lua.
+
+**Projected effect of deferring it past first paint** (arithmetic from the measured 37.4 ms
+and 12.8 ms floor, not a new measurement):
+
+| cut | ms | projected ours | projected ratio |
+|---|---|---|---|
+| theme only | 11.99 | 25.41 | **1.98×** |
+| theme + keymap | 17.11 | 20.29 | 1.59× |
+| theme + keymap + core.event | 20.24 | 17.16 | 1.34× |
+
+All three clear the 2.5× threshold. These are **projections from n=1**, not achieved
+numbers — a before/after measurement on a live UI is still owed and is the next task.
 
 ## 5. COLD vs WARM — reported as two separate numbers, never averaged
 
