@@ -206,7 +206,7 @@ local function check_theme()
     end
 
     local groups = { "Normal", "Comment", "Keyword", "String", "Function", "Type",
-        "DiagnosticError", "GitSignsAdd", "DapBreakpoint", "DapStopped" }
+        "DiagnosticError", "GitSignsAdd" }
     local missing = {}
     for _, g in ipairs(groups) do
         local hl = vim.api.nvim_get_hl(0, { name = g })

@@ -1,4 +1,4 @@
--- Go: go.nvim (дебаг через dlv в терминале, dap-плагины удалены)
+-- Go: go.nvim (дебаг — dlv в терминале; DAP-стек вырезан как неиспользуемый).
 -- silent! у тестов: go.nvim спамит Press-ENTER при отсутствии теста,
 -- результат всё равно виден в quickfix.
 local map = vim.keymap.set

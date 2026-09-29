@@ -192,7 +192,6 @@ function autocmd.load_autocmds()
 		ft = {
 			{ "FileType", "*", "setlocal formatoptions-=cro" },
 			{ "FileType", "markdown", "setlocal wrap" },
-			{ "FileType", "dap-repl", "lua require('dap.ext.autocompl').attach()" },
 			{
 				"FileType",
 				"c,cpp",
