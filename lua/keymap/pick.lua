@@ -491,7 +491,15 @@ _G._pick_lsp = function(scope, opts)
 				if item then
 					local cur = vim.api.nvim_win_get_cursor(0)
 					if vim.api.nvim_get_current_buf() == req_buf and cur[1] == req_pos[1] and cur[2] == req_pos[2] then
-						vim.cmd.edit(vim.fn.fnameescape(item.filename))
+						pcall(vim.cmd, "normal! m'") -- <C-o> назад после прыжка
+						local same = item.bufnr == req_buf
+							or item.filename == vim.api.nvim_buf_get_name(req_buf)
+						if not same then
+							-- NOTE: :edit на ТОТ ЖЕ файл шлёт LspDetach (0.12) и
+							-- будит GoplsWatchdog ложным рестартом — тот же буфер
+							-- не перезагружаем, только двигаем курсор.
+							vim.cmd.edit(vim.fn.fnameescape(item.filename))
+						end
 						pcall(vim.api.nvim_win_set_cursor, 0, { item.lnum, item.col - 1 })
 						return
 					end
@@ -542,4 +550,79 @@ _G._pick_grep_visual = function()
 		return
 	end
 	pick.builtin.grep({ pattern = text, method = "plain" })
+end
+
+-- Warm-предзагрузка mini.pick/mini.extra на первом idle (§5b.1 speed-program).
+-- Первый gd в сессии тянул mini.nvim холодным через loader (до ~121 модуля);
+-- греем один раз заранее, чтобы первый gd почти всегда был тёплым.
+-- Два триггера, кто первый — тот и греет (одноразовый флаг):
+--   1) VimEnter +300мс таймер (аналог loader idle-preload для nvim-cmp);
+--   2) CursorHold один раз (первая пауза пользователя).
+-- Образец warm: modules/configs/completion/lsp.lua (InsertEnter per-buffer
+-- флаг + schedule); здесь флаг глобальный одноразовый — пикер один на сессию.
+-- headless/SYNC — возврат без прогрева (детерминизм: первый gd грузит сам,
+-- синхронно как раньше); lean/weak — тоже warm (дёшево, один раз).
+-- mini.nvim отсутствует — тихий return, ноль notify (pcall везде).
+local _pick_warmed = false
+
+local function _pick_warm()
+	if _pick_warmed then
+		return
+	end
+	_pick_warmed = true
+	if vim.env.NVIM_DISTRO_SYNC == "1" then
+		return
+	end
+	if #vim.api.nvim_list_uis() == 0 then
+		return
+	end
+	pcall(function()
+		require("distro.loader").load("mini.nvim")
+	end)
+	pcall(require, "mini.pick")
+	pcall(require, "mini.extra")
+end
+
+do
+	local grp = vim.api.nvim_create_augroup("PickWarm", { clear = true })
+	-- 1) первая пауза пользователя (CursorHold один раз)
+	vim.api.nvim_create_autocmd("CursorHold", {
+		group = grp,
+		once = true,
+		desc = "pick: warm mini.pick/mini.extra on first idle",
+		callback = function()
+			vim.schedule(_pick_warm)
+		end,
+	})
+	-- 2) 300мс после входа (таймер останавливается на VimLeavePre, как в loader.boot)
+	local warm_timer = vim.uv.new_timer()
+	local function warm_later()
+		warm_timer:start(300, 0, vim.schedule_wrap(function()
+			_pick_warm()
+		end))
+	end
+	vim.api.nvim_create_autocmd("VimEnter", {
+		group = grp,
+		once = true,
+		desc = "pick: warm mini.pick/mini.extra 300ms after enter",
+		callback = warm_later,
+	})
+	-- pick.lua грузится из keymap/init при старте (до VimEnter), но страховка
+	-- от позднего require: если вход уже был — таймер сразу.
+	if vim.v.vim_did_enter ~= 0 then
+		warm_later()
+	end
+	vim.api.nvim_create_autocmd("VimLeavePre", {
+		group = grp,
+		once = true,
+		desc = "pick: cancel warm timer",
+		callback = function()
+			pcall(function()
+				warm_timer:stop()
+			end)
+			pcall(function()
+				warm_timer:close()
+			end)
+		end,
+	})
 end
