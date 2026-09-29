@@ -65,13 +65,24 @@ function M.lsp(buf)
 	-- Без префикс-конфликтов: ни один маппинг не является началом другого,
 	-- поэтому всё срабатывает мгновенно, без ожидания timeoutlen.
 	-- Встроенные дефолты grr/gri/gra удаляем глобально в keymap/init.lua.
-	map("n", "<leader>li", ":LspInfo<CR>", { buffer = buf, silent = true, desc = "lsp: Info" })
-	map(
-		"n",
-		"<leader>lr",
-		":LspRestart<CR>",
-		{ buffer = buf, silent = true, nowait = true, desc = "lsp: Restart" }
-	)
+	map("n", "<leader>li", function()
+		-- :LspInfo не существует на 0.12 (lspconfig early-return при builtin :lsp).
+		vim.cmd("checkhealth vim.lsp")
+	end, { buffer = buf, silent = true, desc = "lsp: Info" })
+	map("n", "<leader>lr", function()
+		-- Свой рестарт вместо мёртвого :LspRestart: стопаем клиентов буфера,
+		-- перезагрузка буфера притянет их обратно через FileType-автокоманды.
+		for _, c in ipairs(vim.lsp.get_clients({ bufnr = buf })) do
+			vim.lsp.stop_client(c.id)
+		end
+		vim.defer_fn(function()
+			if vim.api.nvim_buf_is_valid(buf) then
+				vim.api.nvim_buf_call(buf, function()
+					vim.cmd("edit")
+				end)
+			end
+		end, 300)
+	end, { buffer = buf, silent = true, nowait = true, desc = "lsp: Restart" })
 	map("n", "gO", function()
 		_pick_lsp("document_symbol")
 	end, { buffer = buf, silent = true, desc = "lsp: Document symbols" })
@@ -129,11 +140,12 @@ function M.lsp(buf)
 		_toggle_inlayhint()
 	end, { buffer = buf, noremap = true, silent = true, desc = "lsp: Toggle inlay hints" })
 	map("n", "<leader>cl", function()
-		-- Линзы могли не успеть подгрузиться: рефрешим и ждём,
+		-- Линзы могли не успеть подгрузиться: включаем провайдер и ждём,
 		-- иначе run молча ничего не делает. Курсор — на тест-функции.
-		vim.lsp.codelens.refresh()
+		-- NOTE: refresh()/get(bufnr) deprecated в 0.12 (см. :h vim.lsp.codelens).
+		pcall(vim.lsp.codelens.enable, true, { bufnr = buf })
 		vim.defer_fn(function()
-			local lenses = vim.lsp.codelens.get(0)
+			local lenses = vim.lsp.codelens.get()
 			if #(lenses or {}) == 0 then
 				vim.notify(
 					"[lsp] no codelens here (cursor on Test func? try :GoTestFunc)",
@@ -168,7 +180,7 @@ function M.lsp(buf)
 					codelens_timer:stop()
 					codelens_timer:start(500, 0, vim.schedule_wrap(function()
 						if vim.api.nvim_buf_is_valid(buf) then
-							pcall(vim.lsp.codelens.refresh)
+							pcall(vim.lsp.codelens.enable, true, { bufnr = buf })
 						end
 					end))
 				end

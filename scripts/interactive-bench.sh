@@ -71,7 +71,7 @@ def gen(path, n_lines, seed):
     mods = ["sync", "context", "errors", "fmt", "io", "time", "sort", "strings", "encoding/json",
             "math", "os", "bytes", "strconv", "path/filepath", "hash/fnv", "log/slog"]
 
-    w("package %s\n\n" % rnd.choice(pkgs))
+    w("package %s\n\n" % rnd.choice(pkgs).split("/")[-1])
     used = rnd.sample(mods, 5)
     w("import (\n")
     for m in used:
@@ -162,6 +162,15 @@ if [ ! -s "$CORPUS/small_1k.go" ]; then
 	gen_go "$CORPUS/large_12k.go" 12000 42
 	echo "corpus:"
 	wc -l "$CORPUS/small_1k.go" "$CORPUS/large_12k.go"
+fi
+
+# gopls needs a module, otherwise it stays in degraded single-file mode
+# ("No packages found") and every Go measurement times out instead of
+# measuring the distro. Imports inside the corpus are intentionally fake —
+# the server stays alive and answers local queries, which is what we bench.
+if [ ! -s "$CORPUS/go.mod" ]; then
+	printf 'module benchcorpus\n\ngo 1.21\n' >"$CORPUS/go.mod"
+	echo "corpus: wrote $CORPUS/go.mod"
 fi
 
 file_for_size() {

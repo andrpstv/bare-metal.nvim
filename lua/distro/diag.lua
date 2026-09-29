@@ -1063,13 +1063,7 @@ local function run_diag()
 	end
 end
 
-vim.api.nvim_create_user_command("DistroDiag", run_diag, {
-	nargs = "?",
-	desc = "distro: consumer diagnostic (LspAttach, paths, timings)",
-	complete = function()
-		return {}
-	end,
-})
-
+-- NOTE: :DistroDiag регистрируется в distro/init.lua (единая точка регистрации
+-- команд). Здесь регистрации нет осознанно — раньше был дубль.
 M.run = run_diag
 return M

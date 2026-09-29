@@ -1,13 +1,10 @@
 -- Small _G toggles used by keymaps (flash/noh, inlay-hint, virtlines, quickfix).
+-- NOTE: предикат через flash.plugins.char.state убран осознанно: state — всегда
+-- truthy-таблица, а не признак активного прыжка, поэтому ветка noh была
+-- недостижима и подсветка поиска не гасилась. Свой Esc flash гасит сам
+-- (on_key в char.lua), здесь только noh.
 _G._flash_esc_or_noh = function()
-	local flash_active, state = pcall(function()
-		return require("flash.plugins.char").state
-	end)
-	if flash_active and state then
-		state:hide()
-	else
-		pcall(vim.cmd.noh)
-	end
+	pcall(vim.cmd.noh)
 end
 
 _G._toggle_inlayhint = function()

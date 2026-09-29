@@ -1,10 +1,19 @@
 return function()
 	local utils = require("modules.utils")
 
+	local settings = require("core.settings")
+
+	-- Дефолт диагностики — из settings, а не захардкожен: diagnostics_virtual_lines
+	-- переключает virtual_text/virtual_lines, diagnostics_level задаёт min severity.
+	local virt_lines = settings.diagnostics_virtual_lines
+	local sev_min = (vim.diagnostic.severity or {})[settings.diagnostics_level or "HINT"]
+		or vim.diagnostic.severity.HINT
 	vim.diagnostic.config({
-		signs = true,
-		underline = true,
-		virtual_text = true,
+		signs = { severity = { min = sev_min } },
+		underline = { severity = { min = sev_min } },
+		virtual_text = (not virt_lines) and { severity = { min = sev_min } } or false,
+		virtual_lines = virt_lines and { only_current_line = true } or false,
+		severity_sort = true,
 		update_in_insert = false,
 	})
 

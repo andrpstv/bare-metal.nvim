@@ -122,7 +122,9 @@ local function _stl_human_size()
 		out = fsize .. suffix[1]
 	else
 		local i = math.floor(math.log(fsize) / math.log(1024))
-		out = string.format("%.2g%s", fsize / math.pow(1024, i), suffix[i + 1])
+		-- %g давал экспоненту ("2.3e+02k" на 6002-строчном go): фиксированный
+		-- формат с отрезанием ".0".
+		out = string.format("%.1f", fsize / math.pow(1024, i)):gsub("%.0$", "") .. suffix[i + 1]
 	end
 	-- держим кэш маленьким (32 последних), таблицу не сносим целиком
 	_stl_size_cache[key] = out
@@ -189,7 +191,7 @@ pcall(vim.api.nvim_create_autocmd, { "LspAttach", "LspDetach" }, {
 		_stl_lsp_cache[args.buf] = nil
 	end,
 })
-pcall(vim.api.nvim_create_autocmd, { "BufWritePost", "FocusGained", "BufEnter" }, {
+pcall(vim.api.nvim_create_autocmd, { "BufWritePost", "FocusGained", "BufEnter", "CursorHold" }, {
 	group = _stl_augroup,
 	callback = function(args)
 		_stl_git_cache[args.buf] = nil
@@ -233,7 +235,6 @@ _G._statusline = function()
 				parts[#parts + 1] = "%#DiagnosticError#[-]%*"
 			end
 		end
-		parts[#parts + 1] = "%<"
 		-- Диагностика: читаем кэш DiagnosticChanged (никаких get() на redraw).
 		-- TURBO (T6): на промахе кэша fallback get() пропускаем и кладём нули.
 		-- Кэшируем: DiagnosticChanged для буфера БЕЗ диагностики не приходит,
@@ -273,6 +274,9 @@ _G._statusline = function()
 		if #names > 0 then
 			parts[#parts + 1] = " [" .. table.concat(names, " ") .. "]"
 		end
+		-- Truncation point — ПОСЛЕ серверов: раньше голый %< перед длинным
+		-- путём съедал "[lua_ls]" до "<ua_ls]".
+		parts[#parts + 1] = "%<"
 		parts[#parts + 1] = "%="
 		-- Ruler + git (cached) + meta.
 		parts[#parts + 1] = "%5(%l:%c%) "

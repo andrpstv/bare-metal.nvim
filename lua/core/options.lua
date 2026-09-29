@@ -2,7 +2,6 @@ local global = require("core.global")
 
 local function load_options()
 	local options = {
-		-- viewdir = global.cache_dir .. "/view/",
 		autoread = true,
 		autowrite = true,
 		backspace = "indent,eol,start",

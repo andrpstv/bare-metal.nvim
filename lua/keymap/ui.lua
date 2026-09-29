@@ -23,11 +23,12 @@ map("t", "<C-w>l", "<Cmd>wincmd l<CR>", { noremap = true, silent = true, desc = 
 map("t", "<C-w>j", "<Cmd>wincmd j<CR>", { noremap = true, silent = true, desc = "window: Focus down" })
 map("t", "<C-w>k", "<Cmd>wincmd k<CR>", { noremap = true, silent = true, desc = "window: Focus up" })
 
--- Builtins: Tabpage
-map("n", "tn", ":tabnew<CR>", { noremap = true, silent = true, desc = "tab: Create a new tab" })
-map("n", "tk", ":tabnext<CR>", { noremap = true, silent = true, desc = "tab: Move to next tab" })
-map("n", "tj", ":tabprevious<CR>", { noremap = true, silent = true, desc = "tab: Move to previous tab" })
-map("n", "to", ":tabonly<CR>", { noremap = true, silent = true, desc = "tab: Only keep current tab" })
+-- Builtins: Tabpage. На <leader>t*: голые tn/tk/tj/to перехватывали till-motion
+-- (t+n открывал таб вместо прыжка к "n"), молча ломая базовый моушен.
+map("n", "<leader>tn", ":tabnew<CR>", { noremap = true, silent = true, desc = "tab: Create a new tab" })
+map("n", "<leader>tk", ":tabnext<CR>", { noremap = true, silent = true, desc = "tab: Move to next tab" })
+map("n", "<leader>tj", ":tabprevious<CR>", { noremap = true, silent = true, desc = "tab: Move to previous tab" })
+map("n", "<leader>to", ":tabonly<CR>", { noremap = true, silent = true, desc = "tab: Only keep current tab" })
 
 -- Буферы: встроенные :bnext/:bprevious/:bd (barbar удалён)
 map("n", "<A-q>", ":bd<CR>", { noremap = true, silent = true, desc = "buffer: Close current" })

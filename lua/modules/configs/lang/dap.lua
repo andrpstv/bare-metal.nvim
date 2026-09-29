@@ -1,4 +1,4 @@
--- ТЕСТ (не коммитить итог без ок): DAP для Go через delve, классический UI.
+-- DAP для Go через delve, классический UI.
 -- Снос: удалить этот файл + блок nvim-dap из plugins/lang.lua + `:DistroClean`.
 return function()
 	local dap = require("dap")

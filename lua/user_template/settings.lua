@@ -2,7 +2,9 @@
 local settings = {}
 
 -- Examples
-settings["use_ssh"] = true
+-- false осознанно: плагины склонированы по HTTPS, по SSH установка новых
+-- падает с Permission denied (см. core/settings.lua).
+settings["use_ssh"] = false
 
 settings["colorscheme"] = "catppuccin"
 

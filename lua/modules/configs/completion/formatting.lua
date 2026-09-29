@@ -48,8 +48,10 @@ function M.disable_format_on_save()
 end
 
 function M.toggle_format_on_save()
-	local autocmds = vim.api.nvim_get_autocmds({ group = "format_on_save", event = "BufWritePre" })
-	if #autocmds > 0 then
+	-- disable() удаляет augroup целиком, поэтому читать её без pcall нельзя:
+	-- каждое второе нажатие падало с Invalid 'group'.
+	local ok, autocmds = pcall(vim.api.nvim_get_autocmds, { group = "format_on_save", event = "BufWritePre" })
+	if ok and #autocmds > 0 then
 		M.disable_format_on_save()
 	else
 		M.enable_format_on_save()

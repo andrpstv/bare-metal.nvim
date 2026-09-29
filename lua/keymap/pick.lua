@@ -525,14 +525,16 @@ _G._pick_lsp = function(scope, opts)
 end
 
 ---Grep по визуальному выделению (первая строка, буквально).
+---NOTE: map("v",...) вызывает функцию уже ПОСЛЕ выхода из visual, поэтому
+---getpos("v")/visualmode() пусты. Берём метки '< и '> — они живут дольше режима.
 _G._pick_grep_visual = function()
 	local pick = _pick_ensure()
 	if not pick then
 		return
 	end
-	local a = vim.fn.getpos("v")
-	local b = vim.fn.getpos(".")
-	local ok, lines = pcall(vim.fn.getregion, a, b, { type = vim.fn.visualmode() })
+	local a = vim.fn.getpos("'<")
+	local b = vim.fn.getpos("'>")
+	local ok, lines = pcall(vim.fn.getregion, a, b, { type = "v" })
 	local text = ok and lines and lines[1] or nil
 	text = text and text:match("^%s*(.-)%s*$") or ""
 	if text == "" then

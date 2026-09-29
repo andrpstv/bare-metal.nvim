@@ -4,7 +4,6 @@ local global = require("core.global")
 local createdir = function()
 	local data_dirs = {
 		global.cache_dir .. "/backup",
-		global.cache_dir .. "/session",
 		global.cache_dir .. "/swap",
 		global.cache_dir .. "/tags",
 		global.cache_dir .. "/undo",
@@ -23,11 +22,6 @@ end
 
 local leader_map = function()
 	vim.g.mapleader = " "
-	-- NOTE:
-	--  > Uncomment the following if you're using a <leader> other than <Space>, and you wish
-	--  > to disable advancing one character by pressing <Space> in normal/visual mode.
-	-- vim.api.nvim_set_keymap("n", " ", "", { noremap = true })
-	-- vim.api.nvim_set_keymap("x", " ", "", { noremap = true })
 end
 
 local gui_config = function()
