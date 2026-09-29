@@ -306,14 +306,14 @@ end
 --- Perf: synchronously drain everything deferred so far (scheduled kicks
 --- + idle queue). Idempotent: M.load short-circuits on M.loaded, and the
 --- still-queued vim.schedule callbacks become no-ops afterwards.
---- Called by :PerfDeferOff/:TurboOff (core.perf). Zero network by construction.
+--- Called by :PerfDeferOff (core.perf). Zero network by construction.
 function M.drain_all()
 	for name in pairs(pending) do
 		pending[name] = nil
 		M.load(name)
 	end
 	drain_idle()
-	-- Гейт одноразовый только до :PerfDeferOff/:TurboOff — возвращаем его в исходное
+	-- Гейт одноразовый только до :PerfDeferOff — возвращаем его в исходное
 	-- «не сработал» состояние, иначе все последующие defer_until_idle
 	-- грузились бы сразу и навсегда мимо очереди «не парсить при наборе».
 	idle_fired = false

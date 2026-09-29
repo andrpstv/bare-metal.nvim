@@ -43,7 +43,7 @@ function M.defer_on()
 	if vim.env.NVIM_TURBO == "1" or vim.env.NVIM_TURBO_MODE == "1" then
 		return #vim.api.nvim_list_uis() > 0
 	end
-	-- Session overrides (init.lua ставит рано, :TurboOn/:PerfDeferOn — в сессии).
+	-- Session overrides (init.lua ставит рано, :PerfDeferOn — в сессии).
 	if vim.g.perf_defer == false or vim.g.perf_defer == 0 then
 		return false
 	end
@@ -55,7 +55,7 @@ function M.defer_on()
 		return #vim.api.nvim_list_uis() > 0
 	end
 	if vim.g.turbo == false or vim.g.turbo == 0 then
-		-- Явный :TurboOff в сессии гасит defer даже при perf_defer=true.
+		-- Явный отказ в сессии гасит defer даже при perf_defer=true.
 		return false
 	end
 	local s = get_settings()
@@ -96,7 +96,7 @@ function M.lean_on()
 		return true
 	end
 	if vim.g.weak_hw == false or vim.g.weak_hw == 0 then
-		-- Явный :WeakHwOff гасит lean, если нет явного perf_lean=true выше.
+		-- Явный отказ гасит lean, если нет явного perf_lean=true выше.
 		-- Проверяем settings ниже только если нет явного vim.g.perf_lean.
 		local s0 = get_settings()
 		if s0 ~= nil and (s0.perf_lean == true) then
@@ -218,7 +218,7 @@ function M.defer_enable()
 	vim.notify("[perf] DEFER ON — applies to future loads (new buffers)", vim.log.levels.INFO)
 end
 
---- Выключить defer + синхронно слить отложенное (как старый :TurboOff).
+--- Выключить defer + синхронно слить отложенное.
 function M.defer_disable()
 	vim.g.perf_defer = false
 	vim.g.turbo = false
@@ -243,10 +243,10 @@ function M.lean_enable()
 	vim.g.weak_hw = true
 	-- Мутации применяются ПОСЛЕ установки флага, иначе lean_axis() вернёт false.
 	apply_lean_axes()
-	-- Старый weak_hw включал и turbo-ось: сохраняем контракт — lean тянет defer.
-	-- perf_defer и так true по умолчанию, но явный :WeakHwOn должен чинить
-	-- предшествующий :TurboOff/:PerfDeferOff. Исключение: legacy
-	-- weak_hw_axes.turbo=false — тогда defer НЕ тянем (старый axes().turbo).
+	-- lean тянет defer (старый контракт weak_hw): perf_defer и так true
+	-- по умолчанию, но явный :PerfLeanOn должен чинить предшествующий
+	-- :PerfDeferOff. Исключение: legacy weak_hw_axes.turbo=false —
+	-- тогда defer НЕ тянем.
 	local turbo_off = type(s) == "table"
 		and type(s.weak_hw_axes) == "table"
 		and s.weak_hw_axes.turbo == false
@@ -259,7 +259,7 @@ function M.lean_enable()
 	)
 end
 
---- Выключить lean и синхронно слить отложенное (как старый :WeakHwOff).
+--- Выключить lean и синхронно слить отложенное.
 function M.lean_disable()
 	vim.g.perf_lean = false
 	vim.g.weak_hw = false
@@ -307,24 +307,25 @@ function M.status()
 end
 
 function M.setup()
-	-- Канонические команды 4->2 (алиасы к :Turbo* / :WeakHw*): комменты
-	-- loader.lua / black-metal-khold.lua ссылаются на эти имена.
+	-- Канонические команды perf (единственные; :Turbo*/:WeakHw* удалены).
+	-- Env-алиасы прошлого (NVIM_TURBO, NVIM_TURBO_MODE, NVIM_WEAK_HW) читаются
+	-- в defer_on()/lean_on() и статусах ниже — совместимость без шимов.
 	vim.api.nvim_create_user_command("PerfDeferOn", function()
 		M.defer_enable()
-	end, { desc = "perf: enable defer for future loads (alias of :TurboOn)" })
+	end, { desc = "perf: enable defer for future loads" })
 	vim.api.nvim_create_user_command("PerfDeferOff", function()
 		M.defer_disable()
-	end, { desc = "perf: disable + drain deferred work synchronously (alias of :TurboOff)" })
+	end, { desc = "perf: disable + drain deferred work synchronously" })
 	vim.api.nvim_create_user_command("PerfDeferStatus", function()
 		local env = vim.env.NVIM_PERF_DEFER or vim.env.NVIM_TURBO or vim.env.NVIM_TURBO_MODE or "-"
 		vim.notify(M.defer_status() .. " (env=" .. env .. ")", vim.log.levels.INFO)
 	end, { desc = "perf: show defer ON/OFF (no side effects)" })
 	vim.api.nvim_create_user_command("PerfLeanOn", function()
 		M.lean_enable()
-	end, { desc = "perf: enable lean preset for future loads (alias of :WeakHwOn)" })
+	end, { desc = "perf: enable lean preset for future loads" })
 	vim.api.nvim_create_user_command("PerfLeanOff", function()
 		M.lean_disable()
-	end, { desc = "perf: disable lean + drain deferred work (alias of :WeakHwOff)" })
+	end, { desc = "perf: disable lean + drain deferred work" })
 	vim.api.nvim_create_user_command("PerfLeanStatus", function()
 		local env = vim.env.NVIM_PERF_LEAN or vim.env.NVIM_WEAK_HW or "-"
 		vim.notify(M.lean_status() .. " (env=" .. env .. ")", vim.log.levels.INFO)

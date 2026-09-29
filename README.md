@@ -134,7 +134,7 @@ go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
 ```lua
 -- lua/user/settings.lua
-settings["colorscheme"] = "catppuccin"
+settings["colorscheme"] = "khold"
 settings["format_on_save"] = false
 settings["treesitter_deps"] = { "lua", "go", "rust" }  -- сузить набор парсеров
 ```
@@ -143,7 +143,7 @@ settings["treesitter_deps"] = { "lua", "go", "rust" }  -- сузить набо�
 
 ## Команды
 
-Всего 25 пользовательских команд. Самые нужные:
+Всего 21 пользовательская команда (проверяется smoke-test.sh). Самые нужные:
 
 | Команда | Что делает |
 | --- | --- |
@@ -161,8 +161,8 @@ settings["treesitter_deps"] = { "lua", "go", "rust" }  -- сузить набо�
 | `:DistroClean` | удалить лишнее из кэша пакетов |
 | `:Format` / `:FormatToggle` | форматировать / переключить format-on-save |
 | `:FormatterToggleFt <lang>` | отключить формат для одного языка |
-| `:WeakHwOn` / `:WeakHwOff` | пресет для слабого железа |
-| `:TurboOn` / `:TurboOff` | отложить тяжёлое (полезно на больших проектах) |
+| `:PerfLeanOn` / `:PerfLeanOff` | пресет для слабого железа |
+| `:PerfDeferOn` / `:PerfDeferOff` | отложить тяжёлое (полезно на больших проектах) |
 
 ## Хоткеи
 
@@ -207,8 +207,8 @@ settings["treesitter_deps"] = { "lua", "go", "rust" }  -- сузить набо�
 Медленный старт или зависание обычно лечится одним из трёх:
 
 1. `:DistroBench` — показывает, сколько стоит открытие, и сравнивает с чистым Neovim.
-2. `:TurboOn` — откладывает тяжёлое (результат придёт позже, но первый кадр быстрее).
-3. `:WeakHwOn` — пресет для слабого железа: выключает фоновые анализы gopls,
+2. `:PerfDeferOn` — откладывает тяжёлое (результат придёт позже, но первый кадр быстрее).
+3. `:PerfLeanOn` — пресет для слабого железа: выключает фоновые анализы gopls,
    линзы и прочие тяжёлые фоновые вещи.
 
 ## Структура

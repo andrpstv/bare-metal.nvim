@@ -209,13 +209,7 @@ local load_core = function()
 	vim.api.nvim_create_user_command("ConfigHealth", function()
 		vim.cmd("checkhealth core")
 	end, { desc = "config: environment preflight (binaries, LSP, theme, keys)" })
-	require("core.turbo").setup()
-	-- perf: канонические команды :PerfDefer* / :PerfLean* (алиасы к Turbo/WeakHw).
 	require("core.perf").setup()
-	-- weak-hw: команды пресета слабого железа (:WeakHwOn/:WeakHwOff/:WeakHwStatus).
-	-- Регистрация не имеет побочных эффектов и ничего не включает: сам пресет
-	-- остаётся opt-in через settings.weak_hw / :WeakHwOn / NVIM_WEAK_HW=1.
-	require("core.weak_hw").setup()
 end
 
 -- netrw НЕ отключаем: встроенный проводник доступен через :Ex / :Vex.

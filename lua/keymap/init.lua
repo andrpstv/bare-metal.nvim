@@ -14,10 +14,7 @@ map("n", "<leader>ps", cr("DistroCheck"), { noremap = true, silent = true, nowai
 map("n", "<leader>pu", cr("DistroUpdate"), { noremap = true, silent = true, nowait = true, desc = "package: Update" })
 map("n", "<leader>pi", cr("DistroInstall"), { noremap = true, silent = true, nowait = true, desc = "package: Install" })
 map("n", "<leader>pl", cr("DistroParsers"), { noremap = true, silent = true, nowait = true, desc = "package: Parsers" })
-map("n", "<leader>pc", cr("DistroCheck"), { noremap = true, silent = true, nowait = true, desc = "package: Check" })
 map("n", "<leader>pd", cr("DistroTools"), { noremap = true, silent = true, nowait = true, desc = "package: Tools" })
-map("n", "<leader>pp", cr("DistroParsers"), { noremap = true, silent = true, nowait = true, desc = "package: Parsers" })
-map("n", "<leader>pr", cr("DistroUpdate"), { noremap = true, silent = true, nowait = true, desc = "package: Update" })
 map("n", "<leader>px", cr("DistroClean"), { noremap = true, silent = true, nowait = true, desc = "package: Clean" })
 
 -- Builtin & Plugin keymaps

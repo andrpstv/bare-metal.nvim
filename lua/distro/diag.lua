@@ -322,12 +322,11 @@ local function header_block()
 	local lean = ok_perf and perf and perf.lean_on and perf.lean_on() or false
 	lines[#lines + 1] = "weak_hw_profile: " .. (lean and "weak" or "off") .. string.format(" (lean_on=%s, cpus=%s)", tostring(lean), tostring(cpu_count))
 
-	local turbo_status = "off"
-	local ok_turbo, turbo_mod = pcall(require, "core.turbo")
-	if ok_turbo and turbo_mod.is_on then
-		turbo_status = turbo_mod.is_on() and "on" or "off"
+	local defer_status = "off"
+	if ok_perf and perf and perf.defer_on then
+		defer_status = perf.defer_on() and "on" or "off"
 	end
-	lines[#lines + 1] = "turbo          : " .. turbo_status
+	lines[#lines + 1] = "defer          : " .. defer_status
 
 	return lines
 end

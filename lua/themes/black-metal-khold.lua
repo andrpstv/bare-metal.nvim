@@ -82,7 +82,7 @@ M.setup = function()
 			-- Live 300ms timer: after :Colorscheme it must die, otherwise a
 			-- dangling callback would repaint someone else's theme with ours.
 			local timer
-			---Synchronous drain for :PerfDeferOff/:TurboOff (core.perf). Idempotent.
+			---Synchronous drain for :PerfDeferOff (core.perf). Idempotent.
 			function M.apply_pending()
 				if done then
 					return
@@ -151,7 +151,7 @@ M.setup = function()
 			pending = false
 			apply_all()
 		end
-		-- :PerfDeferOff/:TurboOff must still be able to flush a pending deferred apply.
+		-- :PerfDeferOff must still be able to flush a pending deferred apply.
 		M.apply_pending = drain
 		vim.defer_fn(drain, M.THEME_DEFER_MS)
 		return

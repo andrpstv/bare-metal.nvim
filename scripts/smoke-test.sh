@@ -168,18 +168,18 @@ else
 fi
 
 # =============================================================== check 3 =====
-# The 9 new modules must require cleanly; print the error text on failure.
+# The 7 new modules must require cleanly; print the error text on failure.
 section "3. new modules require cleanly"
-MODULES="core.turbo core.weak_hw core.term_guard core.git_colors distro.trace distro.tracehooks distro.traceui distro.bench distro.benchui"
+MODULES="core.term_guard core.git_colors distro.trace distro.tracehooks distro.traceui distro.bench distro.benchui"
 MOD_OUT="$(nvim --headless \
 	-c "lua local ms={'${MODULES// /','}'}; for _,m in ipairs(ms) do local ok,e=pcall(require,m); print((ok and 'OK ' or 'FAIL ')..m..(ok and '' or (' '..tostring(e)))) end" \
 	-c 'qa!' 2>&1 | tr -d '\r' || true)"
 MOD_BAD="$(printf '%s\n' "$MOD_OUT" | grep '^FAIL' || true)"
 MOD_COUNT="$(printf '%s\n' "$MOD_OUT" | grep -c '^OK' || true)"
-if [ "$MOD_COUNT" -eq 9 ] && [ -z "$MOD_BAD" ]; then
-	record PASS "9/9 modules require without error"
+if [ "$MOD_COUNT" -eq 7 ] && [ -z "$MOD_BAD" ]; then
+	record PASS "7/7 modules require without error"
 else
-	record FAIL "9/9 modules require without error" "$(printf '%s' "$MOD_BAD" | tr '\n' ' ')"
+	record FAIL "7/7 modules require without error" "$(printf '%s' "$MOD_BAD" | tr '\n' ' ')"
 fi
 
 # =============================================================== check 4 =====
@@ -192,7 +192,7 @@ fi
 #   Two working methods: grep the source for nvim_create_user_command (source
 #   of truth, static) and vim.fn.exists(":Cmd") == 2 (runtime, works in headless
 #   for everything already loaded).
-COMMANDS="ConfigHealth Distro DistroBench DistroBenchUI DistroBinaries DistroCheck DistroClean DistroDiag DistroInstall DistroMirror DistroParsers DistroSetup DistroTools DistroTrace DistroUpdate Format FormatterToggleFt FormatToggle LeaderHelp PairsStatus TreesitterTier TurboOff TurboOn TurboStatus WeakHwOff WeakHwOn WeakHwStatus"
+COMMANDS="ConfigHealth Distro DistroBench DistroBenchUI DistroBinaries DistroCheck DistroClean DistroDiag DistroInstall DistroMirror DistroParsers DistroSetup DistroTools DistroTrace DistroUpdate Format FormatterToggleFt FormatToggle LeaderHelp PairsStatus TreesitterTier"
 CMD_COUNT="$(printf '%s\n' $COMMANDS | wc -l | tr -d ' ')"
 section "4. user commands exist ($CMD_COUNT names)"
 STATIC_MISSING=""

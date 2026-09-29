@@ -169,8 +169,8 @@ diffview для сравнения веток и истории файла.
 | `:DistroTrace` | дерево операций с таймингами |
 | `:DistroDiag` | диагностика подключения LSP |
 | `:DistroMirror` | корпоративное зеркало источников |
-| `:TurboOn` / `:TurboOff` | отложить тяжёлое до первого `InsertEnter` |
-| `:WeakHwOn` / `:WeakHwOff` | облегчённый режим для слабого железа |
+| `:PerfDeferOn` / `:PerfDeferOff` | отложить тяжёлое до первого `InsertEnter` |
+| `:PerfLeanOn` / `:PerfLeanOff` | облегчённый режим для слабого железа |
 
 ---
 
@@ -217,21 +217,23 @@ diffview для сравнения веток и истории файла.
 **2. Отложите тяжёлое.**
 
 ```vim
-:TurboOn
+:PerfDeferOn
 ```
 
 Автодополнение и часть фоновых задач переносятся с первого `:edit` на первый
 `InsertEnter`. Первый кадр становится дешёвым; работа не отменяется, она
-переносится. Постоянно включить — переменная окружения `NVIM_TURBO=1`.
+переносится. Постоянно включить — переменная окружения `NVIM_PERF_DEFER=1`
+(старые `NVIM_TURBO` / `NVIM_TURBO_MODE` тоже читаются).
 
 **3. Облегчённый режим.**
 
 ```vim
-:WeakHwOn
+:PerfLeanOn
 ```
 
 Один переключатель вместо пяти: выключает самые дорогие фоновые анализы gopls
-(fieldalignment, восемь codelens) и прочее. Постоянно — `NVIM_WEAK_HW=1`.
+(fieldalignment, восемь codelens) и прочее. Постоянно — `NVIM_PERF_LEAN=1`
+(старый `NVIM_WEAK_HW=1` тоже читается).
 
 **4. Посмотрите, где именно.**
 
@@ -288,7 +290,7 @@ nvim --headless -c 'checkhealth core' -c 'qa!' # именно с qa!, иначе
 
 ```lua
 -- lua/user/settings.lua
-settings["colorscheme"] = "catppuccin"
+settings["colorscheme"] = "khold"
 settings["format_on_save"] = false
 ```
 
@@ -303,7 +305,7 @@ settings["format_on_save"] = false
 - `cmp_defer_caps` — откладывать автодополнение до первого `InsertEnter`.
   Экономии суммарного времени это не даёт: работа переносится, а не отменяется.
   Оставьте как есть.
-- `weak_hw_axes` — пресет для слабого железа, тот же, что `:WeakHwOn`.
+- `perf_lean_axes` — оси облегчённого режима, тот же, что `:PerfLeanOn`.
 
 Полный список с комментариями — в начале `lua/core/settings.lua`.
 

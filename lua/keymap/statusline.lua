@@ -3,30 +3,24 @@
 -- Цвета — ссылками на группы темы (следуют за сменой colorscheme сами).
 -- PerfDefer-флаг: defer_on() дёргает settings + nvim_list_uis() — на каждый
 -- redraw дорого. Кэшируем по ключу из дешёвых vim.g/vim.env проб; ключ меняется
--- только на PerfDefer toggle (defer_enable/defer_disable пишут vim.g.perf_defer
--- и vim.g.turbo), тогда и пересчитываем. require кэшируется один раз сверху.
+-- только на PerfDefer toggle (defer_enable/defer_disable пишут vim.g.perf_defer),
+-- тогда и пересчитываем. require кэшируется один раз сверху.
 -- В статуслайне UI всегда есть, так что list_uis в ключ не входит.
-local _turbo_ok, _turbo = pcall(require, "core.turbo")
+local _perf_ok, _perf = pcall(require, "core.perf")
 local _stl_defer_key = nil
 local _stl_defer_val = false
 local function _stl_defer_on()
 	local key = tostring(vim.g.perf_defer)
 		.. ":"
-		.. tostring(vim.g.turbo)
-		.. ":"
 		.. tostring(vim.env.NVIM_PERF_DEFER)
-		.. ":"
-		.. tostring(vim.env.NVIM_TURBO)
-		.. ":"
-		.. tostring(vim.env.NVIM_TURBO_MODE)
 		.. ":"
 		.. tostring(vim.env.NVIM_DISTRO_SYNC)
 	if key == _stl_defer_key then
 		return _stl_defer_val
 	end
 	local ok = false
-	if _turbo_ok and _turbo then
-		ok = _turbo.is_on()
+	if _perf_ok and _perf then
+		ok = _perf.defer_on()
 	end
 	_stl_defer_key = key
 	_stl_defer_val = ok

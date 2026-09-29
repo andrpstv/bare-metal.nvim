@@ -6,6 +6,6 @@ local settings = {}
 -- падает с Permission denied (см. core/settings.lua).
 settings["use_ssh"] = false
 
-settings["colorscheme"] = "catppuccin"
+settings["colorscheme"] = "khold"
 
 return settings
