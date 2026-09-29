@@ -196,15 +196,10 @@ local data = {
 		treesitter = "",
 		undefined = "",
 	},
-	aichat = {
-		Chat = "󱜸",
-		Copilot = "",
-		Me = "",
-	},
 }
 
 ---Get a specific icon set.
----@param category "kind"|"type"|"documents"|"git"|"ui"|"diagnostics"|"misc"|"cmp"|"aichat"
+---@param category "kind"|"type"|"documents"|"git"|"ui"|"diagnostics"|"misc"|"cmp"
 ---@param add_space? boolean @Add trailing whitespace after the icon.
 function icons.get(category, add_space)
 	if add_space then
