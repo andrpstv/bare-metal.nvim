@@ -72,6 +72,8 @@ function M.lsp(buf)
 	map("n", "<leader>lr", function()
 		-- Свой рестарт вместо мёртвого :LspRestart: стопаем клиентов буфера,
 		-- перезагрузка буфера притянет их обратно через FileType-автокоманды.
+		-- Флаг — чтобы GoplsWatchdog не принял плановый рестарт за смерть.
+		vim.b[buf].lsp_manual_restart = true
 		for _, c in ipairs(vim.lsp.get_clients({ bufnr = buf })) do
 			vim.lsp.stop_client(c.id)
 		end
@@ -165,11 +167,13 @@ function M.lsp(buf)
 	if require("core.settings").codelens_enabled ~= false and not vim.b[buf].codelens_setup then
 		vim.b[buf].codelens_setup = true
 		local codelens_group = vim.api.nvim_create_augroup("LspCodelensRefresh", { clear = false })
-		-- Один таймер на буфер: шторм BufEnter/InsertLeave не должен слать
-		-- запросы пачками на слабом ПК. Большие файлы скипаем вообще.
+		-- Один таймер на буфер, ТОЛЬКО на сохранении: refresh на BufEnter/
+		-- InsertLeave слал запросы gopls на каждый чих (ввод, прыжки по окнам)
+		-- на слабом ПК. Виртуал-текст линз живёт между сейвами, запуск —
+		-- по <leader>cl. Большие файлы скипаем вообще.
 		local codelens_timer = vim.uv.new_timer()
 		vim.api.nvim_clear_autocmds({ group = codelens_group, buffer = buf })
-		vim.api.nvim_create_autocmd({ "BufEnter", "InsertLeave", "BufWritePost" }, {
+		vim.api.nvim_create_autocmd({ "BufWritePost" }, {
 			group = codelens_group,
 			buffer = buf,
 			callback = function()

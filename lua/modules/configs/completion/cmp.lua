@@ -28,6 +28,10 @@ return function()
 
 	local cmp = require("cmp")
 
+	-- Кэш первых строк сниппетов для format() (см. ниже): сниппеты статичны,
+	-- пересчёт на каждый кейстрок — чистый overhead.
+	local _snip_firstline_cache, _snip_firstline_cache_n = {}, 0
+
 	-- Есть ли слово перед курсором (чтобы Tab открывал меню, а не делал отступ)
 	local has_words_before = function()
 		local line, col = unpack(vim.api.nvim_win_get_cursor(0))
@@ -36,14 +40,14 @@ return function()
 	end
 
 	require("modules.utils").load_plugin("cmp", {
-		-- Ничего не выбрано, пока не нажмёшь Tab: Enter всегда
-		-- перевод строки / выполнение команды, подсказки игнорируются.
-		-- После Tab навигация live-вставляет текст, Enter по-прежнему
-		-- свободен; полный confirm (сниппеты, автоимпорты) — на <C-y>.
-		preselect = cmp.PreselectMode.None,
-		-- Меню всплывает само при печати (ничего не выбрано),
-		-- выбор — только руками через Tab/C-n/C-p.
-		-- keyword_length=2: на слабом ПК не спамим источниками на каждый символ.
+		-- Top-1 подсвечен сразу (как в VS Code): Tab идёт дальше, <C-y> берёт.
+		-- Enter всегда перевод строки / выполнение команды (см. mapping ниже),
+		-- так что preselect ничего не вставляет сам — только подсвечивает.
+		preselect = cmp.PreselectMode.Item,
+		-- Меню всплывает само при печати (top-1 preselect, см. выше),
+		-- подтверждение — только руками через <C-y>, Enter свободен.
+		-- keyword_length=2: на слабом ПК не спамим источниками на каждый символ
+		-- (символ-триггер "." от сервера пробивает лимит сам — см. triggerCharacters).
 		completion = {
 			autocomplete = { cmp.TriggerEvent.TextChanged },
 			keyword_length = 2,
@@ -75,32 +79,45 @@ return function()
 				luasnip = "[SNIP]",
 			}, { __index = function() return "[BTN]" end })[entry.source.name]
 
-			-- Превью сниппета СЛЕВА, рядом с триггером: первая строка тела.
-			-- Правая колонка (menu) остаётся короткой: [SNIP]/[LSP]/[BUF].
-			-- Раскрытие — на <C-y>. (abbr только рисуется, на фильтр не влияет.)
-			if entry.source.name == "luasnip" then
-				local ok, first = pcall(function()
-					local data = entry.completion_item and entry.completion_item.data
-					if not data or not data.snip_id then
-						return nil
-					end
-					local snip = require("luasnip").get_id_snippet(data.snip_id)
-					if not snip then
-						return nil
-					end
-					local doc = snip:get_docstring()
-					local line = type(doc) == "table" and doc[1] or tostring(doc):match("[^\n]*")
-					if not line or line == "" then
-						return nil
-					end
-					line = line:gsub("%s+", " ")
-					-- Чистим плейсхолдеры для читаемости: ${1:type} -> type
-					line = line:gsub("%${%d+:([^}]*)}", "%1"):gsub("%${%d+}", ""):gsub("$0", "")
-					if #line > 50 then
-						line = vim.fn.strcharpart(line, 0, 50) .. "…"
-					end
-					return line
-				end)
+		-- Превью сниппета СЛЕВА, рядом с триггером: первая строка тела.
+		-- Правая колонка (menu) остаётся короткой: [SNIP]/[LSP]/[BUF].
+		-- Раскрытие — на <C-y>. (abbr только рисуется, на фильтр не влияет.)
+		-- PERF: format() бежит на КАЖДЫЙ видимый кандидат при КАЖДОМ кейстроке,
+		-- а get_id_snippet+get_docstring+gsub — дорого. Кэшируем первую строку
+		-- по snip_id (сниппеты статичны в пределах сессии; сброс при >500).
+		if entry.source.name == "luasnip" then
+			local ok, first = pcall(function()
+				local data = entry.completion_item and entry.completion_item.data
+				if not data or not data.snip_id then
+					return nil
+				end
+				local cached = _snip_firstline_cache[data.snip_id]
+				if cached ~= nil then
+					return cached
+				end
+				local snip = require("luasnip").get_id_snippet(data.snip_id)
+				if not snip then
+					return nil
+				end
+				local doc = snip:get_docstring()
+				local line = type(doc) == "table" and doc[1] or tostring(doc):match("[^\n]*")
+				if not line or line == "" then
+					return nil
+				end
+				line = line:gsub("%s+", " ")
+				-- Чистим плейсхолдеры для читаемости: ${1:type} -> type
+				line = line:gsub("%${%d+:([^}]*)}", "%1"):gsub("%${%d+}", ""):gsub("$0", "")
+				if #line > 50 then
+					line = vim.fn.strcharpart(line, 0, 50) .. "…"
+				end
+				_snip_firstline_cache[data.snip_id] = line
+				if _snip_firstline_cache_n > 500 then
+					_snip_firstline_cache, _snip_firstline_cache_n = {}, 0
+				else
+					_snip_firstline_cache_n = _snip_firstline_cache_n + 1
+				end
+				return line
+			end)
 				if ok and first then
 					vim_item.abbr = vim_item.abbr .. "  " .. first
 				end
@@ -172,7 +189,9 @@ return function()
 			{ name = "nvim_lsp", max_item_count = 100 },
 			{ name = "luasnip" },
 			{ name = "path", max_item_count = 20 },
-			{ name = "buffer", max_item_count = 20, option = { get_bufnrs = function()
+			-- PERF: buffer от 3 символов — иначе на каждую букву сканируем
+			-- буферы (дешёво по одному, дорого на каждый кейстрок слабого ПК).
+			{ name = "buffer", keyword_length = 3, max_item_count = 20, option = { get_bufnrs = function()
 				-- Только текущий + уже видимые маленькие буферы: полный скан
 				-- всех буферов на каждый кейстрок убивал слабый ПК.
 				local seen, bufnrs = {}, {}
