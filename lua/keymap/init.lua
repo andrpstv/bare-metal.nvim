@@ -20,6 +20,7 @@ map("n", "<leader>px", cr("DistroClean"), { noremap = true, silent = true, nowai
 -- Builtin & Plugin keymaps
 require("keymap.completion")
 require("keymap.editor")
+require("keymap.go_tools")
 require("keymap.lang")
 require("keymap.tool")
 require("keymap.ui")

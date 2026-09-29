@@ -5,7 +5,7 @@
 
 local M = {}
 
---- All vendored plugins (22). lazy.nvim itself is intentionally excluded.
+--- All vendored plugins (21 + telescope.nvim из каталога). lazy.nvim itself is intentionally excluded.
 M.plugins = {
 	-- UI: eager (needed before anything renders)
 	{ name = "black-metal-theme-neovim", repo = "metalelf0/black-metal-theme-neovim", ref = "3a5522fbc7127c638ac8a98692cb83bbdf3594a9", branch = "main", kind = "start", config = "themes.black-metal-khold", strip = true },
@@ -44,8 +44,7 @@ M.plugins = {
 	{ name = "flash.nvim", repo = "folke/flash.nvim", ref = "5f0f270fdc7c5b0c21d903ee85b9cb06f2ac636a", branch = "main", kind = "opt", event = { "CursorHold", "CursorHoldI" }, config = "editor.flash", strip = true },
 	{ name = "diffview.nvim", repo = "sindrets/diffview.nvim", ref = "4516612fe98ff56ae0415a259ff6361a89419b0a", branch = "main", kind = "opt", cmd = { "DiffviewOpen", "DiffviewClose", "DiffviewFileHistory", "DiffviewRefresh" }, config = "editor.diffview", strip = true, deps = { "plenary.nvim" } },
 	{ name = "plenary.nvim", repo = "nvim-lua/plenary.nvim", ref = "74b06c6c75e4eeb3108ec01852001636d85a932b", branch = "master", kind = "opt", strip = true },
-	-- Tool
-	{ name = "mini.nvim", provides = { "mini.pick", "mini.extra" }, repo = "echasnovski/mini.nvim", ref = "561751e839b99a4baca36b9d963166b66d2536a6", branch = "main", kind = "opt", config = "tool.mini_pick", strip = true },
+	-- Tool (пикеры — telescope.nvim, ставится из каталога :DistroInstall)
 	{ name = "trouble.nvim", repo = "folke/trouble.nvim", ref = "bd67efe408d4816e25e8491cc5ad4088e708a69a", branch = "main", kind = "opt", cmd = { "Trouble", "TroubleToggle", "TroubleRefresh" }, config = "tool.trouble", strip = true, deps = { "nvim-web-devicons" } },
 	-- Lang (Go)
 	{ name = "go.nvim", repo = "ray-x/go.nvim", ref = "f5d1f11d4f616efbe2339286310bb89c4853d769", branch = "master", kind = "opt", defer_idle = true, ft = { "go", "gomod", "gosum" }, build = ":GoInstallBinaries", config = "lang.go", strip = true, deps = { "guihua.lua" } },

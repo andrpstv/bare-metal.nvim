@@ -55,9 +55,15 @@ return function()
 		cmp_caps = TURBO_CMP_CAPS
 		-- Догрузка настоящего cmp: в schedule (не блокирует open) + страховка
 		-- на первый InsertEnter каждого буфера (per-buffer флаг).
-		vim.schedule(function()
-			pcall(require("distro.loader").load, "nvim-cmp")
-		end)
+		-- Греем и luasnip: его vscode-скан friendly-snippets (~7мс) иначе
+		-- прилетает на первое раскрытие сниппета. Headless/SYNC — не греем
+		-- (детерминизм тестов).
+		if vim.env.NVIM_DISTRO_SYNC ~= "1" and #vim.api.nvim_list_uis() > 0 then
+			vim.schedule(function()
+				pcall(require("distro.loader").load, "nvim-cmp")
+				pcall(require, "luasnip")
+			end)
+		end
 		local cmp_grp = vim.api.nvim_create_augroup("TurboCmpCaps", { clear = false })
 		vim.api.nvim_create_autocmd("InsertEnter", {
 			group = cmp_grp,

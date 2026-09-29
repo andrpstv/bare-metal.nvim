@@ -23,8 +23,21 @@ return vim.schedule_wrap(function()
 		return "full"
 	end
 
-	require("modules.utils").load_plugin("nvim-treesitter", {
-		ensure_installed = require("core.settings").treesitter_deps,
+	-- textobjects.init() жил в plugin/*.vim допа, а лоадер при падении
+	-- plugin/ использует packadd! (только rtp) — init бы не выполнился и
+	-- модуль textobjects остался бы без дефолтов: наши keymaps/select/move
+	-- молча игнорировались бы. Вызываем явно: родитель уже в rtp на этом этапе.
+	-- Плюс сброс отравленного кэша: первая попытка require случилась ещё
+	-- внутри упавшего packadd (родителя не было в rtp) и package.loaded
+	-- залип в sentinel "loop or previous error" — повтор без сброса мёртв.
+	package.loaded["nvim-treesitter-textobjects"] = nil
+	local ok_to_init, err_to_init = pcall(function()
+		require("nvim-treesitter-textobjects").init()
+	end)
+	if not ok_to_init then
+		vim.notify("[treesitter] textobjects init failed: " .. tostring(err_to_init):sub(1, 160), vim.log.levels.WARN, { title = "treesitter" })
+	end
+	require("modules.utils").load_plugin("nvim-treesitter", {		ensure_installed = require("core.settings").treesitter_deps,
 		highlight = {
 			enable = true,
 			disable = function(lang, bufnr)

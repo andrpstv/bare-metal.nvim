@@ -199,19 +199,18 @@ function M.run()
 	-- MiniPick.builtin.* is a BLOCKING modal loop, so a plain call would hang
 	-- the bench: queue <Esc> into typeahead first; the loop consumes it right
 	-- after first render and aborts. Measured ~= open + first draw + abort.
-	do
-		local pick_ms = nil
-		if _G._pick ~= nil then
-			local t0 = vim.uv.hrtime()
-			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "t", false)
-			local ok = pcall(_G._pick, "files")
-			if ok then
-				pick_ms = ms(t0)
+		do
+			local pick_ms = nil
+			if _G._pick ~= nil then
+				local t0 = vim.uv.hrtime()
+				vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "t", false)
+				local ok = pcall(_G._pick, "files")
+				if ok then
+					pick_ms = ms(t0)
+				end
+				-- Esc уже в typeahead выше: пикер (telescope) закрывается сам,
+				-- отдельного stop() не нужно.
 			end
-			pcall(function()
-				require("mini.pick").stop()
-			end)
-		end
 		lines[#lines + 1] = string.format(" hotkey files-picker visible:   %s", pick_ms and fmt(pick_ms) or "n/a (pick unavailable)")
 	end
 

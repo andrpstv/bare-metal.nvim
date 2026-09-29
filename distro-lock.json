@@ -103,15 +103,6 @@
     "repo": "ray-x/guihua.lua",
     "tarball": "https://codeload.github.com/ray-x/guihua.lua/tar.gz/4c513d5dac550af77034cced421967b393261509"
   },
-  "mini.nvim": {
-    "installed_at": "2026-09-24T15:52:22Z",
-    "kind": "opt",
-    "previous_ref": null,
-    "ref": "561751e839b99a4baca36b9d963166b66d2536a6",
-    "repo": "echasnovski/mini.nvim",
-    "size_kb": 4422,
-    "tarball": "https://codeload.github.com/echasnovski/mini.nvim/tar.gz/561751e839b99a4baca36b9d963166b66d2536a6"
-  },
   "nvim-cmp": {
     "installed_at": "2026-09-24T14:10:44Z",
     "kind": "opt",
@@ -168,6 +159,15 @@
     "ref": "74b06c6c75e4eeb3108ec01852001636d85a932b",
     "repo": "nvim-lua/plenary.nvim",
     "tarball": "https://codeload.github.com/nvim-lua/plenary.nvim/tar.gz/74b06c6c75e4eeb3108ec01852001636d85a932b"
+  },
+  "telescope.nvim": {
+    "installed_at": "2026-09-29T18:18:20Z",
+    "kind": "opt",
+    "previous_ref": null,
+    "ref": "40aedd8a68c78a656a10a8d62d80c54af59420fb",
+    "repo": "nvim-telescope/telescope.nvim",
+    "size_kb": 1459,
+    "tarball": "https://codeload.github.com/nvim-telescope/telescope.nvim/tar.gz/40aedd8a68c78a656a10a8d62d80c54af59420fb"
   },
   "tools/shfmt": {
     "installed_at": "2026-09-24T15:49:19Z",

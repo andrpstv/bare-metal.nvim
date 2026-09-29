@@ -46,11 +46,12 @@ return function()
 		preselect = cmp.PreselectMode.Item,
 		-- Меню всплывает само при печати (top-1 preselect, см. выше),
 		-- подтверждение — только руками через <C-y>, Enter свободен.
-		-- keyword_length=2: на слабом ПК не спамим источниками на каждый символ
-		-- (символ-триггер "." от сервера пробивает лимит сам — см. triggerCharacters).
+		-- keyword_length=1: меню на КАЖДЫЙ символ (как в VS Code).
+		-- Спам на слабом ПК гасится точечно: buffer-источник от 3 символов,
+		-- docstring сниппетов из кэша, resolve только для видимых.
 		completion = {
 			autocomplete = { cmp.TriggerEvent.TextChanged },
-			keyword_length = 2,
+			keyword_length = 1,
 		},
 		window = {
 			completion = {
@@ -137,6 +138,12 @@ return function()
 		},
 		performance = {
 			async_budget = 2,
+			-- Отзывчивость вместо экономии: короче debounce/throttle —
+			-- меню догоняет печать, а не наоборот. Тяжёлое (buffer-скан,
+			-- docstring) закэшировано/ограничено выше.
+			debounce = 30,
+			throttle = 20,
+			fetching_timeout = 300,
 			max_view_entries = 80, -- меньше элементов для рендера
 		},
 		mapping = cmp.mapping.preset.insert({

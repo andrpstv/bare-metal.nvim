@@ -48,6 +48,114 @@ local function type_hierarchy(kind)
 	end)
 end
 
+---Code action с фидбеком: свой запрос вместо голого buf.code_action(),
+---который молча глотал результат (раньше Enter в mini.pick — и тишина).
+---Показываем что применили / выполнили / что упало и почему.
+---@param bufnr integer
+local function code_action_feedback(bufnr)
+	bufnr = bufnr or vim.api.nvim_get_current_buf()
+	local params = vim.lsp.util.make_range_params(0, "utf-16")
+	params.context = { diagnostics = vim.diagnostic.get(bufnr) }
+	local clients = vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/codeAction" })
+	if #clients == 0 then
+		vim.notify("[lsp] no code-action client here", vim.log.levels.WARN, { title = "lsp" })
+		return
+	end
+	local pending, actions = #clients, {}
+	for _, client in ipairs(clients) do
+		vim.lsp.buf_request(bufnr, "textDocument/codeAction", params, function(err, result)
+			pending = pending - 1
+			if not err and result then
+				for _, a in ipairs(result) do
+					a._client_id = client.id
+					actions[#actions + 1] = a
+				end
+			end
+			if pending > 0 then
+				return
+			end
+			if #actions == 0 then
+				vim.notify("[lsp] no code actions here", vim.log.levels.INFO, { title = "lsp" })
+				return
+			end
+			vim.ui.select(actions, {
+				prompt = "Code actions:",
+				format_item = function(a)
+					return a.title or a.command and a.command.title or "?"
+				end,
+		}, function(choice)
+			if not choice then
+				return
+			end
+			local function apply_choice(ch)
+				if ch.edit then
+					local ok, e = pcall(vim.lsp.util.apply_workspace_edit, ch.edit, "utf-16")
+					vim.notify(
+						(ok and "[lsp] applied: " or "[lsp] edit FAILED: ") .. (ch.title or "?") .. (ok and "" or " " .. tostring(e)),
+						ok and vim.log.levels.INFO or vim.log.levels.ERROR,
+						{ title = "lsp" }
+					)
+				end
+				if ch.command then
+					local c = vim.lsp.get_client_by_id(ch._client_id)
+					local cmd = ch.command
+					local title = cmd.title or cmd.command
+					if not c then
+						vim.notify("[lsp] client gone, cannot run: " .. title, vim.log.levels.ERROR, { title = "lsp" })
+						return
+					end
+					vim.notify("[lsp] running: " .. title, vim.log.levels.INFO, { title = "lsp" })
+					local ok_exec, err_exec = pcall(c.exec_cmd, c, cmd, { bufnr = bufnr }, function(err2)
+						vim.schedule(function()
+							if err2 then
+								vim.notify(
+									"[lsp] FAILED: " .. title .. " — " .. tostring(err2.message or err2.code),
+									vim.log.levels.ERROR,
+									{ title = "lsp" }
+								)
+							else
+								vim.notify("[lsp] done: " .. title, vim.log.levels.INFO, { title = "lsp" })
+							end
+						end)
+					end)
+					if not ok_exec then
+						vim.notify("[lsp] cannot run: " .. title .. " — " .. tostring(err_exec):sub(1, 160), vim.log.levels.ERROR, { title = "lsp" })
+					end
+				end
+				if not ch.edit and not ch.command then
+					vim.notify("[lsp] nothing to apply: " .. (ch.title or "?"), vim.log.levels.WARN, { title = "lsp" })
+				end
+			end
+			-- Ленивый resolve: gopls присылает actions с одним data,
+			-- полный edit/command — только по codeAction/resolve.
+			if not choice.edit and not choice.command and choice.data then
+				local c0 = vim.lsp.get_client_by_id(choice._client_id)
+				if c0 then
+					vim.notify("[lsp] resolving: " .. (choice.title or "?"), vim.log.levels.INFO, { title = "lsp" })
+					c0:request("codeAction/resolve", choice, function(err0, res0)
+						vim.schedule(function()
+							if err0 or not res0 then
+								vim.notify(
+									"[lsp] resolve FAILED: " .. (choice.title or "?"),
+									vim.log.levels.ERROR,
+									{ title = "lsp" }
+								)
+								return
+							end
+							res0._client_id = choice._client_id
+							res0.title = res0.title or choice.title
+							apply_choice(res0)
+						end)
+					end)
+					return
+				end
+			end
+			apply_choice(choice)
+		end)
+		end)
+	end
+end
+
 ---@param buf integer
 function M.lsp(buf)
 	-- Плагинные буферы (diffview://, fugitive://, ...): у gopls от
@@ -115,8 +223,8 @@ function M.lsp(buf)
 		vim.lsp.buf.hover()
 	end, { buffer = buf, silent = true, desc = "lsp: Show doc" })
 	map({ "n", "v" }, "ga", function()
-		vim.lsp.buf.code_action()
-	end, { buffer = buf, silent = true, desc = "lsp: Code action (vim.ui.select)" })
+		code_action_feedback(buf)
+	end, { buffer = buf, silent = true, desc = "lsp: Code action (with result feedback)" })
 	map("n", "gd", function()
 		_pick_lsp("definition", { jump1 = true })
 	end, { buffer = buf, silent = true, desc = "lsp: Goto definition" })

@@ -58,7 +58,7 @@ map(
 	{ noremap = true, silent = true, desc = "lsp: Show document diagnostics" }
 )
 
--- Plugin: mini.pick / mini.extra (нулевые зависимости, rg ускоряет grep/files)
+-- Plugin: telescope (plenary вендорен, rg ускоряет grep/files)
 map("n", "<C-p>", function()
 	_pick_extra("commands")
 end, { noremap = true, silent = true, desc = "tool: Command panel" })

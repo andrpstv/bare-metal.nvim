@@ -153,9 +153,9 @@ local function check_tools()
     end
 
     if has("rg") then
-        vim.health.ok("picker: mini.pick (+rg for grep/files)")
+        vim.health.ok("picker: telescope (+rg for grep/files)")
     else
-        vim.health.warn("rg missing — mini.pick grep/files fall back to git/find (slow)")
+        vim.health.warn("rg missing — telescope grep/files fall back to git/find (slow)")
         add("warn", "missing grep: rg")
     end
     if not has("fd") then

@@ -91,17 +91,37 @@ local function pack_subtree(entry)
 		else
 			-- packadd only: rtp, no after/plugin, no config. This is the
 			-- dominant cost of the first frame on a spinning disk.
+			--
+			-- Фолбэк rtp-only: чей-то plugin/*.vim требует модули, которых
+			-- ещё нет в rtp (н-р textobjects требует nvim-treesitter.configs,
+			-- а пакуется раньше родителя). Полный packadd тогда падает и
+			-- валит всё поддерево (был мёртвый treesitter+textobjects).
+			-- packadd! кладёт только rtp; поведение довязывается фазой
+			-- finish/config. Шумно нотифаем, чтобы чинилось, а не гнило.
+			local function do_pack()
+				local pok = pcall(vim.cmd, "packadd " .. entry.name)
+				if not pok then
+					-- Без UI (headless/CI) молча: иначе нотифай склеивается
+					-- с машиночитаемым stdout (smoke-парсинг RESULT) — проверено.
+					if #vim.api.nvim_list_uis() > 0 then
+						vim.notify(
+							"[Distro] '" .. entry.name .. "' plugin/ failed, rtp-only fallback",
+							vim.log.levels.WARN
+						)
+					end
+					pok = pcall(vim.cmd, "packadd! " .. entry.name)
+				end
+				return pok
+			end
 			local t = trace()
 			if t and t.enabled then
 				t.span("loader:pack/" .. entry.name, function()
-					local pok = pcall(vim.cmd, "packadd " .. entry.name)
-					if not pok then
+					if not do_pack() then
 						ok = false
 					end
 				end)
 			else
-				local pok = pcall(vim.cmd, "packadd " .. entry.name)
-				if not pok then
+				if not do_pack() then
 					ok = false
 				end
 			end

@@ -1,9 +1,9 @@
--- mini.pick/mini.extra behind _G shims (zero-dep, rg-optional).
+-- telescope.builtin behind _G shims (plenary vendored, rg-optional).
 _G._command_panel = function()
 	_G._pick_extra("commands")
 end
 
--- Безопасный вызов mini.pick / mini.extra: догружает mini.nvim через distro loader.
+-- Безопасный вызов telescope.builtin: догружает telescope.nvim через distro loader.
 -- Ноль внешних зависимостей (rg/git опционально ускоряют builtin-пикеры).
 
 -- DistroTrace. Отдельный маленький хук вместо обёртки снаружи: _G._pick_lsp
@@ -20,7 +20,7 @@ end
 
 local pick_ensure_loaded = false
 
---- Собственно загрузка mini.pick (без трассировки) — вынесена отдельно, чтобы
+--- Собственно загрузка telescope (без трассировки) — вынесена отдельно, чтобы
 --- picker:ensure не оборачивал рекурсию, и чтобы выключенный трейс вообще
 --- не менял число require.
 local _pick_ensure_inner
@@ -28,8 +28,7 @@ local _pick_ensure_inner
 local function _pick_ensure()
 	local t = pick_trace()
 	if t and t.enabled and not pick_ensure_loaded then
-		-- Первый вызов тянет mini.nvim через loader (до 121 модуля на холодном
-		-- старте). Стоимость самого require уходит в loader:load/mini.nvim;
+		-- Первый вызов тянет telescope.nvim через loader.
 		-- здесь фиксируем только факт инициализации пикера.
 		local res = t.span("picker:ensure", _pick_ensure_inner)
 		pick_ensure_loaded = true
@@ -38,17 +37,17 @@ local function _pick_ensure()
 	return _pick_ensure_inner()
 end
 
----@return table|nil mini.pick
+---@return table|nil telescope.builtin
 _pick_ensure_inner = function()
 	pcall(function()
-		require("distro.loader").load("mini.nvim")
+		require("distro.loader").load("telescope.nvim")
 	end)
-	local ok, pick = pcall(require, "mini.pick")
+	local ok, tele = pcall(require, "telescope.builtin")
 	if not ok then
-		vim.notify("[pick] mini.pick unavailable", vim.log.levels.ERROR, { title = "pick" })
+		vim.notify("[pick] telescope unavailable (:DistroInstall telescope.nvim)", vim.log.levels.ERROR, { title = "pick" })
 		return nil
 	end
-	return pick
+	return tele
 end
 
 -- Вперёд объявленные тела: глобальные точки входа определены выше, но
@@ -56,43 +55,63 @@ end
 -- глобальным — и _G._pick вызывает сам себя (stack overflow).
 local _pick, _pick_extra
 
----Builtin-пикер mini.pick: files, grep_live, buffers, help, oldfiles, resume.
+---Имя нашего пикера -> telescope.builtin. Единая таблица, чтобы хоткеи
+---в tool.lua не знали про бэкенд.
+local _tele_map = {
+	-- файлы/поиск/буферы
+	files = "find_files",
+	grep_live = "live_grep",
+	buffers = "buffers",
+	help = "help_tags",
+	oldfiles = "oldfiles",
+	resume = "resume",
+	-- бывшие extra-пикеры (теперь тоже telescope)
+	commands = "commands",
+	buf_lines = "current_buffer_fuzzy_find",
+	git_branches = "git_branches",
+	-- LSP (ветка без jump1 в _pick_lsp)
+	document_symbol = "lsp_document_symbols",
+	workspace_symbol_live = "lsp_dynamic_workspace_symbols",
+	references = "lsp_references",
+	implementation = "lsp_implementations",
+	type_definition = "lsp_type_definitions",
+	definition = "lsp_definitions",
+}
+
 ---@param fn string
 ---@param opts table|nil
 _G._pick = function(fn, opts)
 	local t = pick_trace()
 	if t and t.enabled then
-		-- Один span на весь вызов: builtin-пикер сам спискает и рисует
-		-- элементы внутри, трейсить каждый экран не нужно.
-		return t.span("picker:mini.pick", function()
+		return t.span("picker:telescope", function()
 			return _pick(fn, opts)
 		end)
 	end
 	return _pick(fn, opts)
 end
 
----Тело builtin-пикера (mini.pick): рисует и спискает элементы сам.
+---Тело пикера (telescope): имя -> builtin.
 ---@param fn string
 ---@param opts table|nil
 _pick = function(fn, opts)
-	local pick = _pick_ensure()
-	if not pick then
+	local tele = _pick_ensure()
+	if not tele then
 		return
 	end
-	if type(pick.builtin[fn]) ~= "function" then
-		vim.notify("[pick] unknown builtin picker: " .. fn, vim.log.levels.ERROR, { title = "pick" })
+	local name = _tele_map[fn]
+	if not name or type(tele[name]) ~= "function" then
+		vim.notify("[pick] unknown picker: " .. fn, vim.log.levels.ERROR, { title = "pick" })
 		return
 	end
-	pick.builtin[fn](opts)
+	tele[name](opts)
 end
 
----Пикеры mini.extra (тот же монорепо): commands, buf_lines, git_branches, history...
 ---@param fn string
 ---@param opts table|nil
 _G._pick_extra = function(fn, opts)
 	local t = pick_trace()
 	if t and t.enabled then
-		return t.span("picker:mini.extra", function()
+		return t.span("picker:telescope", function()
 			return _pick_extra(fn, opts)
 		end)
 	end
@@ -102,15 +121,8 @@ end
 ---@param fn string
 ---@param opts table|nil
 _pick_extra = function(fn, opts)
-	if not _pick_ensure() then
-		return
-	end
-	local ok, extra = pcall(require, "mini.extra")
-	if not ok or type(extra.pickers[fn]) ~= "function" then
-		vim.notify("[pick] unknown extra picker: " .. fn, vim.log.levels.ERROR, { title = "pick" })
-		return
-	end
-	extra.pickers[fn](opts)
+	-- Тот же бэкенд: extra-имена живут в общей таблице выше.
+	return _pick(fn, opts)
 end
 
 -- Флаг активного сканирования кэша модулей. Именно module-level: если держать
@@ -133,12 +145,12 @@ local lib_searching = false
 -- запросом, то есть с тем, что находится вне функции.
 --
 -- Область действия намеренно узкая: только ветка opts.jump1 (gd и
--- type_definition). Ветка без jump1 уходит в mini.extra pickers, там запрос
+-- type_definition). Ветка без jump1 уходит в telescope pickers, там запрос
 -- принадлежит пикеру, и вытеснение сломало бы document_symbol/references/
 -- implementation/workspace_symbol_live — они открывают UI сами.
 local lsp_req = { gen = 0, inflight = nil }
 
----LSP через mini.extra: definition|references|implementation|type_definition|
+---LSP через telescope: definition|references|implementation|type_definition|
 ---document_symbol|workspace_symbol_live. opts.jump1: один результат — прыгнуть сразу.
 ---@param scope string
 ---@param opts table|nil
@@ -254,8 +266,24 @@ _G._pick_lsp = function(scope, opts)
 					"^%s*func%s+" .. esc .. "%f[%W]",
 					"^%s*func%s*%([^)]*%)%s+" .. esc .. "%f[%W]",
 				}
+				-- Подмножество без методов: для `pkg.Name` метод `T.Name`
+				-- почти всегда ложный след (ищем тип/функцию пакета).
+				local plain_pats = {
+					"^%s*type%s+" .. esc .. "%f[%W]",
+					"^%s*var%s+" .. esc .. "%f[%W]",
+					"^%s*const%s+" .. esc .. "%f[%W]",
+					"^%s*func%s+" .. esc .. "%f[%W]",
+				}
 				local is_decl = function(t)
 					for _, pat in ipairs(def_pats) do
+						if t:match(pat) then
+							return true
+						end
+					end
+					return false
+				end
+				local is_plain_decl = function(t)
+					for _, pat in ipairs(plain_pats) do
 						if t:match(pat) then
 							return true
 						end
@@ -270,12 +298,50 @@ _G._pick_lsp = function(scope, opts)
 						rest[#rest + 1] = it
 					end
 				end
-				if #decls > 0 then
+				local n_decl = #decls
+				if n_decl > 0 then
 					-- declarations first, then the tail, so a single hit still jumps
 					for _, it in ipairs(rest) do
 						decls[#decls + 1] = it
 					end
 					items = decls
+				end
+				-- Ровно одно объявление среди шума упоминаний — или ровно одно
+				-- НЕметод-объявление (`type`/`func` пакета вместо методов
+				-- `T.Name`): прыгаем прямо в него, без quickfix
+				-- (просьба: быстрый gd без квикфикса).
+				local only_decl = nil
+				if n_decl == 1 then
+					only_decl = decls[1]
+				else
+					local plain = {}
+					for _, it in ipairs(decls) do
+						if is_plain_decl(it.text) then
+							plain[#plain + 1] = it
+						end
+					end
+					if #plain == 1 then
+						only_decl = plain[1]
+					elseif #plain > 1 then
+						-- Несколько неметод-объявлений (подпакеты вроде
+						-- options/ рядом с mongo/): берём мельчайшую глубину
+						-- пути — объявление самого пакета, а не подпакета.
+						-- В одном каталоге два одинаковых имени невозможны
+						-- (ошибка компиляции), так что уникальный минимум
+						-- однозначен.
+						local best, best_depth, tied = nil, nil, false
+						for _, it in ipairs(plain) do
+							local _, nsep = (it.filename or ""):gsub("/", "/")
+							if best_depth == nil or nsep < best_depth then
+								best, best_depth, tied = it, nsep, false
+							elseif nsep == best_depth then
+								tied = true
+							end
+						end
+						if best and not tied then
+							only_decl = best
+						end
+					end
 				end
 				-- Пустой результат = «ничего не найдено», а не «ошибка»: тот же
 				-- тон, что у "no results for <scope>".
@@ -288,6 +354,12 @@ _G._pick_lsp = function(scope, opts)
 				-- copen here threw and killed the whole search, so the text fallback
 				-- for external packages never actually worked. Hop to the main loop.
 				vim.schedule(function()
+					if only_decl and user_idle() then
+						pcall(vim.cmd, "normal! m'")
+						vim.cmd.edit(vim.fn.fnameescape(only_decl.filename))
+						pcall(vim.api.nvim_win_set_cursor, 0, { only_decl.lnum, (only_decl.col or 1) - 1 })
+						return
+					end
 					vim.fn.setqflist({}, " ", { title = "lib refs: " .. symbol, items = items })
 					if not user_idle() then
 						vim.notify("[lsp] " .. #items .. " lib refs in quickfix (not opening — you moved)", vim.log.levels.INFO, { title = "lsp" })
@@ -512,11 +584,8 @@ _G._pick_lsp = function(scope, opts)
 				end
 				return
 			end
-			-- 2+ результатов: падаем в пикер ниже
-			local ok2, extra2 = pcall(require, "mini.extra")
-			if ok2 then
-				extra2.pickers.lsp({ scope = scope })
-			end
+			-- 2+ результатов: падаем в пикер ниже (таблица _tele_map).
+			_pick(scope)
 		end)
 		-- Запрос в полёте: следующий gd вытеснит именно его, а не что попало.
 		if gen == lsp_req.gen then
@@ -524,20 +593,18 @@ _G._pick_lsp = function(scope, opts)
 		end
 		return
 	end
-	local ok, extra = pcall(require, "mini.extra")
-	if not ok then
-		vim.notify("[pick] mini.extra unavailable", vim.log.levels.ERROR, { title = "pick" })
+	if not _pick_ensure() then
 		return
 	end
-	extra.pickers.lsp({ scope = scope })
+	_pick(scope)
 end
 
 ---Grep по визуальному выделению (первая строка, буквально).
 ---NOTE: map("v",...) вызывает функцию уже ПОСЛЕ выхода из visual, поэтому
 ---getpos("v")/visualmode() пусты. Берём метки '< и '> — они живут дольше режима.
 _G._pick_grep_visual = function()
-	local pick = _pick_ensure()
-	if not pick then
+	local tele = _pick_ensure()
+	if not tele then
 		return
 	end
 	local a = vim.fn.getpos("'<")
@@ -549,20 +616,17 @@ _G._pick_grep_visual = function()
 		vim.notify("[pick] select text first", vim.log.levels.WARN, { title = "pick" })
 		return
 	end
-	pick.builtin.grep({ pattern = text, method = "plain" })
+	tele.grep_string({ search = text })
 end
 
--- Warm-предзагрузка mini.pick/mini.extra на первом idle (§5b.1 speed-program).
--- Первый gd в сессии тянул mini.nvim холодным через loader (до ~121 модуля);
--- греем один раз заранее, чтобы первый gd почти всегда был тёплым.
+-- Warm-предзагрузка telescope на первом idle (§5b.1 speed-program).
+-- Первый gd/ff в сессии тянул плагин холодным через loader;
+-- греем один раз заранее.
 -- Два триггера, кто первый — тот и греет (одноразовый флаг):
---   1) VimEnter +300мс таймер (аналог loader idle-preload для nvim-cmp);
+--   1) VimEnter +300мс таймер;
 --   2) CursorHold один раз (первая пауза пользователя).
--- Образец warm: modules/configs/completion/lsp.lua (InsertEnter per-buffer
--- флаг + schedule); здесь флаг глобальный одноразовый — пикер один на сессию.
--- headless/SYNC — возврат без прогрева (детерминизм: первый gd грузит сам,
--- синхронно как раньше); lean/weak — тоже warm (дёшево, один раз).
--- mini.nvim отсутствует — тихий return, ноль notify (pcall везде).
+-- headless/SYNC — возврат без прогрева (детерминизм); lean/weak — тоже warm.
+-- telescope отсутствует — тихий return, ноль notify (pcall везде).
 local _pick_warmed = false
 
 local function _pick_warm()
@@ -577,10 +641,10 @@ local function _pick_warm()
 		return
 	end
 	pcall(function()
-		require("distro.loader").load("mini.nvim")
+		require("distro.loader").load("telescope.nvim")
 	end)
-	pcall(require, "mini.pick")
-	pcall(require, "mini.extra")
+	pcall(require, "telescope")
+	pcall(require, "telescope.builtin")
 end
 
 do
@@ -589,7 +653,7 @@ do
 	vim.api.nvim_create_autocmd("CursorHold", {
 		group = grp,
 		once = true,
-		desc = "pick: warm mini.pick/mini.extra on first idle",
+		desc = "pick: warm telescope on first idle",
 		callback = function()
 			vim.schedule(_pick_warm)
 		end,
@@ -604,7 +668,7 @@ do
 	vim.api.nvim_create_autocmd("VimEnter", {
 		group = grp,
 		once = true,
-		desc = "pick: warm mini.pick/mini.extra 300ms after enter",
+		desc = "pick: warm telescope 300ms after enter",
 		callback = warm_later,
 	})
 	-- pick.lua грузится из keymap/init при старте (до VimEnter), но страховка

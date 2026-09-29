@@ -51,10 +51,11 @@ settings["format_disabled_dirs"] = {
 	"~/format_disabled_dir",
 }
 
--- Set to false to disable virtual lines for diagnostics.
+-- Set to true to show virtual lines for diagnostics (under the line).
+-- Default false: signs + end-of-line text are enough, jumps via g[/g].
 -- You can still view diagnostics using trouble.nvim (`<leader>ld`).
 ---@type boolean
-settings["diagnostics_virtual_lines"] = true
+settings["diagnostics_virtual_lines"] = false
 
 -- Set the minimum severity level of diagnostics to display.
 -- Priority: `Error` > `Warning` > `Information` > `Hint`.
@@ -140,10 +141,6 @@ settings["transparent_background"] = false
 -- сейчас его нет именно синхронным background="dark". Не откладывать молча.
 ---@type "dark"|"light"
 settings["background"] = "dark"
-
--- Set the search backend here (единственный пикер — mini.pick, без внешних зависимостей).
----@type "pick"
-settings["search_backend"] = "pick"
 
 -- Set to false to disable LSP inlay hints.
 ---@type boolean
