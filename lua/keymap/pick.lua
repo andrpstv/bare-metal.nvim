@@ -156,6 +156,41 @@ local GO_LIST_TTL_NS = 300 * 1000000000
 -- implementation/workspace_symbol_live — они открывают UI сами.
 local lsp_req = { gen = 0, inflight = nil }
 
+-- Гонка LSP vs текст (jump1 + qualified): кто первый дал одиночную цель,
+-- тот прыгает; второй молча сходит. Таблица на вызов (сбрасывается входом),
+-- видна вложенным функциям как upvalue.
+-- Зачем: здоровый gopls отвечает за 2–15мс («чистая скорость»), а текст-путь
+-- стоит 30–350мс. Раньше qualified шёл только текстом и всегда платил его
+-- цену; теперь быстрое — быстро, медленное — через фолбэк как раньше.
+local race_state = nil
+
+---Перейти к файлу без лишней перезагрузки: уже открытый буфер — через :b
+---(нет detach-шторма LspDetach и повторных BufReadPost-цепей), иначе :edit.
+---@param filename string
+local function goto_file(filename)
+	local b = vim.fn.bufnr(filename)
+	if b > 0 and vim.api.nvim_buf_is_loaded(b) then
+		pcall(vim.cmd, "buffer " .. b)
+	else
+		vim.cmd.edit(vim.fn.fnameescape(filename))
+	end
+end
+
+---Победитель гонки прыгает, проигравший гаснет: помечаем done, отменяем
+---LSP-запрос в полёте и сдвигаем поколение, чтобы его поздний ответ
+---ушёл молча по существующему гарду.
+local function race_win()
+	if race_state then
+		race_state.done = true
+	end
+	lsp_req.gen = lsp_req.gen + 1
+	local prev = lsp_req.inflight
+	lsp_req.inflight = nil
+	if prev and type(prev.cancel) == "function" then
+		pcall(prev.cancel)
+	end
+end
+
 ---LSP через telescope: definition|references|implementation|type_definition|
 ---document_symbol|workspace_symbol_live. opts.jump1: один результат — прыгнуть сразу.
 ---@param scope string
@@ -183,6 +218,8 @@ _G._pick_lsp = function(scope, opts)
 			end
 		end)
 	end
+	-- Новый вызов — новая гонка: сбрасываем состояние (см. race_state выше).
+	race_state = nil
 	if not _pick_ensure() then
 		return
 	end
@@ -387,10 +424,16 @@ _G._pick_lsp = function(scope, opts)
 				-- for external packages never actually worked. Hop to the main loop.
 				vim.schedule(function()
 					if only_decl and user_idle() then
+						if race_state and race_state.done then
+							return -- гонку уже выиграл LSP
+						end
 						pcall(vim.cmd, "normal! m'")
-						vim.cmd.edit(vim.fn.fnameescape(only_decl.filename))
+						goto_file(only_decl.filename)
 						pcall(vim.api.nvim_win_set_cursor, 0, { only_decl.lnum, (only_decl.col or 1) - 1 })
 						qspan("qual-jump-direct", only_decl.filename)
+						qspan("race-won", "text")
+						race_win()
+						race_win()
 						vim.schedule(function()
 							-- Первый тик после прыжка: кадр уже ушёл на
 							-- отрисовку. Терминальный paint сюда не входит,
@@ -401,6 +444,9 @@ _G._pick_lsp = function(scope, opts)
 						return
 					end
 					qspan("qual-jump-quickfix", #items .. " items")
+					if race_state and race_state.done then
+						return -- гонку уже выиграл LSP: не открываем поверх
+					end
 					vim.fn.setqflist({}, " ", { title = "lib refs: " .. symbol, items = items })
 					if not user_idle() then
 						vim.notify("[lsp] " .. #items .. " lib refs in quickfix (not opening — you moved)", vim.log.levels.INFO, { title = "lsp" })
@@ -531,15 +577,25 @@ _G._pick_lsp = function(scope, opts)
 			-- cur_word == sym means the cursor sits on the TYPE after the dot,
 			-- which is what the user wants. Cursor on the qualifier means they
 			-- want the package itself, and gopls answers that quickly - leave it.
+			--
+			-- ГОНКА (race_state): текст-путь стартует, но НЕ возвращается —
+			-- ниже параллельно уходит LSP-запрос. Кто первый дал одиночную
+			-- цель, тот прыгает (флаг done); второй молча сходит. Здоровый
+			-- gopls отвечает за миллисекунды, больной — висит, и тогда
+			-- выигрывает текст как раньше. Худший случай не хуже текста.
 			if qual and sym and cur_word == sym then
 				if go_qualified_grep(gbuf, qual, sym, scope) then
-					return
+					race_state = { text = true, done = false }
 				end
 			end
 		end
 		local method = "textDocument/" .. (scope == "type_definition" and "typeDefinition" or scope == "references" and "references" or scope == "implementation" and "implementation" or "definition")
 		if #vim.lsp.get_clients({ bufnr = 0, method = method }) == 0 then
-			vim.notify("[lsp] no client for " .. scope .. " here", vim.log.levels.INFO, { title = "lsp" })
+			-- В гонке текст-путь уже бежит и скажет сам (плюс watchdog
+			-- сообщит о смерти сервера отдельно): не спамим.
+			if not (race_state and race_state.text) then
+				vim.notify("[lsp] no client for " .. scope .. " here", vim.log.levels.INFO, { title = "lsp" })
+			end
 			return
 		end
 		local params = vim.lsp.util.make_position_params(0, "utf-16")
@@ -575,6 +631,9 @@ _G._pick_lsp = function(scope, opts)
 		-- проигнорирует cancel) отбросится проверкой поколения в колбэке.
 		local gen = lsp_req.gen + 1
 		lsp_req.gen = gen
+		if race_state then
+			race_state.gen = gen
+		end
 		local prev = lsp_req.inflight
 		if prev and type(prev.cancel) == "function" then
 			pcall(prev.cancel)
@@ -586,7 +645,9 @@ _G._pick_lsp = function(scope, opts)
 			-- дают N одинаковых "server busy?" от запросов, уже отменённых и
 			-- пользователю не нужных.
 			if gen == lsp_req.gen and not responded and vim.api.nvim_buf_is_valid(req_buf) then
-				vim.notify("[lsp] slow response (" .. scope .. "), server busy?", vim.log.levels.WARN, { title = "lsp" })
+				if not (race_state and race_state.done) then
+					vim.notify("[lsp] slow response (" .. scope .. "), server busy?", vim.log.levels.WARN, { title = "lsp" })
+				end
 			end
 		end, 2000)
 		local _, cancel = vim.lsp.buf_request(0, method, params, function(err, result)
@@ -603,6 +664,11 @@ _G._pick_lsp = function(scope, opts)
 			if err then
 				-- Сервер ответил ошибкой (не висение!): показываем её текст,
 				-- а для внешних либ пробуем текстовый фолбэк вместо пустоты.
+				-- В гонке текст-путь уже бежит сам: дублировать поиск и
+				-- спамить не нужно, он скажет сам.
+				if race_state and race_state.text then
+					return
+				end
 				if not lib_grep_fallback(req_buf, req_symbol, scope) then
 					vim.notify("[lsp] " .. scope .. " failed: " .. err_text(err), vim.log.levels.WARN, { title = "lsp" })
 				end
@@ -620,8 +686,15 @@ _G._pick_lsp = function(scope, opts)
 				local ok_item, item = pcall(vim.lsp.util.locations_to_items, locs, "utf-16")
 				item = ok_item and item[1] or nil
 				if item then
+					if race_state and race_state.done then
+						return -- гонку уже выиграл текст
+					end
 					local cur = vim.api.nvim_win_get_cursor(0)
 					if vim.api.nvim_get_current_buf() == req_buf and cur[1] == req_pos[1] and cur[2] == req_pos[2] then
+						if race_state then
+							race_state.done = true
+							qspan("race-won", "lsp")
+						end
 						pcall(vim.cmd, "normal! m'") -- <C-o> назад после прыжка
 						local same = item.bufnr == req_buf
 							or item.filename == vim.api.nvim_buf_get_name(req_buf)
@@ -629,7 +702,7 @@ _G._pick_lsp = function(scope, opts)
 							-- NOTE: :edit на ТОТ ЖЕ файл шлёт LspDetach (0.12) и
 							-- будит GoplsWatchdog ложным рестартом — тот же буфер
 							-- не перезагружаем, только двигаем курсор.
-							vim.cmd.edit(vim.fn.fnameescape(item.filename))
+							goto_file(item.filename)
 						end
 						pcall(vim.api.nvim_win_set_cursor, 0, { item.lnum, item.col - 1 })
 						return
@@ -638,12 +711,20 @@ _G._pick_lsp = function(scope, opts)
 					vim.notify("[lsp] result arrived after you moved — opening picker", vim.log.levels.INFO, { title = "lsp" })
 				end
 			elseif #locs == 0 then
+				-- В гонке текст-путь уже бежит: молча отдаём ему UX.
+				if race_state and race_state.text then
+					return
+				end
 				if not lib_grep_fallback(req_buf, req_symbol, scope) then
 					vim.notify("[lsp] no results for " .. scope, vim.log.levels.INFO, { title = "lsp" })
 				end
 				return
 			end
 			-- 2+ результатов: падаем в пикер ниже (таблица _tele_map).
+			-- Но не поверх выигравшего текста.
+			if race_state and race_state.done then
+				return
+			end
 			_pick(scope)
 		end)
 		-- Запрос в полёте: следующий gd вытеснит именно его, а не что попало.
