@@ -84,15 +84,20 @@ return vim.schedule_wrap(function()
 			end,
 		},
 	}, false, require("nvim-treesitter.configs").setup)
-	-- Folds — СТРОГО после load_plugin: foldexpr ссылается на функцию плагина,
-	-- раньше — E121 на `zx` (окно между paint и загрузкой теперь секунды, не мс).
+	-- Folds: встроенный vim.treesitter.foldexpr() (рантайм 0.10+, всегда доступен —
+	-- E121 невозможен по построению). Старый nvim_treesitter#foldexpr() из пина
+	-- 09-2024 на 0.12 — катастрофа: вход в proxy.go (181 строка) 60мс + 25МБ
+	-- мусора на свитч, client.go (1104 строки) до 3с (замерено 2026-09-30,
+	-- тикет Ctrl-O). Встроенный: 0мс на обоих, память плоская.
 	vim.api.nvim_set_option_value("foldmethod", "expr", {})
-	vim.api.nvim_set_option_value("foldexpr", "nvim_treesitter#foldexpr()", {})
+	vim.api.nvim_set_option_value("foldexpr", "v:lua.vim.treesitter.foldexpr()", {})
 	-- Lite/off: фолды вручную (expr на 10k+ строк — слайд-шоу на слабом ПК).
 	-- Плюс всегда manual на внешних либах (go/pkg/mod, GOROOT): только чтение,
 	-- сворачивать там нечего, а expr-foldexpr на ~1k строк жрёт секунды
 	-- (замерено: gd в mongo client.go 4.3с -> 1с; остаток — прогрев gopls).
-	vim.api.nvim_create_autocmd({ "FileType", "BufReadPost" }, {
+	-- BufWinEnter тоже: :b/C-O в уже открытый буфер не шлёт BufReadPost,
+	-- и окно оставалось на expr с пересчётом на каждый вход (90мс–3с).
+	vim.api.nvim_create_autocmd({ "FileType", "BufReadPost", "BufWinEnter" }, {
 		group = vim.api.nvim_create_augroup("TreesitterTierFolds", { clear = true }),
 		callback = function(args)
 			if ts_tier(args.buf) ~= "full" then
@@ -105,17 +110,23 @@ return vim.schedule_wrap(function()
 				end
 				return
 			end
-			local ok_u, utils = pcall(require, "modules.utils")
-			local fname = vim.api.nvim_buf_get_name(args.buf)
-			if ok_u and utils.is_go_lib and utils.is_go_lib(fname) then
-				for _, w in ipairs(vim.api.nvim_list_wins()) do
-					if vim.api.nvim_win_get_buf(w) == args.buf then
-						pcall(function()
-							vim.wo[w].foldmethod = "manual"
-						end)
+		local ok_u, utils = pcall(require, "modules.utils")
+		local fname = vim.api.nvim_buf_get_name(args.buf)
+		local is_lib = ok_u and utils.is_go_lib and utils.is_go_lib(fname)
+		for _, w in ipairs(vim.api.nvim_list_wins()) do
+			if vim.api.nvim_win_get_buf(w) == args.buf then
+				pcall(function()
+					if is_lib then
+						vim.wo[w].foldmethod = "manual"
+					else
+						-- full-tier, свой файл: встроенный expr (быстрый).
+						-- Чинит окна, отравленные старым foldexpr плагина.
+						vim.wo[w].foldmethod = "expr"
+						vim.wo[w].foldexpr = "v:lua.vim.treesitter.foldexpr()"
 					end
-				end
+				end)
 			end
+		end
 		end,
 		desc = "treesitter: manual folds outside full tier",
 	})

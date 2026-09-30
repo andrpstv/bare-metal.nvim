@@ -235,6 +235,15 @@ function M.wrap_pick()
 		-- measured from THIS t0, so each one's own_ms must be reduced only by a
 		-- mark of this same invocation, never by one of a later or concurrent
 		-- press of the same key (see M.sub).
+		-- Хоп lsp:definition / lsp:references (§5b.3 speed-program): синхронный
+		-- спан вокруг диспетча. Открыт ДО frame, чтобы end_span(frame) внутри
+		-- dispatch (pop-until-id) не съел его вместе с фреймом; закрыт после
+		-- dispatch с меткой dispatch. Ответ сервера — в фазах
+		-- request_to_response / TOTAL ниже, здесь только отправка.
+		local lsp_span = nil
+		if scope == "definition" or scope == "references" then
+			lsp_span = trace.begin("lsp:" .. scope)
+		end
 		local frame = trace.begin(ev)
 
 		-- P0-4: per-window table for this gd (dropped at TOTAL, never global).
@@ -364,6 +373,9 @@ function M.wrap_pick()
 				frame_closed = true
 				trace.end_span(frame, ev)
 			end
+			if lsp_span then
+				trace.end_span(lsp_span, "lsp:" .. scope, "error sym=" .. sym .. " #" .. gd_n)
+			end
 			error(r, 0)
 		end
 		if n == 0 then
@@ -375,6 +387,9 @@ function M.wrap_pick()
 		end
 		-- Dispatch only: how long the synchronous send took. Deliberately NOT
 		-- called "total" — the real TOTAL is logged from the response handler.
+		if lsp_span then
+			trace.end_span(lsp_span, "lsp:" .. scope, "dispatch sym=" .. sym .. " #" .. gd_n)
+		end
 		trace.log(ev, el(), "dispatch only (requests: " .. n .. ") sym=" .. sym .. " #" .. gd_n, name, ft, { kind = "phase", group = ev })
 		trace.flush()
 		return r
@@ -388,7 +403,7 @@ function M.wrap_pick()
 	return true
 end
 
---- Wrap every Distro*/Turbo*/WeakHw*/Format* user command with a timed row.
+--- Wrap every Distro*/Perf*/Format* user command with a timed row.
 ---
 --- Done centrally instead of editing ~20 registration sites: re-create each
 --- command with the SAME opts and the SAME callback, only the callback body
@@ -406,7 +421,8 @@ function M.wrap_commands()
 	local uv = vim.uv or vim.loop
 	local api = vim.api
 	-- Lua-паттерны без `|`: явный список префиксов через vim.startswith.
-	local prefixes = { "Distro", "Turbo", "WeakHw", "Perf", "Format" }
+	-- (Turbo*/WeakHw* удалены — префиксы убраны вместе с командами.)
+	local prefixes = { "Distro", "Perf", "Format" }
 	local cmds = api.nvim_get_commands({ builtin = false })
 	local names = {}
 	for name in pairs(cmds) do
