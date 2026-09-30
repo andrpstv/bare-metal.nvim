@@ -246,6 +246,10 @@ _G._pick_lsp = function(scope, opts)
 			{ text = true, timeout = 10000 },
 			function(obj)
 				lib_searching = false
+				-- NOTE: это FAST EVENT контекст (on_exit): здесь запрещены
+				-- ЛЮБЫЕ API-вызовы, включая vim.notify (E5560). Поэтому всё
+				-- тело — в vim.schedule, сразу и без исключений.
+				vim.schedule(function()
 				-- ВСЕ ветки отказа обязаны что-то сказать: потребитель полагается
 				-- на return выше, а раньше тут был голый return — у пользователя не
 				-- было ни перехода, ни quickfix, ни единого сообщения.
@@ -404,7 +408,8 @@ _G._pick_lsp = function(scope, opts)
 					end
 					vim.cmd("copen")
 				end)
-			end
+			end)
+		end
 		)
 		-- Уже запустили поиск: результат придёт в колбэке, UI свободен.
 		return true
@@ -483,6 +488,10 @@ _G._pick_lsp = function(scope, opts)
 			-- Release the guard BEFORE delegating: lib_grep_fallback takes it
 			-- itself for the duration of the rg scan.
 			lib_searching = false
+			-- NOTE: это тоже FAST EVENT (on_exit): API, файловый I/O трейса —
+			-- только из main loop. Чистый Lua (trim, таблицы) безопасен и здесь,
+			-- но целиком в schedule проще и единообразно с rg-колбэком выше.
+			vim.schedule(function()
 			-- Every refusal path must say something. A silent return here is what
 			-- made this look like "the fix did nothing" instead of "it failed".
 			if not res then
@@ -500,11 +509,8 @@ _G._pick_lsp = function(scope, opts)
 			end
 			qspan("qual-go-list", dir)
 			go_list_cache[cwd .. "\0" .. import_path] = { dir = dir, at = (vim.uv or vim.loop).hrtime() }
-			-- go list's callback is a FAST EVENT context. lib_grep_fallback
-			-- starts with nvim_get_current_win / nvim_win_get_cursor, which are
-			-- forbidden there (E5560) - so the whole thing died before rg ran.
-			-- Hop to the main loop first, then delegate.
 			got_dir(dir)
+			end)
 		end)
 		return true
 	end
