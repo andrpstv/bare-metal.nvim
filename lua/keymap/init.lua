@@ -31,7 +31,9 @@ require("keymap.ui")
 -- Только на VimEnter: порядок загрузки дефолтов не гарантирован, ранний вызов
 -- молча ничего не удаляет и лишь дублирует работу.
 local function _del_lsp_defaults()
-	for _, lhs in ipairs({ "grn", "grr", "gri", "gra", "grt" }) do
+	-- grx тоже: забытый дефолт заставлял каждый gr ждать timeoutlen,
+	-- а сам дублирует <leader>cl (codelens run).
+	for _, lhs in ipairs({ "grn", "grr", "gri", "gra", "grt", "grx" }) do
 		pcall(vim.keymap.del, "n", lhs)
 	end
 	pcall(vim.keymap.del, "x", "gra")

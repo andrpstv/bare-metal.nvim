@@ -168,6 +168,13 @@ settings["lsp_deps"] = {
 ---@type number
 settings["gopls_debounce"] = 150
 
+-- cmp: menu latency (ms). Lower = snappier popup, more source queries.
+-- Lean-режим поднимает оба через perf-ось debounce.
+---@type number
+settings["cmp_debounce"] = 30
+---@type number
+settings["cmp_throttle"] = 20
+
 -- gopls: fieldalignment analysis (memory-layout holes). Expensive on weak PCs.
 ---@type boolean
 settings["gopls_fieldalignment"] = true

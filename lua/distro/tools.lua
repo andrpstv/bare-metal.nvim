@@ -170,6 +170,23 @@ function M.install_tool(name, opts)
 		end
 	end
 	if not tool then
+		-- F12: единый реестр — сначала смотрим binaries (shfmt и co живут
+		-- только там): go → install_go, release → ad-hoc spec, system → hint.
+		for _, b in ipairs(require("distro.manifest").binaries or {}) do
+			if b.name == name then
+				if b.method == "go" then
+					return M.install_go(name, { user_confirmed = true })
+				elseif b.method == "release" then
+					return M.install_tool_ad_hoc({
+						name = name, check = b.check, repo = b.repo, asset = b.asset,
+						asset_os = b.asset_os, asset_arch = b.asset_arch, asset_ext = b.asset_ext,
+						bin = b.bin, strip = b.strip, url = b.url,
+					})
+				else
+					return false, M.system_hint(name)
+				end
+			end
+		end
 		return false, "Unknown tool '" .. name .. "'. No changes made."
 	end
 	local install = require("distro.install")

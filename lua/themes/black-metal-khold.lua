@@ -98,18 +98,18 @@ M.setup = function()
 			local function once()
 				M.apply_pending()
 			end
-			local grp = vim.api.nvim_create_augroup("TurboKholdCustom", { clear = true })
+			local grp = vim.api.nvim_create_augroup("PerfKholdCustom", { clear = true })
 			vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI", "InsertLeave" }, {
 				group = grp,
 				once = true,
-				desc = "turbo: idle apply khold custom highlights",
+				desc = "perf: idle apply khold custom highlights",
 				callback = function()
 					vim.schedule(once)
 				end,
 			})
 			vim.api.nvim_create_autocmd("ColorScheme", {
 				group = grp,
-				desc = "turbo: drop pending khold custom on colorscheme switch",
+				desc = "perf: drop pending khold custom on colorscheme switch",
 				callback = function()
 					if timer then
 						timer:stop()

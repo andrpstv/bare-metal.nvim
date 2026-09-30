@@ -120,14 +120,18 @@ local function _stl_human_size()
 		-- формат с отрезанием ".0".
 		out = string.format("%.1f", fsize / math.pow(1024, i)):gsub("%.0$", "") .. suffix[i + 1]
 	end
-	-- держим кэш маленьким (32 последних), таблицу не сносим целиком
-	_stl_size_cache[key] = out
-	local n = 0
-	for _ in pairs(_stl_size_cache) do
-		n = n + 1
+	-- держим кэш маленьким: счётчик вместо pairs-подсчёта
+	-- на каждом redraw + эвикция одной записи вместо сноса таблицы.
+	if _stl_size_cache[key] == nil then
+		_stl_size_n = (_stl_size_n or 0) + 1
 	end
-	if n > 32 then
-		_stl_size_cache = { [key] = out }
+	_stl_size_cache[key] = out
+	if (_stl_size_n or 0) > 64 then
+		local drop = next(_stl_size_cache)
+		if drop ~= nil then
+			_stl_size_cache[drop] = nil
+			_stl_size_n = _stl_size_n - 1
+		end
 	end
 	return out
 end

@@ -114,6 +114,16 @@ function M.test()
 		src = { url = install.tarball_url(entry.repo, entry.ref), extra_args = eff.extra_args }
 	end
 	vim.notify("Probing " .. mirror.redact(src.url) .. " …", vim.log.levels.INFO)
+	-- F8: даже HEAD-probe идёт только с подтверждения (показываем URL).
+	-- В headless confirm невозможен — отказываемся вместо молчаливого выхода.
+	if #vim.api.nvim_list_uis() == 0 then
+		vim.notify("Probe canceled: needs a UI to confirm (nothing was sent).", vim.log.levels.WARN)
+		return
+	end
+	if vim.fn.confirm("Send HEAD probe to\n" .. mirror.redact(src.url) .. "\n(headers only, nothing downloaded)?", "&Yes\n&No", 2) ~= 1 then
+		vim.notify("Probe canceled. Nothing was sent.", vim.log.levels.INFO)
+		return
+	end
 	local ok, code = install.probe(src.url, src.extra_args)
 	if ok then
 		vim.notify("Mirror OK (HTTP " .. code .. ", headers only, nothing downloaded).", vim.log.levels.INFO)

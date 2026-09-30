@@ -39,6 +39,14 @@ return function()
 			and vim.api.nvim_buf_get_lines(0, line - 1, line, true)[1]:sub(col, col):match("%s") == nil
 	end
 
+	-- I2: таблица menu статична — один раз вверх, а не setmetatable
+	-- на каждый кандидат при каждом кейстроке.
+	local menu_src = setmetatable({
+		buffer = "[BUF]",
+		nvim_lsp = "[LSP]",
+		path = "[PATH]",
+		luasnip = "[SNIP]",
+	}, { __index = function() return "[BTN]" end })
 	require("modules.utils").load_plugin("cmp", {
 		-- Top-1 подсвечен сразу (как в VS Code): Tab идёт дальше, <C-y> берёт.
 		-- Enter всегда перевод строки / выполнение команды (см. mapping ниже),
@@ -73,12 +81,7 @@ return function()
 			format = function(entry, vim_item)
 				vim_item.kind = string.format(" %s  %s", lspkind_icons[vim_item.kind] or icons.cmp.undefined, vim_item.kind or "")
 
-			vim_item.menu = setmetatable({
-				buffer = "[BUF]",
-				nvim_lsp = "[LSP]",
-				path = "[PATH]",
-				luasnip = "[SNIP]",
-			}, { __index = function() return "[BTN]" end })[entry.source.name]
+			vim_item.menu = menu_src[entry.source.name]
 
 		-- Превью сниппета СЛЕВА, рядом с триггером: первая строка тела.
 		-- Правая колонка (menu) остаётся короткой: [SNIP]/[LSP]/[BUF].
@@ -141,8 +144,9 @@ return function()
 			-- Отзывчивость вместо экономии: короче debounce/throttle —
 			-- меню догоняет печать, а не наоборот. Тяжёлое (buffer-скан,
 			-- docstring) закэшировано/ограничено выше.
-			debounce = 30,
-			throttle = 20,
+			-- Lean-режим поднимает оба через settings (perf-ось debounce).
+			debounce = require("core.settings").cmp_debounce or 30,
+			throttle = require("core.settings").cmp_throttle or 20,
 			fetching_timeout = 300,
 			max_view_entries = 80, -- меньше элементов для рендера
 		},

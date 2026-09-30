@@ -1,10 +1,13 @@
 local map = vim.keymap.set
 
--- insert mode jj/jk → normal mode
-map("i", "jj", "<Esc>", { noremap = true, silent = true })
-map("i", "jk", "<Esc>", { noremap = true, silent = true })
+-- insert mode jj/jk → normal mode (каждая одиночная j ждёт timeoutlen —
+-- плата за двухкнопочность; осознанно, см. :h timeoutlen)
+map("i", "jj", "<Esc>", { noremap = true, silent = true, desc = "edit: Esc" })
+map("i", "jk", "<Esc>", { noremap = true, silent = true, desc = "edit: Esc" })
 
--- Builtins: Save & Quit
+-- Builtins: Save & Quit. NOTE про <C-s>: голый терминал с XON/XOFF
+-- (stty ixon) заморозит вывод на ^S до ^Q — лечится `stty -ixon`
+-- в shell-rc; в GUI/kitty проблемы нет.
 map("n", "<C-s>", ":<C-u>write<CR>", { noremap = true, silent = true, desc = "edit: Save file" })
 map("n", "<C-q>", ":wq<CR>", { noremap = false, silent = false, desc = "edit: Save file and quit" })
 map("n", "<A-S-q>", ":q!<CR>", { noremap = false, silent = false, desc = "edit: Force quit" })
@@ -47,11 +50,12 @@ map(
 	{ noremap = true, silent = false, desc = "edit: Complete path of current file" }
 )
 
--- Builtins: Visual mode
-map("v", "J", ":m '>+1<CR>gv=gv", { noremap = false, silent = false, desc = "edit: Move this line down" })
-map("v", "K", ":m '<-2<CR>gv=gv", { noremap = false, silent = false, desc = "edit: Move this line up" })
-map("v", "<", "<gv", { noremap = false, silent = false, desc = "edit: Decrease indent" })
-map("v", ">", ">gv", { noremap = false, silent = false, desc = "edit: Increase indent" })
+-- Builtins: Visual mode. Режим x, а не v: в select-mode (активный сниппет)
+-- нажатие J двигало бы строку вместо замены плейсхолдера.
+map("x", "J", ":m '>+1<CR>gv=gv", { noremap = true, silent = false, desc = "edit: Move this line down" })
+map("x", "K", ":m '<-2<CR>gv=gv", { noremap = true, silent = false, desc = "edit: Move this line up" })
+map("x", "<", "<gv", { noremap = true, silent = false, desc = "edit: Decrease indent" })
+map("x", ">", ">gv", { noremap = true, silent = false, desc = "edit: Increase indent" })
 map("x", "p", '"_dP', { noremap = true, silent = false, desc = "edit: Paste without yanking" })
 
 -- Builtins: "Suckless" - named after r/suckless

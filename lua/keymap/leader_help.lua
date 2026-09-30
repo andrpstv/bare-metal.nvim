@@ -53,6 +53,26 @@ local function collect()
 	end
 	take(vim.api.nvim_get_keymap("n"))
 	pcall(take, vim.api.nvim_buf_get_keymap(0, "n"))
+	-- v/x тоже: иначе visual-версии (<leader>fs-grep и др.) невидимы.
+	-- Режим дописываем суффиксом, чтобы n/v-тёзки не сливались.
+	for _, mode in ipairs({ "v", "x" }) do
+		for _, m in ipairs(vim.api.nvim_get_keymap(mode)) do
+			local lhs = m.lhs or ""
+			if #lhs > 1 and lhs:sub(1, 1) == LEADER and not seen[lhs .. mode] then
+				seen[lhs .. mode] = true
+				out[#out + 1] = { lhs = lhs .. " [" .. mode .. "]", desc = m.desc or "" }
+			end
+		end
+		pcall(function()
+			for _, m in ipairs(vim.api.nvim_buf_get_keymap(0, mode)) do
+				local lhs = m.lhs or ""
+				if #lhs > 1 and lhs:sub(1, 1) == LEADER and not seen[lhs .. mode] then
+					seen[lhs .. mode] = true
+					out[#out + 1] = { lhs = lhs .. " [" .. mode .. "]", desc = m.desc or "" }
+				end
+			end
+		end)
+	end
 	return out
 end
 

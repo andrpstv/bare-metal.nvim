@@ -11,7 +11,8 @@ REQUIRED_NVIM_VERSION=0.11.0
 REQUIRED_NVIM_VERSION_LEGACY=0.10.0
 USE_SSH=1
 CLONE_ATTR=("--progress")
-DEST_DIR="${HOME}/.config/nvim"
+# F10: уважаем XDG_CONFIG_HOME (как install.ps1) вместо жёсткого ~/.config.
+DEST_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
 BACKUP_DIR="${DEST_DIR}_backup-$(date +%Y%m%dT%H%M%S)"
 
 # Where this config is fetched from. Override to install a fork:
@@ -221,15 +222,6 @@ else
 	info 'Running in non-interactive mode because `$NONINTERACTIVE` is set.'
 fi
 
-if ! command -v perl >/dev/null; then
-	abort "$(
-		cat <<EOABORT
-Perl is required to interpret this script. See:
-  ${tty_underline}https://www.perl.org/get.html${tty_reset}
-EOABORT
-	)"
-fi
-
 if ! command -v nvim >/dev/null; then
 	abort "$(
 		cat <<EOABORT
@@ -283,11 +275,15 @@ else
 fi
 
 cd "${DEST_DIR}" || return
-execute "cp" "-fRpP" "${DEST_DIR}/lua/user_template/" "${DEST_DIR}/lua/user"
-
-if [[ "${USE_SSH}" -eq "0" ]]; then
-	info "Changing default fetching method to HTTPS..."
-	execute "perl" "-pi" "-e" "s/\[\"use_ssh\"\] \= true/\[\"use_ssh\"\] \= false/g" "${DEST_DIR}/lua/user/settings.lua"
+# F10: user_template/settings.lua уже use_ssh=false (perl-патч ниже был
+# мёртвым кодом — шаблон правится в репо, а не sed'ом при установке).
+# lua/user/ копируем ТОЛЬКО если его нет: повторный прогон больше не
+# затирает настройки (старые уезжают в BACKUP_DIR целиком, см. выше —
+# после установки сверьте backup вручную).
+if [[ ! -d "${DEST_DIR}/lua/user" ]]; then
+	execute "cp" "-RPp" "${DEST_DIR}/lua/user_template/" "${DEST_DIR}/lua/user"
+else
+	warn "Keeping existing \"${DEST_DIR}/lua/user\" — your settings survived. Template updates: diff with lua/user_template/ by hand."
 fi
 
 info "Spawning Neovim... (plugins are vendored inside the repo, no download needed)"

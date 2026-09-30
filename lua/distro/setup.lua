@@ -73,7 +73,13 @@ function M.plan()
 				name = b.name,
 				label = string.format("%s — %s", b.name, b.desc or ""),
 				how = (not can) and ("SKIPPED: " .. how) or how,
+				-- F3: run чинится по method, а не одним ad-hoc: go-бинарники
+				-- ставит install_go, релизы — ad-hoc spec. Иначе план врал
+				-- ("runnable"), а выполнение падало с No curl source.
 				run = can and function()
+					if b.method == "go" then
+						return require("distro.tools").install_go(b.name, { user_confirmed = true, preconfirmed = true })
+					end
 					return require("distro.tools").install_tool_ad_hoc(b)
 				end or nil,
 			}
@@ -82,7 +88,8 @@ function M.plan()
 	return items
 end
 
-function M.run()
+function M.run(opts)
+	opts = opts or {}
 	local items = M.plan()
 	local runnable = vim.tbl_filter(function(i)
 		return i.run ~= nil
@@ -124,7 +131,17 @@ function M.run()
 	lines[#lines + 1] = "Release archives land in tools/ inside this config."
 
 	-- require_consent, а не просто confirm: без UI подтверждать нечем.
-	require("distro.install").require_consent({ user_confirmed = true, yes = true })
+	-- F3: yes пробрасываем от вызывающего (:DistroSetup --yes), хардкода нет:
+	-- headless без флага отказывается вместо молчаливого сетевого выхода.
+	local ok_consent, err_consent = pcall(require("distro.install").require_consent, { user_confirmed = true, yes = opts.yes })
+	if not ok_consent then
+		vim.notify("[setup] " .. tostring(err_consent), vim.log.levels.WARN, { title = "distro setup" })
+		return
+	end
+	if #vim.api.nvim_list_uis() == 0 and not opts.yes then
+		vim.notify("[setup] Canceled: headless needs --yes (nothing was downloaded).", vim.log.levels.WARN, { title = "distro setup" })
+		return
+	end
 	if vim.fn.confirm(table.concat(lines, "\n"), "&Install\n&No", 2) ~= 1 then
 		vim.notify("[setup] Canceled. Nothing was downloaded.", vim.log.levels.INFO, { title = "distro setup" })
 		return

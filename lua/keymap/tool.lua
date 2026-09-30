@@ -45,6 +45,8 @@ end, { noremap = true, silent = true, desc = "filebrowser: netrw at pwd" })
 
 -- Plugin: trouble
 map("n", "gt", ":Trouble diagnostics toggle<CR>", { noremap = true, silent = true, desc = "lsp: Toggle trouble list" })
+-- NOTE: bare gt убивает встроенный :tabnext (осознанно; табы — на <leader>tk/tj).
+-- Не путать с <leader>gt (go: Test function) — разные команды, похожий префикс.
 map(
 	"n",
 	"<leader>lw",
@@ -89,6 +91,6 @@ end, { noremap = true, silent = true, desc = "tool: Workspace symbols (types/fun
 map("n", "<leader>fr", function()
 	_pick("resume")
 end, { noremap = true, silent = true, desc = "tool: Resume last search" })
-map("v", "<leader>fs", function()
+map("x", "<leader>fs", function()
 	_pick_grep_visual()
 end, { noremap = true, silent = true, desc = "tool: Find visual selection" })

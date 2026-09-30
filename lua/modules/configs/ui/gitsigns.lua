@@ -35,7 +35,7 @@
 		watch_gitdir = { follow_files = true, interval = 5000 },
 	})
 	if perf_defer then
-		local grp = vim.api.nvim_create_augroup("TurboGitsignsAttach", { clear = false })
+		local grp = vim.api.nvim_create_augroup("PerfGitsignsAttach", { clear = false })
 		-- BufReadPost/InsertEnter — знаки сразу на открытии и на первом наборе
 		-- (CursorHold один ждёт ~4000мс updatetime, т.е. на старте экрана пусто).
 		vim.api.nvim_create_autocmd({ "BufReadPost", "InsertEnter", "CursorHold", "CursorHoldI", "InsertLeave", "BufWritePost" }, {

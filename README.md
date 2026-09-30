@@ -33,6 +33,7 @@
 | Neovim | **0.11+** | да |
 | macOS / Linux / Windows | — | да |
 | `curl`, `tar` | любые свежие | да (ставит и обновляет плагины) |
+| `unzip` | любой свежий | проверяет `:ConfigHealth` (zip-фолбэк; в tools-реестре его нет) |
 | C-компилятор (`cc`/`gcc`/`clang`) + `make` | любые | для парсеров treesitter |
 | `ripgrep` (`rg`) | любой | ускоряет поиск по проекту |
 | Go (`go`) | — | только для Go-разработки |
@@ -54,13 +55,15 @@ git clone https://github.com/andrpstv/bare-metal.nvim.git $env:LOCALAPPDATA\nvim
 nvim
 ```
 
-Либо готовым скриптом — он сам сделает бэкап, если конфиг уже есть:
+Либо готовым скриптом — он сам сделает бэкап, если конфиг уже есть
+(повторный прогон настройки из `lua/user/` не затирает):
 
 ```sh
 bash <(curl -fsSL https://raw.githubusercontent.com/andrpstv/bare-metal.nvim/main/scripts/install.sh)
 ```
 
-Скрипт клонирует репозиторий в `~/.config/nvim`. Другой репозиторий:
+Нужно: `git`, `nvim` 0.11+, `perl` не нужен. Скрипт клонирует репозиторий
+в `${XDG_CONFIG_HOME:-~/.config}/nvim`. Другой репозиторий:
 
 ```sh
 NVIM_DISTRO_REPO=myfork/my-config ./scripts/install.sh
@@ -99,7 +102,14 @@ NVIM_DISTRO_REPO=myfork/my-config ./scripts/install.sh
 | Python | `pylsp` | `pip install python-lsp-server` |
 | Dart | `dartls` | идёт с Dart SDK |
 
-Проверить, что сервер подхватился: `<leader>li` в буфере с этим типом файла.
+Вендорено пресетов 8, включены по умолчанию 3 (`gopls`, `lua_ls`, `bashls`
+через `lsp_deps`): остальные добавьте в `lsp_deps` в `lua/user/settings.lua`
+и поставьте бинарник. `:DistroBinaries` ставит gopls/lua/stylua/shfmt/
+golangci-lint; для bashls/marksman/clangd/json/html/pylsp/dart — только
+подсказка системной установки.
+
+Проверить, что сервер подхватился: `<leader>li` в буфере с активным LSP
+(без сервера маппинга нет — это нормально, поставьте сервер выше).
 
 ### Линтер
 
@@ -111,8 +121,10 @@ go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
 ### Форматировщик
 
-Формат-on-save сам выбирает доступный: `gofumpt`/`goimports` для Go, `stylua` для Lua,
-`shfmt` для shell. Поставьте нужный — иначе подсветит, но не отформатирует.
+Форматирование — только через LSP (`textDocument/formatting`): если сервер
+отдаёт форматтер, `:Format` и format-on-save работают; нет — уведомит и
+пропустит. `gofumpt=true` — лишь флаг для gopls, отдельных `stylua`/`shfmt`
+вызовов нет (их ставит `:DistroBinaries`, форматируют они через свои LSP).
 
 ### Парсеры treesitter
 
@@ -130,46 +142,57 @@ go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
 Всё переопределяется в `lua/user/settings.lua` — он накладывается поверх
 `lua/core/settings.lua` и имеет приоритет. Шаблон лежит в `lua/user_template/settings.lua`;
-установщик копирует его в `lua/user/` при первом запуске.
+установщик копирует его в `lua/user/` в момент установки (при ручном клоне
+скопируйте сами: `cp -r lua/user_template lua/user` — автобутстрапа нет,
+без файла просто нет пользовательских настроек).
 
 ```lua
--- lua/user/settings.lua
+-- lua/user/settings.lua (целиком: нужен local + return)
+local settings = {}
+
 settings["colorscheme"] = "khold"
 settings["format_on_save"] = false
 settings["treesitter_deps"] = { "lua", "go", "rust" }  -- сузить набор парсеров
+
+return settings
 ```
 
 Полный список настроек с комментариями — в начале `lua/core/settings.lua`.
 
 ## Команды
 
-Всего 21 пользовательская команда (проверяется smoke-test.sh). Самые нужные:
+Всего 27 пользовательских команд (smoke-test.sh проверяет 21 — без 6×`Perf*`). Самые нужные:
 
 | Команда | Что делает |
 | --- | --- |
 | `:ConfigHealth` | проверка окружения: бинарники, LSP, тема, клавиши |
 | `:Distro` | меню пакетов: каталог, установка, обновление, статус |
 | `:DistroInstall <имя>` | поставить плагин из каталога (с подтверждением) |
+| `:DistroUpdate` | обновить устаревшее до пинов манифеста |
 | `:DistroCheck` | статус: что установлено, что не совпадает с lock-файлом |
-| `:DistroParsers [--all]` | парсеры treesitter |
+| `:DistroParsers` / `:DistroParsers <lang>` / `:DistroParsers --all` | список / один / все парсеры treesitter |
 | `:DistroTools` | внешние утилиты: проверить, поставить (с подтверждением) |
 | `:DistroBinaries` | бинарники: LSP, линтеры, форматтеры |
 | `:DistroMirror` | корпоративный зеркали источников (внутренняя сеть) |
 | `:DistroDiag` | диагностика: подключился ли LSP, куда уходят capability |
-| `:DistroBench` | замер открытия на этой машине |
+| `:DistroBench` / `:DistroBenchUI` | замер открытия / живого рендера на этой машине |
+| `:DistroSetup` | первичная доустановка недостающего (план + подтверждение) |
 | `:DistroTrace` | дерево операций с таймингами |
 | `:DistroClean` | удалить лишнее из кэша пакетов |
 | `:Format` / `:FormatToggle` | форматировать / переключить format-on-save |
 | `:FormatterToggleFt <lang>` | отключить формат для одного языка |
-| `:PerfLeanOn` / `:PerfLeanOff` | пресет для слабого железа |
-| `:PerfDeferOn` / `:PerfDeferOff` | отложить тяжёлое (полезно на больших проектах) |
+| `:LeaderHelp` | список всех leader-хоткеев с описаниями |
+| `:PairsStatus` | статус автопар |
+| `:TreesitterTier` | переключить тир treesitter буфера (full/lite/off) |
+| `:PerfLeanOn` / `:PerfLeanOff` / `:PerfLeanStatus` | пресет для слабого железа |
+| `:PerfDeferOn` / `:PerfDeferOff` / `:PerfDeferStatus` | отложить тяжёлое (полезно на больших проектах) |
 
 ## Хоткеи
 
 `<leader>` — пробел. Полный список — в `lua/keymap/`, он разложен по файлам
 `editor.lua`, `lang.lua`, `tool.lua`, `ui.lua`, `completion.lua`.
 
-**Поиск и пикеры** (на `mini.pick`, без telescope):
+**Поиск и пикеры** (на `telescope.nvim`, ставится из каталога):
 
 | | |
 | --- | --- |
@@ -180,7 +203,7 @@ settings["treesitter_deps"] = { "lua", "go", "rust" }  -- сузить набо�
 | `<leader>fg` | git-ветки |
 | `<C-p>` | панель команд |
 
-**LSP:**
+**LSP:** (появляются только в буфере с аттачнутым LSP — без сервера маппингов нет)
 
 | | |
 | --- | --- |
@@ -191,7 +214,9 @@ settings["treesitter_deps"] = { "lua", "go", "rust" }  -- сузить набо�
 | `gw` | супертипы (интерфейсы, которые реализует тип) |
 
 **Go:** `<leader>gt` тест функции · `<leader>ta` все тесты · `<leader>gf` альт-файл ·
-`<leader>ar` разложить `x, err := f()` · `<leader>ie` обернуть в `if err != nil`.
+`<leader>ar` разложить `x, err := f()` · `<leader>ie` обернуть в `if err != nil` ·
+`<leader>gg` догрузить недостающие импорты (`go get`, флоат-лог).
+`n:<leader>fs` — FillStruct, `v:<leader>fs` — grep по выделению (моды разные).
 
 **Файлы и буферы:** `<leader>e` проводник (netrw) у текущего файла ·
 `<leader>E` у корня проекта · `<leader>sv`/`<leader>sh`/`<leader>sc` окна ·

@@ -205,9 +205,12 @@ function M.download(url, dest, extra_args)
 	local rc = run_argv(argv, "download")
 	if rc ~= 0 then
 		if rc == 22 then
-			return false, "Source not found (HTTP 22/404). Kept previous version. No changes made."
+			return false, "Source not found (HTTP 404; curl exit 22). Kept previous version. No changes made."
 		end
-		return false, "Download failed (curl exit " .. tostring(rc) .. "). Check network/mirror and retry. No changes made."
+		-- F13: код + хост вместо голого exit: 403/rate-limit больше не
+		-- маскируются под 404. Полный лог — в tmpdir/distro.log.
+		local host = url:match("^https?://([^/]+)") or "?"
+		return false, "Download failed (curl exit " .. tostring(rc) .. " from " .. host .. "). 403/429 = rate-limit или токен. Log: " .. M.tmpdir() .. "/distro.log. No changes made."
 	end
 	return true
 end
@@ -351,12 +354,49 @@ function M.dir_size_kb(dir)
 	return math.floor(total / 1024)
 end
 
+--- Move a dir, crossing filesystems when rename can't (XDG_CACHE_HOME on
+--- another volume than XDG_CONFIG_HOME). Returns true + nil, or false + err.
+local function move_dir(src, dest)
+	if os.rename(src, dest) then
+		return true
+	end
+	-- EXDEV and friends: copy + remove instead. System mv/cp know how;
+	-- PowerShell Move-Item on Windows.
+	local argv
+	if is_win() then
+		argv = { "powershell", "-NoProfile", "-Command", "Move-Item", "-Force", "-Path", src, "-Destination", dest }
+	else
+		argv = { "mv", src, dest }
+	end
+	local o = vim.system(argv, { text = true, timeout = 120000 }):wait(130000)
+	if o and o.code == 0 and vim.uv.fs_stat(dest) then
+		return true
+	end
+	return false, "cross-device move failed (mv exit " .. tostring(o and o.code) .. ")"
+end
+
 --- Download + unpack one plugin atomically. opts = { user_confirmed=true, yes? }.
 function M.install_one(entry, opts)
 	M.require_consent(opts)
 	local ok, err = M.check_prereqs()
 	if not ok then
 		return false, err
+	end
+	-- F1: тулчейн из needs.bins проверяем ДО скачивания, а не после:
+	-- качать мегабайты чтобы упасть на отсутствии cc — неуважение.
+	if entry.needs and entry.needs.bins then
+		local missing = {}
+		for _, b in ipairs(entry.needs.bins) do
+			if vim.fn.executable(b) ~= 1 then
+				-- cc/clang/gcc взаимозаменяемы для сборки C.
+				if not (b == "cc" and (vim.fn.executable("gcc") == 1 or vim.fn.executable("clang") == 1 or vim.fn.executable("cl") == 1)) then
+					missing[#missing + 1] = b
+				end
+			end
+		end
+		if #missing > 0 then
+			return false, "Missing build tools for '" .. entry.name .. "': " .. table.concat(missing, ", ") .. ". Install them first, then retry. Nothing was downloaded."
+		end
 	end
 	-- skip redundant re-downloads of the exact same pin (healthy dir + same ref)
 	do
@@ -392,13 +432,36 @@ function M.install_one(entry, opts)
 	if not ok_dl then
 		release()
 		M.log("download FAILED " .. entry.name)
+		vim.fn.delete(archive)
+		vim.fn.delete(stage, "rf")
 		return false, dl_err
 	end
 
 	local ok_unpack = src.archive == "zip" and unpack_zip(archive, stage) or unpack_targz(archive, stage)
 	if not ok_unpack then
 		release()
-		return false, "Unpack failed for '" .. entry.name .. "' (archive seems incomplete). Old version kept. [Retry / Discard tmp file]"
+		vim.fn.delete(archive)
+		vim.fn.delete(stage, "rf")
+		return false, "Unpack failed for '" .. entry.name .. "' (archive seems incomplete). Old version kept, tmp cleaned. [Retry]"
+	end
+
+	-- F1: entry.build наконец выполняется (раньше поле игнорировалось и
+	-- lock вечно показывал build-needed). Shell-команды — в stage-до переезда
+	-- (старая версия цела при провале); vim-команды (":GoInstallBinaries") —
+	-- после переезда через pcall; токен "treesitter" — парсеры ставит
+	-- :DistroParsers, здесь только честный статус.
+	if type(entry.build) == "string" and entry.build:sub(1, 1) ~= ":" and entry.build ~= "treesitter" then
+		-- Без sh-прослойки (её может не быть на Windows): простое разбиение
+		-- по пробелам, пайпов в build-спеках manifest нет.
+		local argv = vim.split(entry.build, "%s+")
+		local bobj = vim.system(argv, { text = true, cwd = stage, timeout = 300000 }):wait(310000)
+		if not bobj or bobj.code ~= 0 then
+			release()
+			local out = tostring(bobj and (bobj.stderr ~= "" and bobj.stderr or bobj.stdout) or "no output")
+			vim.fn.delete(archive)
+			vim.fn.delete(stage, "rf")
+			return false, "Build failed for '" .. entry.name .. "' (" .. entry.build .. "): " .. out:gsub("%s+", " "):sub(1, 300) .. ". Old version kept, tmp cleaned."
+		end
 	end
 
 	-- sweep: no .git ever, optional strip of heavy dirs
@@ -410,18 +473,18 @@ function M.install_one(entry, opts)
 		end
 	end
 
-	-- atomic rename
+	-- atomic rename (с фолбэком через volumes — см. move_dir выше)
 	vim.fn.delete(dest .. ".old", "rf")
 	if vim.uv.fs_stat(dest) then
 		os.rename(dest, dest .. ".old")
 	end
-	local ok_mv = os.rename(stage, dest)
+	local ok_mv, mv_err = move_dir(stage, dest)
 	if not ok_mv then
 		if vim.uv.fs_stat(dest .. ".old") then
 			os.rename(dest .. ".old", dest)
 		end
 		release()
-		return false, "Cannot write to " .. dest .. " (permission denied). Check ownership. No changes made."
+		return false, "Cannot move to " .. dest .. " (" .. tostring(mv_err or "permission denied") .. "). Check ownership / volumes. No changes made."
 	end
 	vim.fn.delete(dest .. ".old", "rf")
 	vim.fn.delete(archive)
@@ -443,7 +506,24 @@ function M.install_one(entry, opts)
 	require("distro.lock").record(entry.name, rec)
 	release()
 	M.log("installed " .. entry.name .. " " .. entry.ref:sub(1, 7))
-	return true, "Installed '" .. entry.name .. "' (" .. entry.ref:sub(1, 7) .. (src.mirror and ", mirror:" .. src.mirror_branch or "") .. "). Version recorded in distro-lock.json."
+	local msg = "Installed '" .. entry.name .. "' (" .. entry.ref:sub(1, 7) .. (src.mirror and ", mirror:" .. src.mirror_branch or "") .. "). Version recorded in distro-lock.json."
+	if type(entry.build) == "string" and entry.build:sub(1, 1) == ":" then
+		-- Vim-команда плагина (":GoInstallBinaries"): грузим плагин через
+		-- лоадер и выполняем. Не вышло — честно говорим что запустить руками.
+		local ok_ld = pcall(require("distro.loader").load, entry.name)
+		local ok_cmd, cmd_err = false, "loader failed"
+		if ok_ld then
+			ok_cmd, cmd_err = pcall(vim.cmd, entry.build:sub(2))
+		end
+		if ok_cmd then
+			msg = msg .. " Build step " .. entry.build .. " executed."
+		else
+			msg = msg .. " Then run " .. entry.build .. " manually (" .. tostring(cmd_err):sub(1, 120) .. ")."
+		end
+	elseif entry.build == "treesitter" then
+		msg = msg .. " Parsers are separate: run :DistroParsers --all to build them."
+	end
+	return true, msg
 end
 
 --- Remove one vendored dir (clean). Also confirm-gated.
@@ -484,13 +564,19 @@ end
 --- Query GitHub API for a branch HEAD sha (github mode only). Returns sha or nil+err.
 function M.remote_head_sha(repo, branch)
 	local url = string.format("https://api.github.com/repos/%s/commits/%s", repo, branch or "main")
-	local argv = { "curl", "-fSL", "--proto", "=https", "--tlsv1.2", url }
+	-- F13: те же extra_args/проверки что у скачивания (корпоративный прокси
+	-- и verify_url), иначе за прокси — «API unreachable» вместо правды.
+	local eff = require("distro.mirror").effective()
+	local argv = curl_base(eff.extra_args)
+	for _, a in ipairs({ "-fSL", "--proto", "=https", "--tlsv1.2", url }) do
+		argv[#argv + 1] = a
+	end
 	local obj = vim.system(argv, { text = true, timeout = 15000 }):wait()
 	if not obj or obj.code ~= 0 then
-		return nil, "API unreachable (rate limit? offline?). No changes made."
+		return nil, "API unreachable (rate limit? offline? proxy needs extra_args/token?). Log: " .. M.tmpdir() .. "/distro.log. No changes made."
 	end
 	local sha = obj.stdout and obj.stdout:match('"sha"%s*:%s*"([0-9a-f]+)"')
-	return sha, sha and nil or "Unexpected API response. No changes made."
+	return sha, sha and nil or "Unexpected API response. Log: " .. M.tmpdir() .. "/distro.log. No changes made."
 end
 
 function M.remote_cache_path()

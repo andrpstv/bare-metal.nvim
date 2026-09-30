@@ -8,8 +8,8 @@
 
 Связанные документы: `09-async-startup.md` (механизмы defer),
 `10-largefile-analysis.md` (тиры/гард), `08-refactor-plan.md`,
-`05-qa-report.md`. Отчёты и замеры по ходу: `speed/` рядом с этим файлом
-(`baseline.md`, `reports/CN-*.md`, `notes.md`).
+`05-qa-report.md`. Отчёты и замеры по ходу: `docs/distro/speed/` рядом
+с этим файлом (`baseline.md`, `reports/C*.md`, заметки в отчётах циклов).
 
 ## 1. SLO релиза (все цифры — медианы, машина координатора, nvim 0.12.5)
 
@@ -52,7 +52,7 @@
 - **Distro-team** — smoke-фикс, доки=факт, установщик, lock-синхрон.
 - **QA (tui-test)** — матрица каждого цикла, слабый ПК, Go-сессия (§7).
 
-Ритм цикла: план → работа → замеры → отчёт `speed/reports/CN-*.md`
+Ритм цикла: план → работа → замеры → отчёт `docs/distro/speed/reports/C*.md`
 (таблица было/стало) → гейт. Гейт: smoke 8/8 + SLO-цикла зелёные +
 ноль новых `E492`/трейсбеков в PTY-матрице. Без цифр цикл не закрыт.
 
@@ -172,12 +172,14 @@ static fallback caps в `completion/lsp.lua`, gopls debounce 150/250
 
 ## 7. Цикл 4 — релиз
 
-1. Доки = факт: README «25 команд» → 33; гайд без `cmp_defer_caps`/`weak_hw_axes`;
+1. Доки = факт: README 27 команд (smoke проверяет все 27: 21 + 6×`Perf*`);
+   гайд без `cmp_defer_caps`/`weak_hw_axes`;
    `lazy-lock.json` удалить/пометить stale (правда — `manifest`+`distro-lock`).
 2. Установщик: идемпотентность (не терять `lua/user/` при повторе),
    `XDG_CONFIG_HOME` в sh, честное «sh клонирует / ps1 ставит тулчейн».
-3. Deprecated perf-слой (`turbo.lua`/`weak_hw.lua`, 9 дублей) — оставить
-   (контракт `user.settings`), удалить в major.
+3. Deprecated perf-слой (`turbo.lua`/`weak_hw.lua`, дубли команд) — УДАЛЁН
+   (было «оставить до major», срезан в C5: env-алиасы живут в perf.lua,
+   settings-ключи маппятся; breaking — только имена `:Turbo*`/`:WeakHw*`).
 4. Бэклог (только с запасом): тема async-сплит (§0), native fuzzy-фильтр —
    только по spike-критерию «тёплый `ff` на 50k файлов >80мс после Lua-оптов».
    Парсеры и так C, jsregexp компилирован — перепись конфига на C/Rust

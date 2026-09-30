@@ -447,11 +447,12 @@ function M.do_adopt_pins()
 		return
 	end
 	local lockmod = require("distro.lock")
+	local snap = lockmod.read()
 	for _, p in ipairs(outdated) do
 		lockmod.record(p.name, {
 			repo = p.repo,
 			ref = p.ref,
-			tarball = lockmod.read()[p.name] and lockmod.read()[p.name].tarball or "",
+			tarball = snap[p.name] and snap[p.name].tarball or "",
 			kind = p.kind,
 			size_kb = require("distro.install").dir_size_kb(require("distro.loader").pack_dir(p)),
 		})
@@ -468,6 +469,11 @@ function M.do_clean()
 	local known = {}
 	for _, p in ipairs(manifest.plugins) do
 		known[p.kind .. "/" .. p.name] = true
+	end
+	-- Каталог тоже известный: иначе C предлагал удалить установленный
+	-- из каталога плагин (напр. telescope.nvim сразу после :DistroInstall).
+	for _, p in ipairs(manifest.catalog or {}) do
+		known[(p.kind or "opt") .. "/" .. p.name] = true
 	end
 	local victims = {}
 	for _, kind in ipairs({ "start", "opt" }) do

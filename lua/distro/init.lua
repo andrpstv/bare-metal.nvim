@@ -209,9 +209,10 @@ function M.setup()
 		end,
 	})
 
-	vim.api.nvim_create_user_command("DistroSetup", function()
-		require("distro.setup").run()
-	end, { desc = "distro: one-shot setup — parsers, LSP, linters (single confirmation)" })
+	vim.api.nvim_create_user_command("DistroSetup", function(opts)
+		local yes = opts.args and opts.args:match("%-%-yes") ~= nil
+		require("distro.setup").run({ yes = yes or nil })
+	end, { nargs = "?", desc = "distro: one-shot setup — parsers, LSP, linters (single confirmation; --yes for headless)" })
 
 	-- Автобустрап парсеров. Только чтение каталогов + один notify, через 2с
 	-- после старта: в окно инициализации это попадать не должно. Скачивание

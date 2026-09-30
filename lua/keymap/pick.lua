@@ -201,9 +201,16 @@ local function gomod_map(gomod_path)
 					map.req[m] = v
 				end
 			elseif kind == "rep" then
-				local o, np, nv = s:match("^(%S+)%s+=>%s+(%S+)%s*(v%S*)%s*$")
-				if o then
-					map.rep[o] = { path = np, ver = (nv ~= "" and nv or nil) }
+				-- NOTE: версию парсим отдельно: `replace a => ../local`
+				-- без версии одним шаблоном с литералом `v` не ловится.
+				local o, rest = s:match("^(%S+)%s+=>%s*(.-)%s*$")
+				if o and rest ~= "" then
+					local np, nv = rest:match("^(.-)%s+(v%S+)%s*$")
+					if nv then
+						map.rep[o] = { path = np, ver = nv }
+					else
+						map.rep[o] = { path = rest, ver = nil }
+					end
 				end
 			end
 		end
@@ -367,17 +374,26 @@ local lsp_req = { gen = 0, inflight = nil }
 -- стоит 30–350мс. Раньше qualified шёл только текстом и всегда платил его
 -- цену; теперь быстрое — быстро, медленное — через фолбэк как раньше.
 local race_state = nil
+-- Счётчик вызовов _pick_lsp: опоздавшие async-колбэки текста сверяются
+-- со СВОИМ снимком (my_seq), а не с живой таблицей, иначе второй быстрый
+-- gd получал прыжок/квикфикс от первого (race_state перезаписан).
+local race_seq = 0
 
 ---Перейти к файлу без лишней перезагрузки: уже открытый буфер — через :b
 ---(нет detach-шторма LspDetach и повторных BufReadPost-цепей), иначе :edit.
+---Возвращает false, если перейти не удалось (E37 на грязном буфере,
+---удалённый файл): вызыватель НЕ должен двигать курсор в этом случае.
 ---@param filename string
+---@return boolean ok
 local function goto_file(filename)
+	if not filename or filename == "" then
+		return false
+	end
 	local b = vim.fn.bufnr(filename)
 	if b > 0 and vim.api.nvim_buf_is_loaded(b) then
-		pcall(vim.cmd, "buffer " .. b)
-	else
-		vim.cmd.edit(vim.fn.fnameescape(filename))
+		return pcall(vim.cmd, "buffer " .. b)
 	end
+	return pcall(vim.cmd.edit, vim.fn.fnameescape(filename))
 end
 
 ---Победитель гонки прыгает, проигравший гаснет: помечаем done, отменяем
@@ -423,7 +439,15 @@ _G._pick_lsp = function(scope, opts)
 		end)
 	end
 	-- Новый вызов — новая гонка: сбрасываем состояние (см. race_state выше).
+	-- Снимок поколения для async-колбэков текста: опоздавший колбэк сверяется
+	-- со своим my_seq, а не с живой таблицей (иначе второй быстрый gd получал
+	-- чужой прыжок/квикфикс). Видна вложенным функциям как upvalue.
 	race_state = nil
+	race_seq = race_seq + 1
+	local my_seq = race_seq
+	local function race_alive()
+		return my_seq == race_seq
+	end
 	if not _pick_ensure() then
 		return
 	end
@@ -491,6 +515,9 @@ _G._pick_lsp = function(scope, opts)
 				-- ЛЮБЫЕ API-вызовы, включая vim.notify (E5560). Поэтому всё
 				-- тело — в vim.schedule, сразу и без исключений.
 				vim.schedule(function()
+				if not race_alive() then
+					return -- новый gd уже идёт, этот ответ протух
+				end
 				-- ВСЕ ветки отказа обязаны что-то сказать: потребитель полагается
 				-- на return выше, а раньше тут был голый return — у пользователя не
 				-- было ни перехода, ни quickfix, ни единого сообщения.
@@ -632,11 +659,16 @@ _G._pick_lsp = function(scope, opts)
 							return -- гонку уже выиграл LSP
 						end
 						pcall(vim.cmd, "normal! m'")
-						goto_file(only_decl.filename)
-						pcall(vim.api.nvim_win_set_cursor, 0, { only_decl.lnum, (only_decl.col or 1) - 1 })
+						-- Курсор двигаем только если файл реально открылся:
+						-- иначе (E37/удалён) он уехал бы в старом буфере.
+						if goto_file(only_decl.filename) then
+							pcall(vim.api.nvim_win_set_cursor, 0, { only_decl.lnum, (only_decl.col or 1) - 1 })
+						else
+							vim.notify("[lsp] cannot open " .. only_decl.filename, vim.log.levels.WARN, { title = "lsp" })
+							return
+						end
 						qspan("qual-jump-direct", only_decl.filename)
 						qspan("race-won", "text")
-						race_win()
 						race_win()
 						vim.schedule(function()
 							-- Первый тик после прыжка: кадр уже ушёл на
@@ -681,7 +713,7 @@ _G._pick_lsp = function(scope, opts)
 		if vim.fn.executable("go") ~= 1 or lib_searching then
 			return false
 		end
-		if vim.api.nvim_buf_get_option(bufnr, "filetype") ~= "go" then
+		if vim.bo[bufnr].filetype ~= "go" then
 			return false
 		end
 		-- Scan the whole buffer for the import. The individual entries of a
@@ -691,7 +723,15 @@ _G._pick_lsp = function(scope, opts)
 		-- qualifier is specific enough that a stray string literal will not match.
 		local import_path
 		for _, l in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) do
-			local alias, p = l:match('^%s*(%a[%w]*)%s+"([^"]+)"')
+			-- m5: алиас включает `_`-импорты ([_%a], не %a); dot-импорты —
+			-- отдельной веткой (точка не входит в %a-класс).
+			local alias, p = l:match('^%s*([_%a][_%w]*)%s+"([^"]+)"')
+			if not p then
+				local dot, p2 = l:match('^%s*(%.)%s+"([^"]+)"')
+				if dot then
+					alias, p = dot, p2
+				end
+			end
 			if not p then
 				p = l:match('^%s*"([^"]+)"')
 			end
@@ -715,6 +755,9 @@ _G._pick_lsp = function(scope, opts)
 		-- и для ответа go list.
 		local function got_dir(dir)
 			vim.schedule(function()
+				if not race_alive() then
+					return -- новый gd уже идёт, этот опоздал
+				end
 				if not lib_grep_fallback(bufnr, symbol, scope, dir) then
 					vim.notify("[lsp] text search for " .. symbol .. " in " .. import_path .. " could not start (falling back)", vim.log.levels.INFO, { title = "lsp" })
 				end
@@ -742,9 +785,10 @@ _G._pick_lsp = function(scope, opts)
 		lib_searching = true
 		-- GOFLAGS=-mod=mod: a module whose go.sum is incomplete makes `go list`
 		-- fail outright, which is exactly the state a user is in right after
-		-- adding an import and saving.
+		-- adding an import and saving. Append, don't clobber: user's -tags
+		-- and -mod=vendor must survive, иначе чиним одно и ломаем другое.
 		local env = vim.fn.environ()
-			env.GOFLAGS = "-mod=mod"
+		env.GOFLAGS = (env.GOFLAGS and env.GOFLAGS ~= "" and env.GOFLAGS .. " " or "") .. "-mod=mod"
 		vim.system({ "go", "list", "-f", "{{.Dir}}", import_path }, { text = true, cwd = cwd, env = env, timeout = 10000 }, function(res)
 			-- Release the guard BEFORE delegating: lib_grep_fallback takes it
 			-- itself for the duration of the rg scan.
@@ -753,6 +797,9 @@ _G._pick_lsp = function(scope, opts)
 			-- только из main loop. Чистый Lua (trim, таблицы) безопасен и здесь,
 			-- но целиком в schedule проще и единообразно с rg-колбэком выше.
 			vim.schedule(function()
+			if not race_alive() then
+				return -- новый gd уже идёт, этот ответ протух
+			end
 			-- Every refusal path must say something. A silent return here is what
 			-- made this look like "the fix did nothing" instead of "it failed".
 			if not res then
@@ -790,7 +837,12 @@ _G._pick_lsp = function(scope, opts)
 			local cur_word = vim.fn.expand("<cword>")
 			-- Хвост после типа игнорируем: `sql.DB)`, `x.Method{},` —
 			-- всё равно qualified. cur_word == sym отсекает ложные префиксы.
+			-- m5: ищем в любом месте cWORD (не только с ^): `(mongo.Client`
+			-- после скобки; идентификаторы с ведущим `_`.
 			local qual, sym = full:match("^([%a][%w_]*)%.([%a][%w_]*)")
+			if not qual then
+				qual, sym = full:match("([_%a][_%w]*)%.([_%a][_%w]*)")
+			end
 			-- cur_word == sym means the cursor sits on the TYPE after the dot,
 			-- which is what the user wants. Cursor on the qualifier means they
 			-- want the package itself, and gopls answers that quickly - leave it.
@@ -893,7 +945,9 @@ _G._pick_lsp = function(scope, opts)
 			end
 			local locs = {}
 			if result then
-				if result.uri then
+				-- Одиночный LocationLink (targetUri без uri) — тоже один результат,
+				-- locations_to_items его понимает, а #locs на словаре дал бы 0.
+				if result.uri or result.targetUri then
 					locs[1] = result
 				else
 					locs = result
@@ -913,15 +967,21 @@ _G._pick_lsp = function(scope, opts)
 							qspan("race-won", "lsp")
 						end
 						pcall(vim.cmd, "normal! m'") -- <C-o> назад после прыжка
-						local same = item.bufnr == req_buf
-							or item.filename == vim.api.nvim_buf_get_name(req_buf)
+						-- NOTE: locations_to_items не возвращает поле bufnr
+						-- (только filename/lnum/col) — сверяемся по имени файла.
+						local same = item.filename == vim.api.nvim_buf_get_name(req_buf)
 						if not same then
 							-- NOTE: :edit на ТОТ ЖЕ файл шлёт LspDetach (0.12) и
 							-- будит GoplsWatchdog ложным рестартом — тот же буфер
 							-- не перезагружаем, только двигаем курсор.
-							goto_file(item.filename)
+							-- col может отсутствовать (m3): дефолт вместо падения
+							-- pcall-аргументов мимо pcall.
+							if not goto_file(item.filename) then
+								vim.notify("[lsp] cannot open " .. tostring(item.filename), vim.log.levels.WARN, { title = "lsp" })
+								return
+							end
 						end
-						pcall(vim.api.nvim_win_set_cursor, 0, { item.lnum, item.col - 1 })
+						pcall(vim.api.nvim_win_set_cursor, 0, { item.lnum, (item.col or 1) - 1 })
 						return
 					end
 					-- Курсор ушёл, пока gopls думал: не телепортируем, показываем пикер.

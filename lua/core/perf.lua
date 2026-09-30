@@ -199,6 +199,9 @@ local function apply_lean_axes()
 	end
 	if M.lean_axis("debounce") then
 		s.gopls_debounce = math.max(s.gopls_debounce or 150, 250)
+		-- L6: та же ось душит и cmp-каденцию (читается в cmp.lua при загрузке).
+		s.cmp_debounce = 50
+		s.cmp_throttle = 30
 	end
 	-- Совместимость: старые читатели (внешние конфиги) всё ещё смотрят
 	-- gopls_weak_hw/defer_theme — выставляем их вслед за осями.

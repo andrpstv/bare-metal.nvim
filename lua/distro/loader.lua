@@ -56,6 +56,7 @@ local finishing = {}
 
 --- Phase 1: ensure entry + all deps are packadd'ed (rtp). No configs yet.
 ---@return boolean
+local pack_subtree_body -- forward: тело ниже, wrapper зовёт по имени
 local function pack_subtree(entry)
 	if M.loaded[entry.name] then
 		return true
@@ -64,6 +65,20 @@ local function pack_subtree(entry)
 		return true -- cycle: the outer frame packs it
 	end
 	packing[entry.name] = true
+	-- F5: finally-guard — ошибка ниже (битый manifest, trace) обязана снять
+	-- флаг, иначе все будущие load отдают cycle-заглушку до рестарта.
+	local ok, res = xpcall(pack_subtree_body, function(e)
+		return debug.traceback(tostring(e), 2)
+	end, entry)
+	packing[entry.name] = nil
+	if not ok then
+		vim.notify("[Distro] pack '" .. entry.name .. "' failed: " .. tostring(res):sub(1, 200), vim.log.levels.ERROR)
+		return false
+	end
+	return res
+end
+
+pack_subtree_body = function(entry)
 	local manifest = require("distro.manifest")
 	local ok = true
 	for _, dep in ipairs(entry.deps or {}) do
@@ -127,6 +142,7 @@ end
 
 --- Phase 2: after/plugin + config, deps first.
 ---@return boolean
+local finish_subtree_body -- forward: см. pack_subtree выше
 local function finish_subtree(entry)
 	if M.loaded[entry.name] then
 		return true
@@ -134,6 +150,19 @@ local function finish_subtree(entry)
 	if finishing[entry.name] then
 		return true -- cycle: the outer frame finishes it
 	end
+	finishing[entry.name] = true
+	local ok, res = xpcall(finish_subtree_body, function(e)
+		return debug.traceback(tostring(e), 2)
+	end, entry)
+	finishing[entry.name] = nil
+	if not ok then
+		vim.notify("[Distro] finish '" .. entry.name .. "' failed: " .. tostring(res):sub(1, 200), vim.log.levels.ERROR)
+		return false
+	end
+	return res
+end
+
+finish_subtree_body = function(entry)
 	local manifest = require("distro.manifest")
 	finishing[entry.name] = true
 	local ok = true
@@ -156,14 +185,19 @@ local function finish_subtree(entry)
 			if entry.config then
 				local cfg_mod = entry.config:match("^themes%.") and entry.config or ("modules.configs." .. entry.config)
 				local ok_req, cfg = pcall(require, cfg_mod)
-				if ok_req then
-					if type(cfg) == "function" then
-						local ok_call, err = pcall(cfg)
-						if not ok_call then
-							vim.notify("[Distro] config '" .. cfg_mod .. "' failed: " .. tostring(err), vim.log.levels.ERROR)
-						end
-					elseif type(cfg) == "table" and cfg.setup then
-						pcall(cfg.setup)
+				if not ok_req then
+					-- F7: раньше несуществующий config молча пропускался
+					-- (опечатка = «плагин загрузился», поведения нет).
+					vim.notify("[Distro] config '" .. cfg_mod .. "' not found for '" .. entry.name .. "'", vim.log.levels.ERROR)
+				elseif type(cfg) == "function" then
+					local ok_call, err = pcall(cfg)
+					if not ok_call then
+						vim.notify("[Distro] config '" .. cfg_mod .. "' failed: " .. tostring(err), vim.log.levels.ERROR)
+					end
+				elseif type(cfg) == "table" and cfg.setup then
+					local ok_setup, err_setup = pcall(cfg.setup)
+					if not ok_setup then
+						vim.notify("[Distro] config '" .. cfg_mod .. ".setup()' failed: " .. tostring(err_setup), vim.log.levels.ERROR)
 					end
 				end
 			end
@@ -197,23 +231,35 @@ function M.load(name)
 	end
 	loading[name] = true
 	load_depth = load_depth + 1
-	local outer = load_depth == 1
-	local t = trace()
-	local ok
-	if outer and t and t.enabled then
-		-- Aggregate row for the top-level load only. pack/finish rows above
-		-- are the breakdown; this is the single "what did that gd cost"
-		-- number. A nested M.load (plugin config loading another plugin) must
-		-- not emit its own aggregate — that is the spam case.
-		ok = t.span("loader:load/" .. name, function()
-			return pack_subtree(entry) and finish_subtree(entry)
-		end)
-	else
-		ok = pack_subtree(entry) and finish_subtree(entry)
+	-- F5: finally-guard парой к флагам выше: load_depth и loading[name]
+	-- всегда возвращаются, иначе одна ошибка косит счётчик и все циклы.
+	local function load_body()
+		local outer = load_depth == 1
+		local t = trace()
+		local ok
+		if outer and t and t.enabled then
+			-- Aggregate row for the top-level load only. pack/finish rows above
+			-- are the breakdown; this is the single "what did that gd cost"
+			-- number. A nested M.load (plugin config loading another plugin) must
+			-- not emit its own aggregate — that is the spam case.
+			ok = t.span("loader:load/" .. name, function()
+				return pack_subtree(entry) and finish_subtree(entry)
+			end)
+		else
+			ok = pack_subtree(entry) and finish_subtree(entry)
+		end
+		return ok
 	end
+	local ok, res = xpcall(load_body, function(e)
+		return debug.traceback(tostring(e), 2)
+	end)
 	load_depth = load_depth - 1
 	loading[name] = nil
-	return ok
+	if not ok then
+		vim.notify("[Distro] load '" .. name .. "' failed: " .. tostring(res):sub(1, 200), vim.log.levels.ERROR)
+		return false
+	end
+	return res
 end
 
 --- Source after/plugin files of a vendored plugin dir (see M.load).
@@ -231,7 +277,10 @@ function M.source_after(dir)
 				vim.notify("[Distro] after/plugin failed: " .. f .. ": " .. tostring(err_af), vim.log.levels.ERROR)
 			end
 		else
-			pcall(vim.cmd, "source " .. vim.fn.fnameescape(f))
+			local ok_src, err_src = pcall(vim.cmd, "source " .. vim.fn.fnameescape(f))
+			if not ok_src then
+				vim.notify("[Distro] after/plugin failed: " .. f .. ": " .. tostring(err_src), vim.log.levels.ERROR)
+			end
 		end
 	end
 end
@@ -476,6 +525,9 @@ function M.boot()
 		callback = function()
 			pcall(function()
 				idle_timer:stop()
+			end)
+			pcall(function()
+				idle_timer:close()
 			end)
 		end,
 		desc = "distro: cancel idle preload",

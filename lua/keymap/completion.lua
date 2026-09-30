@@ -52,33 +52,66 @@ end
 ---который молча глотал результат (раньше Enter в mini.pick — и тишина).
 ---Показываем что применили / выполнили / что упало и почему.
 ---@param bufnr integer
-local function code_action_feedback(bufnr)
+---@param use_visual boolean? true = диапазон выделения, а не курсора
+local function code_action_feedback(bufnr, use_visual)
 	bufnr = bufnr or vim.api.nvim_get_current_buf()
-	local params = vim.lsp.util.make_range_params(0, "utf-16")
+	-- M6: в visual шлём range ВЫДЕЛЕНИЯ (make_given_range_params читает
+	-- метки '< through '>), а не точку курсора — иначе сервер отвечал
+	-- actions для неверного диапазона.
+	local params
+	if use_visual then
+		params = vim.lsp.util.make_given_range_params(nil, nil, bufnr, "utf-16")
+		-- M6b: gopls строг к выходу за конец строки (E-column): клампим
+		-- диапазон к реальному содержимому, иначе "column is beyond end of line".
+		if params.range then
+			local last = vim.api.nvim_buf_line_count(bufnr)
+			for _, key in ipairs({ "start", "end" }) do
+				local p = params.range[key]
+				if p then
+					p.line = math.max(0, math.min(p.line or 0, last - 1))
+					local len = #(vim.api.nvim_buf_get_lines(bufnr, p.line, p.line + 1, false)[1] or "")
+					p.character = math.max(0, math.min(p.character or 0, len))
+				end
+			end
+		end
+	else
+		params = vim.lsp.util.make_range_params(0, "utf-16")
+	end
 	params.context = { diagnostics = vim.diagnostic.get(bufnr) }
 	local clients = vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/codeAction" })
 	if #clients == 0 then
 		vim.notify("[lsp] no code-action client here", vim.log.levels.WARN, { title = "lsp" })
 		return
 	end
+	-- NOTE: один вызов buf_request веерит сам на всех клиентов (runtime
+	-- рассылает каждому); цикл по клиентам давал бы N×N ответов и дубли.
+	-- _client_id берём из ctx ответа, а не из замыкания цикла.
+	-- Хендлер при этом всё равно вызывается по разу на клиент — поэтому
+	-- считаем ответы и показываем UI, когда ответили все.
 	local pending, actions = #clients, {}
-	for _, client in ipairs(clients) do
-		vim.lsp.buf_request(bufnr, "textDocument/codeAction", params, function(err, result)
-			pending = pending - 1
-			if not err and result then
-				for _, a in ipairs(result) do
-					a._client_id = client.id
-					actions[#actions + 1] = a
-				end
+	local had_err = false
+	vim.lsp.buf_request(bufnr, "textDocument/codeAction", params, function(err, result, ctx)
+		pending = pending - 1
+		if err then
+			had_err = true
+			vim.notify("[lsp] codeAction failed: " .. tostring(err.message or err.code), vim.log.levels.WARN, { title = "lsp" })
+		elseif result then
+			local cid = ctx and ctx.client_id
+			for _, a in ipairs(result) do
+				a._client_id = cid
+				actions[#actions + 1] = a
 			end
-			if pending > 0 then
-				return
-			end
-			if #actions == 0 then
+		end
+		if pending > 0 then
+			return
+		end
+		if #actions == 0 then
+			if not had_err then
 				vim.notify("[lsp] no code actions here", vim.log.levels.INFO, { title = "lsp" })
-				return
 			end
-			vim.ui.select(actions, {
+			return
+		end
+		vim.ui.select(actions, {
 				prompt = "Code actions:",
 				format_item = function(a)
 					return a.title or a.command and a.command.title or "?"
@@ -105,6 +138,11 @@ local function code_action_feedback(bufnr)
 						return
 					end
 					vim.notify("[lsp] running: " .. title, vim.log.levels.INFO, { title = "lsp" })
+					-- m8: локальные команды клиента (c.commands/vim.lsp.commands)
+					-- выполняются синхронно без хендлера — висящего "running"
+					-- без "done" быть не должно, закрываем сразу.
+					local is_local = c.commands and c.commands[cmd.command] ~= nil
+						or vim.lsp.commands[cmd.command] ~= nil
 					local ok_exec, err_exec = pcall(c.exec_cmd, c, cmd, { bufnr = bufnr }, function(err2)
 						vim.schedule(function()
 							if err2 then
@@ -120,6 +158,8 @@ local function code_action_feedback(bufnr)
 					end)
 					if not ok_exec then
 						vim.notify("[lsp] cannot run: " .. title .. " — " .. tostring(err_exec):sub(1, 160), vim.log.levels.ERROR, { title = "lsp" })
+					elseif is_local then
+						vim.notify("[lsp] done: " .. title, vim.log.levels.INFO, { title = "lsp" })
 					end
 				end
 				if not ch.edit and not ch.command then
@@ -128,11 +168,15 @@ local function code_action_feedback(bufnr)
 			end
 			-- Ленивый resolve: gopls присылает actions с одним data,
 			-- полный edit/command — только по codeAction/resolve.
+			-- m8: _client_id серверу не отдаём (наш технический довесок) —
+			-- шлём чистую копию без него.
 			if not choice.edit and not choice.command and choice.data then
 				local c0 = vim.lsp.get_client_by_id(choice._client_id)
 				if c0 then
 					vim.notify("[lsp] resolving: " .. (choice.title or "?"), vim.log.levels.INFO, { title = "lsp" })
-					c0:request("codeAction/resolve", choice, function(err0, res0)
+					local params = vim.tbl_extend("force", {}, choice)
+					params._client_id = nil
+					c0:request("codeAction/resolve", params, function(err0, res0)
 						vim.schedule(function()
 							if err0 or not res0 then
 								vim.notify(
@@ -152,8 +196,7 @@ local function code_action_feedback(bufnr)
 			end
 			apply_choice(choice)
 		end)
-		end)
-	end
+	end)
 end
 
 ---@param buf integer
@@ -181,6 +224,12 @@ function M.lsp(buf)
 		-- Свой рестарт вместо мёртвого :LspRestart: стопаем клиентов буфера,
 		-- перезагрузка буфера притянет их обратно через FileType-автокоманды.
 		-- Флаг — чтобы GoplsWatchdog не принял плановый рестарт за смерть.
+		-- Грязный буфер не трогаем: :edit упал бы с E37 ПОСЛЕ убийства
+		-- клиентов, оставив буфер без LSP вообще.
+		if vim.bo[buf].modified then
+			vim.notify("[lsp] save the buffer first (:w), then retry", vim.log.levels.WARN, { title = "lsp" })
+			return
+		end
 		vim.b[buf].lsp_manual_restart = true
 		for _, c in ipairs(vim.lsp.get_clients({ bufnr = buf })) do
 			vim.lsp.stop_client(c.id)
@@ -188,7 +237,7 @@ function M.lsp(buf)
 		vim.defer_fn(function()
 			if vim.api.nvim_buf_is_valid(buf) then
 				vim.api.nvim_buf_call(buf, function()
-					vim.cmd("edit")
+					pcall(vim.cmd, "edit")
 				end)
 			end
 		end, 300)
@@ -222,15 +271,21 @@ function M.lsp(buf)
 	map("n", "K", function()
 		vim.lsp.buf.hover()
 	end, { buffer = buf, silent = true, desc = "lsp: Show doc" })
-	map({ "n", "v" }, "ga", function()
-		code_action_feedback(buf)
+	map("n", "ga", function()
+		code_action_feedback(buf, false)
 	end, { buffer = buf, silent = true, desc = "lsp: Code action (with result feedback)" })
+	map("x", "ga", function()
+		code_action_feedback(buf, true)
+	end, { buffer = buf, silent = true, desc = "lsp: Code action for selection" })
 	map("n", "gd", function()
 		_pick_lsp("definition", { jump1 = true })
 	end, { buffer = buf, silent = true, desc = "lsp: Goto definition" })
 	map("n", "<leader>rn", function()
 		vim.lsp.buf.rename()
 	end, { buffer = buf, silent = true, nowait = true, desc = "lsp: Rename" })
+	-- NOTE: gi перебивает встроенный gi (вернуться к месту инсерта).
+	-- Осознанно: implementations-pick нужнее в LSP-буфере; вне LSP builtin жив.
+	-- Пара разведена как gr/gR: gi = pick, gI = quickfix.
 	map("n", "gi", function()
 		_pick_lsp("implementation")
 	end, { buffer = buf, silent = true, desc = "lsp: Implementations (pick)" })
@@ -255,13 +310,22 @@ function M.lsp(buf)
 		-- NOTE: refresh()/get(bufnr) deprecated в 0.12 (см. :h vim.lsp.codelens).
 		pcall(vim.lsp.codelens.enable, true, { bufnr = buf })
 		vim.defer_fn(function()
-			local lenses = vim.lsp.codelens.get()
+			-- m4: читаем линзы ПРИВЯЗАННОГО буфера, а не текущего: за 500мс
+			-- пользователь мог уйти, и run улетел бы в чужой файл.
+			if not vim.api.nvim_buf_is_valid(buf) then
+				return
+			end
+			local lenses = vim.lsp.codelens.get({ bufnr = buf })
 			if #(lenses or {}) == 0 then
 				vim.notify(
 					"[lsp] no codelens here (cursor on Test func? try :GoTestFunc)",
 					vim.log.levels.WARN,
 					{ title = "lsp" }
 				)
+				return
+			end
+			if vim.api.nvim_get_current_buf() ~= buf then
+				vim.notify("[lsp] codelens ready, but you moved — jump back and retry", vim.log.levels.INFO, { title = "lsp" })
 				return
 			end
 			pcall(vim.lsp.codelens.run)

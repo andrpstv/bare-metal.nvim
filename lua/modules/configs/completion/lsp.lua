@@ -64,7 +64,7 @@ return function()
 				pcall(require, "luasnip")
 			end)
 		end
-		local cmp_grp = vim.api.nvim_create_augroup("TurboCmpCaps", { clear = false })
+		local cmp_grp = vim.api.nvim_create_augroup("PerfCmpCaps", { clear = false })
 		vim.api.nvim_create_autocmd("InsertEnter", {
 			group = cmp_grp,
 			desc = "turbo: warm nvim-cmp on first insert",
@@ -160,32 +160,42 @@ return function()
 					)
 					return
 				end
-				vim.notify(
-					"[lsp] gopls detached, restarting (" .. n .. "/3)",
-					vim.log.levels.WARN,
-					{ title = "lsp" }
-				)
 				-- NOTE: :edit сам шлёт LspDetach (0.12) — без флага рестарт
 				-- зацикливается сам на себе: detach → :edit → detach → …
 				-- (поймано по стеку: detach шёл из lsp.lua через vim.cmd edit).
 				-- Плюс на modified-буфере :edit падает с E37 — туда не лезем.
+				-- Порядок важен: сначала проверки, потом единственный notify,
+				-- иначе на грязном буфере два варнинга подряд при нуле действий.
 				if vim.bo[buf].modified then
 					vim.notify(
-						"[lsp] buffer has unsaved changes — save it and press <leader>lr",
+						"[lsp] gopls detached, but buffer has unsaved changes — save it and press <leader>lr",
 						vim.log.levels.WARN,
 						{ title = "lsp" }
 					)
 					return
 				end
+				vim.notify(
+					"[lsp] gopls detached, restarting (" .. n .. "/3)",
+					vim.log.levels.WARN,
+					{ title = "lsp" }
+				)
 				vim.b[buf].lsp_manual_restart = true
 				vim.defer_fn(function()
-					if vim.api.nvim_buf_is_valid(buf) then
-						pcall(function()
-							vim.api.nvim_buf_call(buf, function()
-								vim.cmd("edit")
-							end)
-						end)
+					if not vim.api.nvim_buf_is_valid(buf) then
+						return
 					end
+					-- Перепроверяем: за 1.5с клиент мог уже вернуться сам
+					-- (штатный переаттач после :e!) — тогда рестарт не нужен.
+					for _, c in ipairs(vim.lsp.get_clients({ bufnr = buf })) do
+						if c.name == "gopls" then
+							return
+						end
+					end
+					pcall(function()
+						vim.api.nvim_buf_call(buf, function()
+							vim.cmd("edit")
+						end)
+					end)
 				end, 1500)
 			end)
 		end,

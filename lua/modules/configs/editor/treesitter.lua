@@ -116,7 +116,6 @@ return vim.schedule_wrap(function()
 					end
 				end
 			end
-			end
 		end,
 		desc = "treesitter: manual folds outside full tier",
 	})

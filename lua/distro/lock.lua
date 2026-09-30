@@ -45,6 +45,33 @@ function M.write(tbl)
 			b:close()
 		end
 	end
+	-- F11: пруним призраков — ключи вне plugins+catalog+tools/binaries
+	-- иначе recovery из .bak воскрешает удалённые плагины (mini.nvim-кейс).
+	do
+		local ok_m, manifest = pcall(require, "distro.manifest")
+		if ok_m then
+			local known = {}
+			for _, pl in ipairs(manifest.plugins or {}) do
+				known[pl.name] = true
+			end
+			for _, pl in ipairs(manifest.catalog or {}) do
+				known[pl.name] = true
+			end
+			for _, t in ipairs(manifest.tools or {}) do
+				known["tools/" .. t.name] = true
+			end
+			for _, b in ipairs(manifest.binaries or {}) do
+				known[b.name] = true
+			end
+			for k in pairs(tbl) do
+				-- bin/* и tools/* пишутся динамически (go-install, ad-hoc) —
+				-- их не трогаем, только плагины-призраки.
+				if not known[k] and k:sub(1, 4) ~= "bin/" and k:sub(1, 6) ~= "tools/" then
+					tbl[k] = nil
+				end
+			end
+		end
+	end
 	-- atomic: tmp file + rename, so a crash can never leave a half-written lock
 	local tmp = p .. ".tmp"
 	local f = io.open(tmp, "w")
