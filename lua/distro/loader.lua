@@ -97,18 +97,12 @@ local function pack_subtree(entry)
 			-- а пакуется раньше родителя). Полный packadd тогда падает и
 			-- валит всё поддерево (был мёртвый treesitter+textobjects).
 			-- packadd! кладёт только rtp; поведение довязывается фазой
-			-- finish/config. Шумно нотифаем, чтобы чинилось, а не гнило.
+			-- finish/config. Молча by design: путь штатный и проверенный
+			-- (см. отчёт C8), а WARN на каждый запуск — спам. Диагностика —
+			-- только если упал и rtp-only (ниже таких нет: ok=false).
 			local function do_pack()
 				local pok = pcall(vim.cmd, "packadd " .. entry.name)
 				if not pok then
-					-- Без UI (headless/CI) молча: иначе нотифай склеивается
-					-- с машиночитаемым stdout (smoke-парсинг RESULT) — проверено.
-					if #vim.api.nvim_list_uis() > 0 then
-						vim.notify(
-							"[Distro] '" .. entry.name .. "' plugin/ failed, rtp-only fallback",
-							vim.log.levels.WARN
-						)
-					end
 					pok = pcall(vim.cmd, "packadd! " .. entry.name)
 				end
 				return pok
