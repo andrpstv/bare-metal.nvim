@@ -136,6 +136,210 @@ local lib_searching = false
 local go_list_cache = {}
 local GO_LIST_TTL_NS = 300 * 1000000000
 
+-- Резолв import_path -> каталог БЕЗ сабпроцесса (ответ на «зачем ждать
+-- go list»): vendor, GOROOT и module cache — чистая файловая система,
+-- единицы миллисекунд. `go list` остаётся фолбэком для replace/go.work
+-- и прочей экзотики, корректность не страдает.
+local go_env_cache = nil
+local function go_env_once()
+	if go_env_cache ~= nil then
+		return go_env_cache
+	end
+	go_env_cache = false -- negative cache: без go не дёргаемся вовсе
+	if vim.fn.executable("go") ~= 1 then
+		return nil
+	end
+	local o = vim.system({ "go", "env", "GOROOT", "GOMODCACHE" }, { text = true }):wait(2000)
+	if not o or o.code ~= 0 then
+		return nil
+	end
+	local lines = vim.split(vim.trim(o.stdout or ""), "\n")
+	if #lines < 2 or lines[1] == "" then
+		return nil
+	end
+	go_env_cache = { goroot = lines[1], modcache = lines[2] ~= "" and lines[2] or nil }
+	return go_env_cache
+end
+
+-- go.mod -> { req = {mod=ver}, rep = {mod={path,ver}} }. Кэш по mtime.
+local gomod_cache = {}
+local function gomod_map(gomod_path)
+	local st = vim.uv.fs_stat(gomod_path)
+	if not st then
+		return nil
+	end
+	local hit = gomod_cache[gomod_path]
+	if hit and hit.mtime == st.mtime.sec then
+		return hit.map
+	end
+	local map = { req = {}, rep = {} }
+	local section = nil
+	for line in io.lines(gomod_path) do
+		-- Модульные пути никогда не содержат "//", комментарии — да.
+		local s = line:match("^%s*(.-)%s*$"):gsub("%s*//.*$", "")
+		if s == "" then
+			-- pass
+		elseif s:match("^require%s*%($") then
+			section = "req"
+		elseif s:match("^replace%s*%($") then
+			section = "rep"
+		elseif s == ")" then
+			section = nil
+		else
+			local is_rep, is_req = false, false
+			if s:match("^replace%s+") then
+				is_rep = true
+				s = s:gsub("^replace%s+", "")
+			elseif s:match("^require%s+") then
+				is_req = true
+				s = s:gsub("^require%s+", "")
+			end
+			local kind = is_rep and "rep" or (is_req and "req" or section)
+			if kind == "req" then
+				local m, v = s:match("^(%S+)%s+(v%S+)")
+				if m then
+					map.req[m] = v
+				end
+			elseif kind == "rep" then
+				local o, np, nv = s:match("^(%S+)%s+=>%s+(%S+)%s*(v%S*)%s*$")
+				if o then
+					map.rep[o] = { path = np, ver = (nv ~= "" and nv or nil) }
+				end
+			end
+		end
+	end
+	gomod_cache[gomod_path] = { mtime = st.mtime.sec, map = map }
+	return map
+end
+
+-- Эскейп модуля для module cache: заглавные -> !+строчная.
+local function esc_mod(m)
+	return (m:gsub("%u", function(c)
+		return "!" .. c:lower()
+	end))
+end
+
+local function is_dir(p)
+	local st = vim.uv.fs_stat(p)
+	return st ~= nil and st.type == "directory"
+end
+
+-- Сравнение версий (max): числовые куски — числами, иначе лексикографически.
+local function ver_cmp(a, b)
+	a = a:gsub("^v", "")
+	b = b:gsub("^v", "")
+	local function parts(s)
+		local t = {}
+		for p in s:gmatch("[^.%-]+") do
+			t[#t + 1] = tonumber(p) or p
+		end
+		return t
+	end
+	local ta, tb = parts(a), parts(b)
+	for i = 1, math.max(#ta, #tb) do
+		local x, y = ta[i], tb[i]
+		if x == nil then
+			return true
+		end
+		if y == nil then
+			return false
+		end
+		if type(x) == type(y) then
+			if x ~= y then
+				return x < y
+			end
+		elseif type(x) == "number" then
+			return true
+		else
+			return false
+		end
+	end
+	return false
+end
+
+---Чистый резолв import_path -> dir без сабпроцесса. Возвращает dir или nil
+---(тогда вызыватель идёт в `go list` как раньше).
+---@param cwd string
+---@param import_path string
+---@return string|nil
+local function resolve_import_dir(cwd, import_path)
+	local env = go_env_once()
+	if not env then
+		return nil
+	end
+	-- go.work меняет весь граф: не гадаем, отдаём go list.
+	if vim.fs.find("go.work", { upward = true, path = cwd })[1] then
+		return nil
+	end
+	local gomod_path = vim.fs.find("go.mod", { upward = true, path = cwd })[1]
+	local root = gomod_path and vim.fn.fnamemodify(gomod_path, ":p:h") or cwd
+	-- 1) vendor главного модуля.
+	if is_dir(root .. "/vendor/" .. import_path) then
+		return root .. "/vendor/" .. import_path
+	end
+	local segs = {}
+	for s in import_path:gmatch("[^/]+") do
+		segs[#segs + 1] = s
+	end
+	if #segs == 0 then
+		return nil
+	end
+	-- 2) stdlib: первый сегмент без точки.
+	if not segs[1]:find("%.", 1, true) and env.goroot then
+		local d = env.goroot .. "/src/" .. import_path
+		if is_dir(d) then
+			return d
+		end
+	end
+	if not env.modcache then
+		return nil
+	end
+	local map = gomod_path and gomod_map(gomod_path) or { req = {}, rep = {} }
+	-- 3) module cache: самый длинный префикс-модуль первым.
+	for i = #segs, 1, -1 do
+		local mod = table.concat(segs, "/", 1, i)
+		local rest = table.concat(segs, "/", i + 1, #segs)
+		local rep = map.rep[mod]
+		local target_mod, target_ver = mod, map.req[mod]
+		if rep then
+			if rep.path:sub(1, 1) == "." or rep.path:sub(1, 1) == "/" then
+				-- Локальный replace: путь от каталога с go.mod.
+				local d = root .. "/" .. rep.path .. (rest ~= "" and ("/" .. rest) or "")
+				if is_dir(d) then
+					return d
+				end
+			else
+				target_mod, target_ver = rep.path, rep.ver or map.req[rep.path]
+			end
+		end
+		if target_ver then
+			local d = env.modcache .. "/" .. esc_mod(target_mod) .. "@" .. target_ver
+			if rest ~= "" then
+				d = d .. "/" .. rest
+			end
+			if is_dir(d) then
+				return d
+			end
+		else
+			-- Версии нет в go.mod: glob кандидатов, max версия.
+			local best, best_ver = nil, nil
+			for _, cand in ipairs(vim.fn.glob(env.modcache .. "/" .. esc_mod(target_mod) .. "@*", false, true)) do
+				local v = cand:match("@([^/]+)$")
+				if v and is_dir(cand) and (not best_ver or ver_cmp(best_ver, v)) then
+					best, best_ver = cand, v
+				end
+			end
+			if best then
+				local d = best .. (rest ~= "" and ("/" .. rest) or "")
+				if is_dir(d) then
+					return d
+				end
+			end
+		end
+	end
+	return nil
+end
+
 -- Учёт definition/type_definition-запроса, который УЖЕ ушёл в gopls.
 -- Именно module-level, по той же причине, что и lib_searching выше: внутри
 -- _G._pick_lsp это upvalue, пересоздаваемый на каждом вызове, и гард мёртв.
@@ -507,13 +711,24 @@ _G._pick_lsp = function(scope, opts)
 		if vim.uv.fs_stat(cwd) == nil then
 			return false
 		end
-		-- Общая дорога к rg — и для кэш-хита, и для ответа go list.
+		-- Общая дорога к rg — и для чистого резолва, и для кэш-хита,
+		-- и для ответа go list.
 		local function got_dir(dir)
 			vim.schedule(function()
 				if not lib_grep_fallback(bufnr, symbol, scope, dir) then
 					vim.notify("[lsp] text search for " .. symbol .. " in " .. import_path .. " could not start (falling back)", vim.log.levels.INFO, { title = "lsp" })
 				end
 			end)
+		end
+		-- 0) Чистый резолв без сабпроцесса (миллисекунды вместо сотен).
+		-- Не вышло (replace/go.work/экзотика) — идём старым путём ниже.
+		do
+			local ok_pure, pure_dir = pcall(resolve_import_dir, cwd, import_path)
+			if ok_pure and pure_dir then
+				qspan("qual-resolve-pure", pure_dir)
+				got_dir(pure_dir)
+				return true
+			end
 		end
 		do
 			local now = (vim.uv or vim.loop).hrtime()
@@ -573,7 +788,9 @@ _G._pick_lsp = function(scope, opts)
 			local gbuf = vim.api.nvim_get_current_buf()
 			local full = vim.fn.expand("<cWORD>")
 			local cur_word = vim.fn.expand("<cword>")
-			local qual, sym = full:match("^([%a][%w_]*)%.([%a][%w_]*)$")
+			-- Хвост после типа игнорируем: `sql.DB)`, `x.Method{},` —
+			-- всё равно qualified. cur_word == sym отсекает ложные префиксы.
+			local qual, sym = full:match("^([%a][%w_]*)%.([%a][%w_]*)")
 			-- cur_word == sym means the cursor sits on the TYPE after the dot,
 			-- which is what the user wants. Cursor on the qualifier means they
 			-- want the package itself, and gopls answers that quickly - leave it.
