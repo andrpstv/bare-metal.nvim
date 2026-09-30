@@ -89,6 +89,9 @@ return vim.schedule_wrap(function()
 	vim.api.nvim_set_option_value("foldmethod", "expr", {})
 	vim.api.nvim_set_option_value("foldexpr", "nvim_treesitter#foldexpr()", {})
 	-- Lite/off: фолды вручную (expr на 10k+ строк — слайд-шоу на слабом ПК).
+	-- Плюс всегда manual на внешних либах (go/pkg/mod, GOROOT): только чтение,
+	-- сворачивать там нечего, а expr-foldexpr на ~1k строк жрёт секунды
+	-- (замерено: gd в mongo client.go 4.3с -> 1с; остаток — прогрев gopls).
 	vim.api.nvim_create_autocmd({ "FileType", "BufReadPost" }, {
 		group = vim.api.nvim_create_augroup("TreesitterTierFolds", { clear = true }),
 		callback = function(args)
@@ -100,6 +103,19 @@ return vim.schedule_wrap(function()
 						end)
 					end
 				end
+				return
+			end
+			local ok_u, utils = pcall(require, "modules.utils")
+			local fname = vim.api.nvim_buf_get_name(args.buf)
+			if ok_u and utils.is_go_lib and utils.is_go_lib(fname) then
+				for _, w in ipairs(vim.api.nvim_list_wins()) do
+					if vim.api.nvim_win_get_buf(w) == args.buf then
+						pcall(function()
+							vim.wo[w].foldmethod = "manual"
+						end)
+					end
+				end
+			end
 			end
 		end,
 		desc = "treesitter: manual folds outside full tier",

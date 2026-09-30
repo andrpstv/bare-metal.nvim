@@ -130,6 +130,12 @@ end
 -- N нажатий gd дают N параллельных rg по go/pkg/mod (сотни МБ каждый).
 local lib_searching = false
 
+-- Кэш `go list` (import_path + cwd -> dir, TTL 5 мин): холодный go list
+-- на большом монорепо — секунды (граф модулей), тёплый — 0.2с. Без кэша
+-- каждый gd по qualified-символу платил холодную цену заново.
+local go_list_cache = {}
+local GO_LIST_TTL_NS = 300 * 1000000000
+
 -- Учёт definition/type_definition-запроса, который УЖЕ ушёл в gopls.
 -- Именно module-level, по той же причине, что и lib_searching выше: внутри
 -- _G._pick_lsp это upvalue, пересоздаваемый на каждом вызове, и гард мёртв.
@@ -156,6 +162,27 @@ local lsp_req = { gen = 0, inflight = nil }
 ---@param opts table|nil
 _G._pick_lsp = function(scope, opts)
 	opts = opts or {}
+	-- Сквозные фазы qualified-пути: tracehooks меряет только LSP-путь
+	-- (keypress/request/response/cursor), а qualified идёт мимо gopls —
+	-- секунды в нём были невидимы (жалоба: 3с, в трейсе пусто).
+	-- t0 = вызов из маппинга ≈ keypress. Ошибки логирования никогда
+	-- не должны ломать прыжок: весь qspan под pcall.
+	local q_t0 = (vim.uv or vim.loop).hrtime()
+	local function qspan(stage, detail)
+		pcall(function()
+			local tr = require("distro.trace")
+			if tr and tr.enabled then
+				tr.log(
+					"pick_lsp/" .. tostring(scope),
+					((vim.uv or vim.loop).hrtime() - q_t0) / 1e6,
+					"phase:" .. stage .. (detail and (" " .. detail) or ""),
+					nil,
+					nil,
+					{ kind = "phase", group = "pick_lsp/" .. tostring(scope) }
+				)
+			end
+		end)
+	end
 	if not _pick_ensure() then
 		return
 	end
@@ -343,6 +370,7 @@ _G._pick_lsp = function(scope, opts)
 						end
 					end
 				end
+				qspan("qual-rg-done", #items .. " hits decl=" .. tostring(only_decl ~= nil))
 				-- Пустой результат = «ничего не найдено», а не «ошибка»: тот же
 				-- тон, что у "no results for <scope>".
 				if #items == 0 then
@@ -358,8 +386,17 @@ _G._pick_lsp = function(scope, opts)
 						pcall(vim.cmd, "normal! m'")
 						vim.cmd.edit(vim.fn.fnameescape(only_decl.filename))
 						pcall(vim.api.nvim_win_set_cursor, 0, { only_decl.lnum, (only_decl.col or 1) - 1 })
+						qspan("qual-jump-direct", only_decl.filename)
+						vim.schedule(function()
+							-- Первый тик после прыжка: кадр уже ушёл на
+							-- отрисовку. Терминальный paint сюда не входит,
+							-- но всё остальное (edit/treesitter/LSP-аттач
+							-- нового корня) — уже случилось.
+							qspan("qual-paint-tick")
+						end)
 						return
 					end
+					qspan("qual-jump-quickfix", #items .. " items")
 					vim.fn.setqflist({}, " ", { title = "lib refs: " .. symbol, items = items })
 					if not user_idle() then
 						vim.notify("[lsp] " .. #items .. " lib refs in quickfix (not opening — you moved)", vim.log.levels.INFO, { title = "lsp" })
@@ -414,9 +451,27 @@ _G._pick_lsp = function(scope, opts)
 		if not import_path then
 			return false
 		end
+		qspan("qual-import-scan", import_path)
 		local cwd = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":p:h")
 		if vim.uv.fs_stat(cwd) == nil then
 			return false
+		end
+		-- Общая дорога к rg — и для кэш-хита, и для ответа go list.
+		local function got_dir(dir)
+			vim.schedule(function()
+				if not lib_grep_fallback(bufnr, symbol, scope, dir) then
+					vim.notify("[lsp] text search for " .. symbol .. " in " .. import_path .. " could not start (falling back)", vim.log.levels.INFO, { title = "lsp" })
+				end
+			end)
+		end
+		do
+			local now = (vim.uv or vim.loop).hrtime()
+			local hit = go_list_cache[cwd .. "\0" .. import_path]
+			if hit and (now - hit.at) < GO_LIST_TTL_NS and vim.uv.fs_stat(hit.dir) ~= nil then
+				qspan("qual-go-list-cache-hit", hit.dir)
+				got_dir(hit.dir)
+				return true
+			end
 		end
 		lib_searching = true
 		-- GOFLAGS=-mod=mod: a module whose go.sum is incomplete makes `go list`
@@ -443,15 +498,13 @@ _G._pick_lsp = function(scope, opts)
 				vim.notify("[lsp] go list gave an empty directory for " .. import_path, vim.log.levels.WARN, { title = "lsp" })
 				return
 			end
+			qspan("qual-go-list", dir)
+			go_list_cache[cwd .. "\0" .. import_path] = { dir = dir, at = (vim.uv or vim.loop).hrtime() }
 			-- go list's callback is a FAST EVENT context. lib_grep_fallback
 			-- starts with nvim_get_current_win / nvim_win_get_cursor, which are
 			-- forbidden there (E5560) - so the whole thing died before rg ran.
 			-- Hop to the main loop first, then delegate.
-			vim.schedule(function()
-				if not lib_grep_fallback(bufnr, symbol, scope, dir) then
-					vim.notify("[lsp] text search for " .. symbol .. " in " .. import_path .. " could not start (falling back)", vim.log.levels.INFO, { title = "lsp" })
-				end
-			end)
+			got_dir(dir)
 		end)
 		return true
 	end
