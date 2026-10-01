@@ -64,7 +64,12 @@ settings["diagnostics_virtual_lines"] = false
 ---@type "ERROR"|"WARN"|"INFO"|"HINT"
 settings["diagnostics_level"] = "HINT"
 
--- List plugins to disable here (e.g., "Some-User/A-Repo").
+-- Kill-switch плагинов без форка: имена из distro/manifest.lua
+-- (поле name, напр. "trouble.nvim", "flash.nvim"). Лоадер скипает их везде:
+-- eager-start, lazy-триггеры и cmd-стабы идут через loader.load.
+-- Читается при каждом load (дешево), работает и среди сессии.
+-- Альтернатива точечно: lua/user/configs/<имя-конфига>.lua, вернуть false —
+-- скипает только setup, плагин остаётся загруженным.
 ---@type string[]
 settings["disabled_plugins"] = {} 
 

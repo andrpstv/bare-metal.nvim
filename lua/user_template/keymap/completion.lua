@@ -1,15 +1,17 @@
+-- LSP-buffer keymap overrides. Two slots, both optional:
+--   plug_map: plain specs merged into the GLOBAL table by user.keymap.init.
+--   lsp(buf): function returning buffer-local specs, applied on every LspAttach
+--             (keymap/completion.lua calls user.keymap.completion.lsp(buf)).
+--   NOTE: lsp() specs MUST include `buffer = buf` in opts to stay buffer-local.
 local mappings = {}
 
--- Place global keymaps here.
 mappings["plug_map"] = {}
 
--- NOTE: This function is special! Keymaps defined here are ONLY effective in buffers with LSP(s) attached
--- NOTE: Make sure to include `buffer = buf` in opts to limit the scope of your mappings.
 ---@param buf number @The effective bufnr
 mappings["lsp"] = function(buf)
 	return {
-		-- Example
-		["n|K"] = { rhs = "<Cmd>Lspsaga hover_doc<CR>", opts = { buffer = buf, desc = "lsp: Show doc" } },
+		-- Example (buffer-local hover replacement):
+		-- ["n|K"] = { rhs = vim.lsp.buf.hover, opts = { buffer = buf, desc = "lsp: Show doc" } },
 	}
 end
 

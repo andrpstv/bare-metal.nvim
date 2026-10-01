@@ -325,8 +325,23 @@ return settings
   Оставьте как есть.
 - `perf_lean_axes` — оси облегчённого режима (`:PerfLeanOn` включает пресет,
   сам lean по умолчанию выключен — нужен `NVIM_PERF_LEAN=1` или команда).
+- `disabled_plugins` — kill-switch плагинов без форка: имена из
+  `lua/distro/manifest.lua` (поле `name`, например `"trouble.nvim"`).
+  Лоадер скипает их везде. Точечно — `lua/user/configs/<имя>.lua`,
+  вернуть `false`: скипает только setup, плагин остаётся загруженным.
 
 Полный список с комментариями — в начале `lua/core/settings.lua`.
+
+### Свои кеймапы
+
+Перебиндить клавиши без форка: `lua/user/keymap/*.lua` (шаблоны лежат в
+`lua/user_template/keymap/`, все подмодули уже на месте: `core`, `completion`,
+`editor`, `lang`, `tool`, `ui`). Формат записи:
+`{ ["n|<leader>x"] = { rhs = "<Cmd>...<CR>" | function | false, opts = {...} } }`,
+`false` целиком вместо таблицы — удалить маппинг, `opts.buffer = buf` —
+локально буферу, `"nv|ga"` — сразу два мода. Глобальные собираются в
+`user.keymap.init`, LSP-маппинги буфера — `user.keymap.completion.lsp(buf)`
+(пример внутри шаблона). Контракт — `lua/modules/utils/keymap.lua`.
 
 ---
 

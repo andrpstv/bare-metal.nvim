@@ -209,6 +209,9 @@ local load_core = function()
 	vim.api.nvim_create_user_command("ConfigHealth", function()
 		vim.cmd("checkhealth core")
 	end, { desc = "config: environment preflight (binaries, LSP, theme, keys)" })
+	vim.api.nvim_create_user_command("Tutor", function()
+		vim.cmd("edit " .. vim.fn.stdpath("config") .. "/tutor/intro.tutor")
+	end, { desc = "config: interactive hotkey tour (russian)" })
 	require("core.perf").setup()
 	-- Стартер-хинт: голый `nvim` без аргументов и без парсеров встречает
 	-- пустым буфером. Одна подсказка вместо мёртвой тишины; после установки
@@ -243,7 +246,8 @@ local load_core = function()
 				"Первый запуск: нет парсеров подсветки.\n"
 					.. "1) :ConfigHealth — проверка окружения\n"
 					.. "2) :DistroParsers --all — подсветка (нужен компилятор)\n"
-					.. "3) :DistroSetup — доустановка плагинов и утилит",
+					.. "3) :DistroSetup — доустановка плагинов и утилит\n"
+					.. "4) :Tutor — тур по хоткеям (15 минут)",
 				vim.log.levels.INFO,
 				{ title = "[setup]" }
 			)

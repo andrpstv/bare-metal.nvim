@@ -225,6 +225,19 @@ function M.load(name)
 	if not entry then
 		return false
 	end
+	-- settings.disabled_plugins: пользовательский kill-switch без форка.
+	-- Единая точка (eager-start, lazy-триггеры и cmd-стабы идут через M.load).
+	-- Список читается при каждом вызове: require кэширован, итерация по
+	-- единицам записей — дешевле, чем stale-кэш и его инвалидация.
+	-- Циклов нет: core.settings тянет только modules.utils.
+	local ok_s, settings = pcall(require, "core.settings")
+	if ok_s and type(settings.disabled_plugins) == "table" then
+		for _, d in ipairs(settings.disabled_plugins) do
+			if d == name then
+				return false
+			end
+		end
+	end
 	if not M.is_present(entry) then
 		notify_missing(entry)
 		return false
