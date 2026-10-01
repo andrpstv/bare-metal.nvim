@@ -13,7 +13,7 @@
     ├── core/distro.lua         # boot loader (replaces core/pack.lua). NO network.
     └── distro/
         ├── init.lua            # user commands :Distro*  (only network entry)
-        ├── manifest.lua        # source of truth: 26 plugins + tools + parsers
+        ├── manifest.lua        # source of truth: 21 plugins + 9 catalog + tools + parsers
         ├── lock.lua            # read/write distro-lock.json + status()
         ├── install.lua         # curl → tar → atomic rename. Consent guard.
         ├── loader.lua          # rtp/packadd + event/cmd/ft triggers. NO network.
@@ -77,7 +77,13 @@ Also exports `TOOLS` (fzf/rg/gcc/make/go) and `PARSERS` (derived from `settings.
 
 ### `treesitter.lua` — parsers as data
 - `M.installed_langs()`, `M.install_lang(lang, opts)` (needs `cc`; routes to Tools otherwise), `M.install_all(opts)`.
-- Output: `pack/distro/parser/<lang>.so` + lock `parsers/<lang>`.
+- Output: `<plugin>/parser/<lang>.so` (e.g. `pack/distro/opt/nvim-treesitter/parser/go.so`).
+- `.so` are gitignored on purpose (see `.gitignore`): a fresh clone has NO
+- parsers until `:DistroParsers --all` builds them — no highlighting before that.
+- `pack/distro/parser/` is a legacy empty dir, kept for path compatibility.
+- Release decision (2026-10): `pack/` stays vendored as-is (~43M). Slim
+- re-vendor (`strip=true` audit) or submodule/LFS is a separate project,
+- not a release blocker: `:DistroCheck`/lock keep it verifiable.
 - `.so` never auto-built at startup; large-file guard respected.
 
 ### `init.lua` — commands (only network entry)

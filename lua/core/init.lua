@@ -243,11 +243,11 @@ local load_core = function()
 				return
 			end
 			vim.notify(
-				"Первый запуск: нет парсеров подсветки.\n"
-					.. "1) :ConfigHealth — проверка окружения\n"
-					.. "2) :DistroParsers --all — подсветка (нужен компилятор)\n"
-					.. "3) :DistroSetup — доустановка плагинов и утилит\n"
-					.. "4) :Tutor — тур по хоткеям (15 минут)",
+				"First run: syntax-highlight parsers are missing.\n"
+					.. "1) :ConfigHealth — environment check\n"
+					.. "2) :DistroParsers --all — highlighting (needs a C compiler)\n"
+					.. "3) :DistroSetup — install plugins and tools (one confirm)\n"
+					.. "4) :Tutor — 15-minute hotkey tour",
 				vim.log.levels.INFO,
 				{ title = "[setup]" }
 			)
