@@ -401,6 +401,14 @@ function M.boot()
 	vim.opt.packpath:prepend(cfg)
 	-- NOTE: без wildcard (rtp:append(".../*") замедлял каждый :runtime-поиск);
 	-- packadd сам правит rtp при загрузке, eager-старту хватает packpath.
+	-- ОДНО исключение — pack/distro/parser: туда :DistroParsers складывает
+	-- собранные .so, но это не пакет (packadd его не видит) и ничей
+	-- plugin/parser он не является. Без этой строки собранные парсеры
+	-- лежат мёртвым грузом: рантайм их не находит (nvim_get_runtime_file
+	-- ищет только по rtp), а детект после правки installed_langs честно
+	-- говорит «missing» даже после успешной сборки — вечный цикл nagging.
+	-- Один append на boot, дальше всё покрывает rtp-механика.
+	vim.opt.rtp:append(cfg .. "/pack/distro/parser")
 	-- Отключаем неиспользуемые builtin runtime-плагины (порт lazy.nvim
 	-- performance.rtp.disabled_plugins; сверено с кодом — ничего их не требует):
 	-- gzip/tarPlugin/zipPlugin (правка внутри архивов), tohtml (:TOhtml),

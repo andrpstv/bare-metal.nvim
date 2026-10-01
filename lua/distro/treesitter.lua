@@ -16,20 +16,26 @@ function M.plugin_info_dir()
 	return vim.fn.stdpath("config") .. "/pack/distro/opt/nvim-treesitter/parser-info"
 end
 
+--- Все языки, чьи парсеры видит РАНТАЙМ — а не только наши два каталога.
+---
+--- Тот же запрос, что делает vim.treesitter.language.add при загрузке:
+--- 'parser/<lang>.*' по всем rtp. Детект по построению совпадает
+--- с загрузчиком, поэтому «работает, но числится отсутствующим»
+--- невозможно в принципе. Покрывает: builtin ($VIMRUNTIME/../lib/nvim/parser:
+--- c, lua, markdown, vim, vimdoc, query), site-папку, чужие plugin/parser,
+--- .dll и любые будущие расширения на Windows (рантайм lowercases язык).
+--- Сканирование .so-вручную по двум каталогам давало ложные «missing»
+--- на Windows (там рабочие парсеры — .dll) и на builtin-языках везде.
 function M.installed_langs()
 	local out, seen = {}, {}
-	for _, dir in ipairs({ M.parser_dir(), M.plugin_parser_dir() }) do
-		local handle = vim.uv.fs_scandir(dir)
-		if handle then
-			while true do
-				local name, t = vim.uv.fs_scandir_next(handle)
-				if not name then
-					break
-				end
-				if t == "file" and name:sub(-3) == ".so" and not seen[name] then
-					seen[name] = true
-					out[#out + 1] = name:sub(1, -4)
-				end
+	for _, path in ipairs(vim.api.nvim_get_runtime_file("parser/*", true)) do
+		local file = path:match("[^/\\]+$") or path
+		local lang = file:match("^(.+)%.[^.\\/]+$")
+		if lang then
+			lang = lang:lower()
+			if lang ~= "" and not seen[lang] then
+				seen[lang] = true
+				out[#out + 1] = lang
 			end
 		end
 	end
@@ -38,17 +44,17 @@ function M.installed_langs()
 end
 
 function M.is_installed(lang)
-	local set = {}
-	for _, l in ipairs(M.installed_langs()) do
-		set[l] = true
+	-- Тот же запрос, что рантайм: точечный, без полного списка.
+	-- Санитизация как в language.add: только [%w_], иначе nil.
+	if type(lang) ~= "string" or lang:match("^[%w_]+$") ~= lang then
+		return false
 	end
-	return set[lang] == true
+	return #vim.api.nvim_get_runtime_file("parser/" .. lang:lower() .. ".*", true) > 0
 end
 
 function M.missing_langs()
-	--- Языки из settings.treesitter_deps без собранного .so.
-	--- Один скан каталогов вместо is_installed() на каждый язык: install_all
-	--- дёргает is_installed в цикле, а тот пересканирует обе директории заново.
+	--- Языки из settings.treesitter_deps, которых не видит рантайм.
+	--- Множество строится один раз (один rtp-глоб ~5мс), дальше — lookup.
 	local set = {}
 	for _, l in ipairs(M.installed_langs()) do
 		set[l] = true
@@ -77,8 +83,8 @@ end
 --- Проверка на старте: не хватает ли парсеров.
 ---
 --- Политика «никаких сетевых обращений без согласия» соблюдена жёстко: здесь
---- выполняется ТОЛЬКО чтение каталогов (fs_scandir). Ни одного байта из сети,
---- ни одного вызова install. Пользователю показывается список и точная
+--- выполняется ТОЛЬКО чтение (rtp-запрос nvim_get_runtime_file, без сети
+--- и без сборки). Ни одного байта из сети, ни одного вызова install. Пользователю показывается список и точная
 --- команда; решение и скачивание остаются за подтверждением в
 --- :DistroParsers, где стоит confirm.
 ---
