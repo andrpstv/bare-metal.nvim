@@ -39,14 +39,16 @@ end
 ---@param file string
 ---@return boolean
 function M.is_go_lib(file)
+	-- Сепаратор-агностично: bufname бывает и C:/Program Files/Go/... (прямые),
+	-- и C:\Users\...\go\pkg\mod\... (обратные). Классы [\\/] вместо двух веток.
 	file = file or ""
 	return file:match("/go/pkg/mod/")
 		or file:match("/opt/homebrew/Cellar/go/")
 		or file:match("/opt/homebrew/opt/go/")
 		or file:match("/usr/local/go/")
 		or file:match("/usr/lib/go")
-		or file:match("\\go\\pkg\\mod\\")
-		or file:match("Program Files\\Go\\")
+		or file:match("[\\/]go[\\/]pkg[\\/]mod[\\/]")
+		or file:match("Program Files[\\/]Go[\\/]")
 end
 
 ---True if gopls is usable: in PATH, or a standard `go install` landing
@@ -54,6 +56,7 @@ end
 ---FileType-time executable() check alone false-negatives on the most
 ---common install layout (~/go/bin/gopls, system PATH clean). No spawns:
 ---only env + filereadable, safe on every FileType.
+---Windows: бинарь — gopls.exe; GOPATH бывает списком через ';' — берём первый.
 ---@return boolean
 function M.gopls_found()
 	if vim.fn.executable("gopls") == 1 then
@@ -64,11 +67,18 @@ function M.gopls_found()
 		dirs[#dirs + 1] = vim.env.GOBIN
 	end
 	if vim.env.GOPATH and vim.env.GOPATH ~= "" then
-		dirs[#dirs + 1] = vim.env.GOPATH .. "/bin"
+		-- GOPATH бывает списком (';' на Windows, ':' на unix), bin — у первого.
+		-- Букву диска ('C:') не режем: сначала ';'-хвост, ':'-хвост только
+		-- если спереди не буква диска.
+		local first = vim.env.GOPATH:match("^([^;]+)") or vim.env.GOPATH
+		if not first:match("^[A-Za-z]:") then
+			first = first:match("^([^:]+)") or first
+		end
+		dirs[#dirs + 1] = first .. "/bin"
 	end
 	dirs[#dirs + 1] = vim.fn.expand("~/go/bin")
 	for _, d in ipairs(dirs) do
-		if vim.fn.executable(d .. "/gopls") == 1 then
+		if vim.fn.executable(d .. "/gopls") == 1 or vim.fn.executable(d .. "/gopls.exe") == 1 then
 			return true
 		end
 	end

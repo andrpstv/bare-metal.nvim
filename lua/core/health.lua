@@ -46,7 +46,10 @@ end
 
 local function check_system()
     vim.health.start("System")
-    local required = { "git", "curl", "unzip" }
+    -- unzip нет в стоковой Windows (там bsdtar tar.exe, он же раскрывает zip —
+    -- install.lua требует именно tar): на win проверяем tar вместо unzip.
+    local is_win = vim.fn.has("win32") == 1
+    local required = is_win and { "git", "curl", "tar" } or { "git", "curl", "unzip" }
     local optional = { "go", "cargo", "python3", "python", "node", "lazygit" }
 
     local missing_req = {}
@@ -94,8 +97,9 @@ local function check_go_env()
         return obj.stdout or ""
     end
 
-    -- GOPATH
-    local gopath = sys({ "go", "env", "GOPATH" }):match("^%S+")
+    -- GOPATH (trim целиком: %S+ резал путь с пробелами,
+    -- "C:\Program Files\Go" -> "C:\Program").
+    local gopath = vim.trim(sys({ "go", "env", "GOPATH" }))
     if gopath and gopath ~= "" then
         vim.health.ok("GOPATH: " .. gopath)
     else
@@ -103,8 +107,8 @@ local function check_go_env()
         add("warn", "go: GOPATH not set")
     end
 
-    -- GOROOT
-    local goroot = sys({ "go", "env", "GOROOT" }):match("^%S+")
+    -- GOROOT (trim целиком — см. GOPATH выше).
+    local goroot = vim.trim(sys({ "go", "env", "GOROOT" }))
     if goroot and goroot ~= "" then
         vim.health.ok("GOROOT: " .. goroot)
     else
@@ -172,6 +176,11 @@ local function check_tools()
     end
     if not has("make") and not is_windows then
         vim.health.warn("make missing (LuaSnip jsregexp build needs it)")
+        add("warn", "make missing")
+    elseif is_windows and not has("make") and not has("mingw32-make") then
+        -- nmake тут не в счёт: GNUmakefile ему не по зубам, нужен
+        -- mingw32-make из w64devkit (см. :DistroTools).
+        vim.health.warn("no GNU make (mingw32-make) — LuaSnip jsregexp build will fail")
         add("warn", "make missing")
     end
 end

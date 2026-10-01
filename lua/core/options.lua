@@ -7,7 +7,7 @@ local function load_options()
 		backspace = "indent,eol,start",
 		backup = false,
 		backupdir = global.cache_dir .. "/backup//,.",
-		backupskip = "/tmp/*,$TMPDIR/*,$TMP/*,$TEMP/*,*/shm/*,/private/var/*,.vault.vim",
+		backupskip = "/tmp/*,$TMPDIR/*,$TMP/*,$TEMP/*,*/shm/*,/private/var/*,$TEMP\\*,C:\\Windows\\Temp\\*,.vault.vim",
 		breakat = [[\ \	;:,!?@*-+/]],
 		clipboard = "unnamedplus",
 		cmdheight = 1, -- 0, 1, 2
@@ -22,7 +22,7 @@ local function load_options()
 		encoding = "utf-8",
 		equalalways = false,
 		errorbells = true,
-		fileencodings = "ucs-bom,utf-8,default,big5,latin1",
+		fileencodings = "ucs-bom,utf-8,default,cp1251,cp866,big5,latin1",
 		fileformats = "unix,mac,dos",
 		foldlevelstart = 99,
 		-- grepformat НЕ задаётся здесь намеренно: он зависит от grepprg, который

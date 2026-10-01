@@ -159,7 +159,7 @@ function autocmd.load_autocmds()
 				[[nested if &l:autoread > 0 | source <afile> | echo 'source ' . bufname('%') | endif]],
 			},
 			{ "BufWritePre", "*~", "setlocal noundofile" },
-			{ "BufWritePre", "/tmp/*,$TMPDIR/*,$TMP/*,$TEMP/*", "setlocal noundofile" },
+			{ "BufWritePre", "/tmp/*,$TMPDIR/*,$TMP/*,$TEMP/*,$TEMP\\*,C:\\Windows\\Temp\\*", "setlocal noundofile" },
 			{ "BufWritePre", "*.tmp", "setlocal noundofile" },
 			{ "BufWritePre", "*.bak", "setlocal noundofile" },
 			{ "BufWritePre", "MERGE_MSG", "setlocal noundofile" },

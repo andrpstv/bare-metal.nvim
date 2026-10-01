@@ -88,8 +88,19 @@ function M.write(tbl)
 			vim.uv.fs_close(fd)
 		end
 	end)
-	if vim.uv.fs_stat(tmp) and not os.rename(tmp, p) then
-		return false, "Cannot replace " .. p .. " (permission denied). No changes made."
+	if vim.uv.fs_stat(tmp) then
+		if not os.rename(tmp, p) then
+			-- Windows: MSVCRT rename не перезаписывает существующий файл,
+			-- а лок уже есть после первой записи. POSIX-путь выше отработал
+			-- без изменений; сюда попадаем только на win — сносим и повторяем.
+			if vim.fn.has("win32") ~= 1 then
+				return false, "Cannot replace " .. p .. " (permission denied). No changes made."
+			end
+			vim.uv.fs_unlink(p)
+			if not os.rename(tmp, p) then
+				return false, "Cannot replace " .. p .. " (permission denied). No changes made."
+			end
+		end
 	end
 	return true
 end

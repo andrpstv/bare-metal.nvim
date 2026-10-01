@@ -283,7 +283,9 @@ local function header_block()
 	end
 	lines[#lines + 1] = "modcache_size : " .. modcache_size
 	if modcache_hit then
-		local du_out = sys_sync({ "du", "-sk", modcache_hit }, 5000)
+		-- du нет в стоковой Windows: не спавним заведомо отсутствующее
+		-- (sys_sync ждал бы весь таймаут), размер остаётся n/a.
+		local du_out = vim.fn.executable("du") == 1 and sys_sync({ "du", "-sk", modcache_hit }, 5000) or nil
 		if du_out then
 			local kb = du_out:match("^(%d+)")
 			if kb then

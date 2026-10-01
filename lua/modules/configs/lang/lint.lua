@@ -53,7 +53,11 @@ return function()
 				return
 			end
 			local f = vim.api.nvim_buf_get_name(a.buf)
-			if f:match("go/pkg/mod") or f:match("Program Files\\Go") or f:match("/go/src/") then
+			-- Lib-файлы (modcache/stdlib, оба сепаратора): is_go_lib покрывает
+			-- и C:/Program Files/Go/..., и C:\...\go\pkg\mod\... — раньше
+			-- вторая ветка тут была только backslash и линт спамил по ro-буферам.
+			local ok_u, utils = pcall(require, "modules.utils")
+			if ok_u and utils.is_go_lib(f) then
 				return
 			end
 			if vim.fn.executable("golangci-lint") ~= 1 then

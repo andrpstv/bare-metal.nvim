@@ -30,7 +30,7 @@ function M.check_all()
 		end
 		local alt_ok = false
 		if not ok and t.name == "gcc" then
-			alt_ok = vim.fn.executable("cc") == 1 or vim.fn.executable("clang") == 1
+			alt_ok = vim.fn.executable("cc") == 1 or vim.fn.executable("clang") == 1 or vim.fn.executable("cl") == 1
 		end
 		out[t.name] = { ok = ok or alt_ok, version = ver or "", hint = HINTS[t.name] }
 	end
@@ -228,7 +228,12 @@ function M.install_tool(name, opts)
 		vim.fn.delete(dest, "rf")
 		vim.fn.mkdir(dest, "p")
 		if not os.rename(archive, dest .. "/" .. bin_name) then
-			return false, "Cannot write to " .. dest .. " (permission denied). No changes made."
+			-- Windows не перезаписывает rename-ом поверх существующего бинаря:
+			-- сносим цель и повторяем (на POSIX исходный rename уже сработал).
+			vim.uv.fs_unlink(dest .. "/" .. bin_name)
+			if not os.rename(archive, dest .. "/" .. bin_name) then
+				return false, "Cannot write to " .. dest .. " (permission denied). No changes made."
+			end
 		end
 	else
 		if not install.unpack_flat(archive, stage, tool.strip) then

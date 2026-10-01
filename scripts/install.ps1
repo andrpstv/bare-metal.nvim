@@ -1,4 +1,4 @@
-#Requires -Version 7.1
+#Requires -Version 5.1
 
 # We don't need return codes for "$(command)", only stdout is needed.
 # Allow `func "$(command)"`, pipes, etc.
@@ -17,18 +17,18 @@ $choco_package_matrix = @{ "gcc" = "mingw"; "git" = "git"; "nvim" = "neovim"; "m
 $scoop_package_matrix = @{ "gcc" = "mingw"; "git" = "git"; "nvim" = "neovim"; "make" = "make"; "sudo" = "psutils"; "node" = "nodejs"; "pip" = "python"; "fzf" = "fzf"; "rg" = "ripgrep"; "go" = "go"; "curl" = "curl"; "wget" = "wget"; "tree-sitter" = "tree-sitter"; "ruby" = "ruby"; "rustc" = "rust" }
 $installer_pkg_matrix = @{ "NodeJS" = "npm"; "Python" = "pip"; "Ruby" = "gem" }
 
-# env vars
-$env:XDG_CONFIG_HOME ??= $env:LOCALAPPDATA
-$env:CCPACK_MGR ??= 'unknown'
-$env:CCLONE_ATTR ??= 'undef'
-$env:CCLONE_BRANCH ??= 'main'
-$env:CCLONE_BRANCH_LEGACY ??= '0.10'
-$env:CCDEST_DIR ??= "$env:XDG_CONFIG_HOME\nvim"
+# env vars (5.1-compatible: `??=` needs PS7, stock Windows ships 5.1)
+if (-not $env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME = $env:LOCALAPPDATA }
+if (-not $env:CCPACK_MGR) { $env:CCPACK_MGR = 'unknown' }
+if (-not $env:CCLONE_ATTR) { $env:CCLONE_ATTR = 'undef' }
+if (-not $env:CCLONE_BRANCH) { $env:CCLONE_BRANCH = 'main' }
+if (-not $env:CCLONE_BRANCH_LEGACY) { $env:CCLONE_BRANCH_LEGACY = '0.10' }
+if (-not $env:CCDEST_DIR) { $env:CCDEST_DIR = "$env:XDG_CONFIG_HOME\nvim" }
 $env:CCBACKUP_DIR = "$env:CCDEST_DIR" + "_backup-" + (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmss")
 
 # Where this config is fetched from. Override to install a fork:
 #   $env:NVIM_DISTRO_REPO='myfork/my-config'; ./scripts/install.ps1
-$env:CCREPO_SLUG = $env:NVIM_DISTRO_REPO ?? 'andrpstv/bare-metal.nvim'
+$env:CCREPO_SLUG = if ($env:NVIM_DISTRO_REPO) { $env:NVIM_DISTRO_REPO } else { 'andrpstv/bare-metal.nvim' }
 $CCREPO_URL_HTTPS = "https://github.com/$($env:CCREPO_SLUG).git"
 $CCREPO_URL_SSH = "git@github.com:$($env:CCREPO_SLUG).git"
 $CCREPO_WEB = "https://github.com/$($env:CCREPO_SLUG)"
@@ -384,9 +384,16 @@ You must install Git before installing this Nvim config. See:
 	}
 
 	safe_execute -WithCmd { Set-Location -Path "$env:CCDEST_DIR" }
-	safe_execute -WithCmd { Copy-Item -Path "$env:CCDEST_DIR\lua\user_template\" -Destination "$env:CCDEST_DIR\lua\user" -Recurse -Force }
+	# Never overwrite an existing lua/user (re-run safety, same as install.sh).
+	# The use_ssh patch below runs only on a fresh copy: touching an existing
+	# user file would silently revert the owner's explicit choice.
+	$newUserSettings = $false
+	if (-not (Test-Path -Path "$env:CCDEST_DIR\lua\user")) {
+		safe_execute -WithCmd { Copy-Item -Path "$env:CCDEST_DIR\lua\user_template\" -Destination "$env:CCDEST_DIR\lua\user" -Recurse -Force }
+		$newUserSettings = $true
+	}
 
-	if (-not $USE_SSH) {
+	if ((-not $USE_SSH) -and $newUserSettings) {
 		info -Msg "Changing default fetching method to HTTPS..."
 		safe_execute -WithCmd {
 			(Get-Content "$env:CCDEST_DIR\lua\user\settings.lua") |

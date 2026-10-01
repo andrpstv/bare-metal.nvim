@@ -17,7 +17,9 @@
 local M = {}
 
 local function has_cc()
-	for _, c in ipairs({ "cc", "gcc", "clang" }) do
+	-- cl последним: MSVC без vcvarsall всё равно не найдётся, а mingw-приоритет
+	-- совпадает с treesitter.lua cc() и health (см. ниже про cl).
+	for _, c in ipairs({ "cc", "gcc", "clang", "cl" }) do
 		if vim.fn.executable(c) == 1 then
 			return c
 		end
@@ -46,7 +48,7 @@ function M.plan()
 			items[#items + 1] = {
 				kind = "parsers",
 				label = string.format("treesitter parsers (%d) — SKIPPED", #missing),
-				how = "no C compiler (cc/gcc/clang) in PATH; install a toolchain first",
+				how = "no C compiler (cc/gcc/clang/cl) in PATH; install a toolchain first (Windows: w64devkit via :DistroTools, or run nvim from a VS Developer prompt for cl)",
 				run = nil,
 			}
 		end

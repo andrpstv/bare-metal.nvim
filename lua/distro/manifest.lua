@@ -64,7 +64,7 @@ M.tools = {
 	{ name = "curl", check = "curl", required = true },
 	{ name = "tar", check = "tar", required = true },
 	{ name = "rg", check = "rg" },
-	{ name = "gcc", check = "gcc", alt = { "cc", "clang" } },
+	{ name = "gcc", check = "gcc", alt = { "cc", "clang", "cl" } },
 	{ name = "make", check = "make" },
 	{ name = "go", check = "go" },
 }

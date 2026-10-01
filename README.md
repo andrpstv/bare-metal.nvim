@@ -33,8 +33,8 @@
 | Neovim | **0.11+** | да |
 | macOS / Linux / Windows | — | да |
 | `curl`, `tar` | любые свежие | да (ставит и обновляет плагины) |
-| `unzip` | любой свежий | проверяет `:ConfigHealth` (zip-фолбэк; в tools-реестре его нет) |
-| C-компилятор (`cc`/`gcc`/`clang`) + `make` | любые | для парсеров treesitter |
+| `unzip` | любой свежий | только macOS/Linux (на Windows `:ConfigHealth` проверяет `tar`) |
+| C-компилятор (`cc`/`gcc`/`clang`, на Windows — `cl` из VS или w64devkit) + `make` | любые | для парсеров treesitter |
 | `ripgrep` (`rg`) | любой | ускоряет поиск по проекту |
 | Go (`go`) | — | только для Go-разработки |
 
@@ -60,6 +60,12 @@ nvim
 
 ```sh
 bash <(curl -fsSL https://raw.githubusercontent.com/andrpstv/bare-metal.nvim/main/scripts/install.sh)
+```
+
+Windows (стоковый PowerShell 5.1 подойдёт):
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/andrpstv/bare-metal.nvim/main/scripts/install.ps1)))
 ```
 
 Нужно: `git`, `nvim` 0.11+, `perl` не нужен. Скрипт клонирует репозиторий

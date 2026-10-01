@@ -361,10 +361,18 @@ local function move_dir(src, dest)
 		return true
 	end
 	-- EXDEV and friends: copy + remove instead. System mv/cp know how;
-	-- PowerShell Move-Item on Windows.
+	-- PowerShell Move-Item on Windows. ВАЖНО: после -Command PowerShell
+	-- склеивает argv пробелами, поэтому пути с пробелами ("First Last")
+	-- квотим ВНУТРИ одной строки (тот же приём, что в unpack_zip);
+	-- разбивка -Path/-Destination по отдельным argv здесь разваливается.
 	local argv
 	if is_win() then
-		argv = { "powershell", "-NoProfile", "-Command", "Move-Item", "-Force", "-Path", src, "-Destination", dest }
+		local ps = "Move-Item -Force -LiteralPath '"
+			.. src:gsub("'", "''")
+			.. "' -Destination '"
+			.. dest:gsub("'", "''")
+			.. "'"
+		argv = { "powershell", "-NoProfile", "-NonInteractive", "-Command", ps }
 	else
 		argv = { "mv", src, dest }
 	end

@@ -8,14 +8,16 @@ local createdir = function()
 		global.cache_dir .. "/tags",
 		global.cache_dir .. "/undo",
 	}
-	-- Only check whether cache_dir exists, this would be enough.
+	-- Подкаталоги проверяем ВСЕГДА, а не только когда нет самого cache_dir:
+	-- иначе (типично на Windows, где кэш уже есть) undofile/backup молча
+	-- остаются без каталога. Четыре isdirectory на boot — бесплатно.
 	if vim.fn.isdirectory(global.cache_dir) == 0 then
 		---@diagnostic disable-next-line: param-type-mismatch
 		vim.fn.mkdir(global.cache_dir, "p")
-		for _, dir in pairs(data_dirs) do
-			if vim.fn.isdirectory(dir) == 0 then
-				vim.fn.mkdir(dir, "p")
-			end
+	end
+	for _, dir in pairs(data_dirs) do
+		if vim.fn.isdirectory(dir) == 0 then
+			vim.fn.mkdir(dir, "p")
 		end
 	end
 end
@@ -127,15 +129,23 @@ You're recommended to install PowerShell for better experience.]],
 			return
 		end
 
-		local basecmd = "-NoLogo -MTA -ExecutionPolicy RemoteSigned"
+		-- -NoProfile: иначе каждый :!/:grep/:make тащит полный профиль
+		-- пользователя (oh-my-posh и т.п.), а болтливый профиль ломает
+		-- перенаправленный вывод. -NonInteractive: без промптов в :!.
+		local basecmd = "-NoLogo -MTA -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned"
 		local ctrlcmd = "-Command [console]::InputEncoding = [console]::OutputEncoding = [System.Text.Encoding]::UTF8"
 		local set_opts = vim.api.nvim_set_option_value
 		set_opts("shell", vim.fn.executable("pwsh") == 1 and "pwsh" or "powershell", {})
 		set_opts("shellcmdflag", string.format("%s %s;", basecmd, ctrlcmd), {})
-		set_opts("shellredir", "-RedirectStandardOutput %s -NoNewWindow -Wait", {})
-		set_opts("shellpipe", "2>&1 | Out-File -Encoding UTF8 %s; exit $LastExitCode", {})
+		-- %s в кавычках: %TEMP% вида C:\Users\First Last\... с пробелами
+		-- иначе разваливает редирект.
+		set_opts("shellredir", '-RedirectStandardOutput "%s" -NoNewWindow -Wait', {})
+		set_opts("shellpipe", '2>&1 | Out-File -Encoding UTF8 "%s"; exit $LastExitCode', {})
 		set_opts("shellquote", "", {})
 		set_opts("shellxquote", "", {})
+		-- Прямые слэши в путях для внешних команд: telescope/plenary/netrw-gx
+		-- и половина плагинов ждут forward slashes даже на Windows.
+		set_opts("shellslash", true, {})
 	end
 end
 
