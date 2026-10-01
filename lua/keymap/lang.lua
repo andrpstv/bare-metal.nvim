@@ -7,6 +7,9 @@ local map = vim.keymap.set
 -- Fill struct теперь на <leader>fs.
 map("n", "<leader>gt", ":silent! GoTestFunc<CR>", { noremap = true, silent = true, desc = "go: Test function" })
 map("n", "<leader>ta", ":silent! GoTest<CR>", { noremap = true, silent = true, desc = "go: Test all" })
+-- Запуск/сборка пакета: те же silent!, что у тестов (go.nvim шумит Press-ENTER).
+map("n", "<leader>rr", ":silent! GoRun<CR>", { noremap = true, silent = true, desc = "go: Run package" })
+map("n", "<leader>rb", ":silent! GoBuild<CR>", { noremap = true, silent = true, desc = "go: Build package" })
 map("n", "<leader>gf", ":GoAlt<CR>", { noremap = true, silent = true, desc = "go: Alternate file" })
 map("n", "<leader>ga", ":GoAddTag<CR>", { noremap = true, silent = true, desc = "go: Add struct tag" })
 map("n", "<leader>gx", ":GoRmTag<CR>", { noremap = true, silent = true, desc = "go: Remove struct tag" })

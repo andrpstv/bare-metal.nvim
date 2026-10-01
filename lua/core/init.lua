@@ -210,6 +210,45 @@ local load_core = function()
 		vim.cmd("checkhealth core")
 	end, { desc = "config: environment preflight (binaries, LSP, theme, keys)" })
 	require("core.perf").setup()
+	-- Стартер-хинт: голый `nvim` без аргументов и без парсеров встречает
+	-- пустым буфером. Одна подсказка вместо мёртвой тишины; после установки
+	-- парсеров условие гаснет само, сентинел-файл не нужен.
+	vim.api.nvim_create_autocmd("VimEnter", {
+		group = vim.api.nvim_create_augroup("StarterHint", { clear = true }),
+		once = true,
+		desc = "core: first-run hint on empty startup",
+		callback = function()
+			if vim.fn.argc() ~= 0 then
+				return
+			end
+			local buf = vim.api.nvim_get_current_buf()
+			if vim.api.nvim_buf_get_name(buf) ~= "" then
+				return
+			end
+			if vim.api.nvim_buf_line_count(buf) ~= 1 then
+				return
+			end
+			if vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] ~= "" then
+				return
+			end
+			local ok_ts, ts = pcall(require, "distro.treesitter")
+			if not ok_ts or #ts.missing_langs() == 0 then
+				return
+			end
+			-- Отказался один раз — не нагибаем (та же политика, что в bootstrap).
+			if vim.uv.fs_stat(ts.decline_marker()) then
+				return
+			end
+			vim.notify(
+				"Первый запуск: нет парсеров подсветки.\n"
+					.. "1) :ConfigHealth — проверка окружения\n"
+					.. "2) :DistroParsers --all — подсветка (нужен компилятор)\n"
+					.. "3) :DistroSetup — доустановка плагинов и утилит",
+				vim.log.levels.INFO,
+				{ title = "[setup]" }
+			)
+		end,
+	})
 end
 
 -- netrw НЕ отключаем: встроенный проводник доступен через :Ex / :Vex.

@@ -101,7 +101,7 @@ Go: это способ быстро понять, что требует ваш 
 # Lesson 1.5: GO
 
 `<leader>`{normal}`t`{normal}`a`{normal} — прогнать все тесты,
-`<leader>`{normal}`t`{normal}`t`{normal}` — тест функции под курсором (результат
+`<leader>`{normal}`g`{normal}`t`{normal}` — тест функции под курсором (результат
 приходит в quickfix, по нему можно переходить `[q`{normal} и `]q`{normal}).
 Линеры навешиваются на функциях как линзы: `<leader>`{normal}`c`{normal}`l`{normal}
 запускает то, что стоит под курсором.
