@@ -307,6 +307,12 @@ settings["parser_bootstrap"] = true
 ---@type boolean
 settings["leader_help"] = true
 
+-- Пауза (мс) после <leader>, прежде чем всплывёт подсказка — аналог
+-- which-key `delay`, независимо от timeoutlen. Любая следующая клавиша
+-- отменяет показ (быстро допечатал — ничего не мигает).
+---@type integer
+settings["leader_help_delay_ms"] = 3000
+
 -- GUI settings for clients like `neovide` or `neovim-qt`.
 -- NOTE: Only the following GUI options are supported; others will be ignored.
 ---@type { font_name: string, font_size: number }

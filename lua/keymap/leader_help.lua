@@ -6,21 +6,28 @@
 -- и не ломает главное свойство дистрибутива: всё вендорено в репозитории,
 -- ничего не тянется из сети.
 --
--- Как устроено:
+-- Как устроено (модель — which-key `delay`, билтин):
 --   * индекс строится из ЖИВЫХ маппингов (nvim_get_keymap + nvim_buf_get_keymap),
 --     а не из продублированной вручную таблицы — разойтись с кодом не может;
 --   * vim.on_key только наблюдает и ничего не перехватывает; сам <leader> не
 --     замаплен, поэтому нажатие не ждёт timeoutlen (конфиг явно от этого уходит,
 --     см. keymap/init.lua про <leader>eX);
---   * подсказка показывается, только когда напечатан префикс, совпадающий хотя бы
---     с одним маппингом, и прячется, как только сочетание дописано.
+--   * <leader> лишь ВЗВОДИТ показ: подсказка всплывает через leader_help_delay_ms
+--     (по умолч. 3000) и только если до тех пор не нажата другая клавиша —
+--     быстро допечатал сочетание — ничего не мигает (как which-key delay,
+--     независимо от timeoutlen);
+--   * любая следующая клавиша гасит и взведённый показ, и открытую подсказку:
+--     сочетание либо дописано, либо отменено — хинт свою работу сделал;
+--   * страховочный авто-закрыватель IDLE_MS прибирает забытое окно.
 --
 -- ВАЖНО, про fast events. Колбэк vim.on_key выполняется в контексте, где
 -- запрещены vim.api, vim.fn и io: любое такое обращение бросает ошибку, а
 -- Neovim по контракту УДАЛЯЕТ колбэк после первой ошибки — подсказка молча
 -- перестаёт работать до перезапуска. Поэтому колбэк трогает только строки
--- и локальное состояние, а всё, что требует API, выполняется в
--- vim.schedule. Наблюдение — дёшевое, планирование вынесено с горячего пути.
+-- и локальное состояние (state.* — plain Lua, в fast event безопасно),
+-- а всё, что требует API, выполняется в vim.schedule. Наблюдение —
+-- дёшевое, планирование вынесено с горячего пути: schedule дёргаем только
+-- когда есть что взвести/гасить, а не на каждую клавишу.
 
 local M = {}
 
@@ -32,8 +39,15 @@ local state = {
 	win = nil,
 	buf = nil,
 	timer = nil,
+	show_timer = nil,
 	shown = false,
 }
+
+--- Пауза до показа. Читается при каждом взводе: require кэширован,
+--- смена настройки применяется без рестарта.
+-- Forward: arm() (ниже) планирует apply() через таймер, а определён
+-- apply() позже по файлу — без этого arm видел бы глобальный nil.
+local apply
 
 --- Маппинги, начинающиеся с leader: глобальные + текущего буфера.
 --- Буферные нужны для LSP-сочетаний (<leader>li, <leader>rn), которые вешаются
@@ -160,6 +174,11 @@ local function close()
 		state.timer:close()
 		state.timer = nil
 	end
+	if state.show_timer then
+		state.show_timer:stop()
+		state.show_timer:close()
+		state.show_timer = nil
+	end
 end
 
 local function render(items)
@@ -228,9 +247,36 @@ local function render(items)
 	state.shown = true
 end
 
---- Единственная точка, где живёт работа с API. Вызывается из vim.schedule.
----@param prefix string|nil
-local function apply()
+--- Взвести показ: <leader> нажат, ждём leader_help_delay_ms.
+--- Если до срабатывания придёт любая другая клавиша — cancel() снимет взвод.
+--- Вызывается из vim.schedule (здесь API можно).
+local function arm()
+	if state.shown then
+		-- Уже висит (пользователь снова нажал <leader>): висит и висит,
+		-- приберёт либо следующая клавиша, либо страховочный IDLE_MS.
+		return
+	end
+	if state.show_timer then
+		state.show_timer:stop()
+		state.show_timer:close()
+		state.show_timer = nil
+	end
+	local ok_s, settings = pcall(require, "core.settings")
+	local delay = ok_s and tonumber(settings.leader_help_delay_ms) or 3000
+	if not delay or delay < 0 then
+		delay = 3000
+	end
+	state.show_timer = vim.uv.new_timer()
+	state.show_timer:start(delay, 0, function()
+		vim.schedule(apply)
+	end)
+end
+
+--- Показать подсказку. Вызывается из vim.schedule — либо сразу (не используется
+--- напрямую), либо срабатыванием show_timer через leader_help_delay_ms после
+--- <leader>. Проверяет режим: если пользователь ушёл из normal (или дописал
+--- сочетание быстрее таймера, а cancel по гонке не успел) — молча гасимся.
+apply = function()
 	local m = vim.fn.mode()
 	if m ~= "n" and m ~= "no" then
 		close()
@@ -305,10 +351,15 @@ function M.setup()
 	-- в :LeaderHelp.
 	vim.on_key(function(key)
 		-- FAST EVENT: здесь нельзя трогать ни vim.api, ни vim.fn, ни io.
-		-- Только сравнение строк; всё остальное отложено на главный цикл.
+		-- Только сравнение строк и чтение state.* (plain Lua); всё остальное
+		-- отложено на главный цикл. schedule дёргаем только когда есть что
+		-- взвести/гасить: на каждую «пустую» клавишу — ноль работы.
 		if key == LEADER then
-			vim.schedule(apply)
+			vim.schedule(arm)
 		elseif key == "<Esc>" or key == "<C-c>" or key == "<C-[>" then
+			vim.schedule(close)
+		elseif state.show_timer ~= nil or state.shown then
+			-- Продолжение сочетания или аборт: взвод снять, окно закрыть.
 			vim.schedule(close)
 		end
 		-- В Neovim 0.11 сигнатура именно (fn, ns_id, opts): ns_id — ВТОРОЙ
