@@ -1,5 +1,8 @@
 -- Go extras: async organize-imports + format on save, module-cache readonly guards.
 local is_go_lib = require("modules.utils").is_go_lib
+-- executable() в лоб врёт на FileType: go.nvim дописывает GOPATH/bin в PATH
+-- лениво, стандартный `go install` (~/go/bin/gopls) виден только через файл.
+local gopls_found = require("modules.utils").gopls_found
 -- Organize Go imports + format on save (separate from augroups due to function callback)
 --
 -- Полностью асинхронно: сейв НИКОГДА не блокируется.
@@ -165,5 +168,68 @@ vim.api.nvim_create_autocmd("BufWritePre", {
 			vim.notify("Cannot save Go library files", vim.log.levels.ERROR)
 			return false
 		end
+	end,
+})
+
+-- Hint maps: Go-буфер без gopls в PATH. Без них gd/gr/K тихо падают
+-- в builtin-морфы (goto-local-declaration, man) — новичок видит мусор
+-- без объяснений. Хинт-карты живут только пока нет сервера: LspAttach
+-- (keymap.completion.lsp) перебивает их настоящими на тот же lhs.
+-- Проверка статическая (gopls_found: PATH + ~/go/bin), без таймеров и
+-- гонок: медленный старт gopls сюда не попадает — бинарь уже есть.
+vim.api.nvim_create_autocmd("FileType", {
+	group = vim.api.nvim_create_augroup("GoLspHintMaps", { clear = true }),
+	pattern = "go",
+	callback = function(args)
+		if gopls_found() then
+			return
+		end
+		-- Сервер мог аттачнуться раньше (рестарт конфига): настоящие карты есть.
+		if #vim.lsp.get_clients({ bufnr = args.buf }) > 0 then
+			return
+		end
+		local hint = "[lsp] No language server in this buffer — run :DistroSetup to install gopls (<leader>li to inspect)"
+		local map = vim.keymap.set
+		map("n", "gd", function()
+			vim.notify(hint, vim.log.levels.WARN, { title = "lsp" })
+		end, { buffer = args.buf, silent = true, desc = "lsp: (no server — run :DistroSetup)" })
+		map("n", "gr", function()
+			vim.notify(hint, vim.log.levels.WARN, { title = "lsp" })
+		end, { buffer = args.buf, silent = true, desc = "lsp: (no server — run :DistroSetup)" })
+		map("n", "K", function()
+			vim.notify(hint, vim.log.levels.WARN, { title = "lsp" })
+		end, { buffer = args.buf, silent = true, desc = "lsp: (no server — run :DistroSetup)" })
+	end,
+})
+-- Nudge: первый Go-файл в сессии без gopls в PATH. Без gopls молча нет
+-- gd/completion/diagnostics — новичок видит «сломанный» редактор.
+-- Раз за сессию (vim.g), только с UI, в schedule (не в окно старта):
+-- ничего не ставит, ни о чём не спрашивает, только указывает на :DistroSetup.
+vim.api.nvim_create_autocmd("FileType", {
+	group = vim.api.nvim_create_augroup("GoSetupNudge", { clear = true }),
+	pattern = "go",
+	callback = function()
+		if vim.g.go_setup_nudged then
+			return
+		end
+		vim.g.go_setup_nudged = true
+		if gopls_found() then
+			return
+		end
+		if #vim.api.nvim_list_uis() == 0 then
+			return
+		end
+		vim.schedule(function()
+			if gopls_found() then
+				return
+			end
+			vim.notify(
+				"[setup] No gopls in PATH — Go intelligence (gd, completion, diagnostics) is off.\n"
+					.. "Run :DistroSetup (one confirm installs gopls + parsers + tools)\n"
+					.. "or: go install golang.org/x/tools/gopls@latest",
+				vim.log.levels.INFO,
+				{ title = "[setup]" }
+			)
+		end)
 	end,
 })

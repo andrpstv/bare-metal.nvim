@@ -49,6 +49,32 @@ function M.is_go_lib(file)
 		or file:match("Program Files\\Go\\")
 end
 
+---True if gopls is usable: in PATH, or a standard `go install` landing
+---spot. go.nvim appends GOPATH/bin to PATH lazily on its own load, so a
+---FileType-time executable() check alone false-negatives on the most
+---common install layout (~/go/bin/gopls, system PATH clean). No spawns:
+---only env + filereadable, safe on every FileType.
+---@return boolean
+function M.gopls_found()
+	if vim.fn.executable("gopls") == 1 then
+		return true
+	end
+	local dirs = {}
+	if vim.env.GOBIN and vim.env.GOBIN ~= "" then
+		dirs[#dirs + 1] = vim.env.GOBIN
+	end
+	if vim.env.GOPATH and vim.env.GOPATH ~= "" then
+		dirs[#dirs + 1] = vim.env.GOPATH .. "/bin"
+	end
+	dirs[#dirs + 1] = vim.fn.expand("~/go/bin")
+	for _, d in ipairs(dirs) do
+		if vim.fn.executable(d .. "/gopls") == 1 then
+			return true
+		end
+	end
+	return false
+end
+
 --- Function to recursively merge src into dst
 --- Unlike vim.tbl_deep_extend(), this function extends if the original value is a list
 ---@paramm dst table @Table which will be modified and appended to
