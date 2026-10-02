@@ -76,10 +76,33 @@ local _stl_faces = {
 	r = "ʕ ?ᴥ? ʔ", rm = "ʕ ?ᴥ? ʔ", ["r?"] = "ʕ ?ᴥ? ʔ", ["!"] = "ʕ ?ᴥ? ʔ",
 	t = "ʕ >ᴥ< ʔ",
 }
+-- Свои группы в палитре khold (чёрный металл: серые + тёмно-красный + teal),
+-- жирным — бар «больше» визуально (высоту строки Neovim не меняет, поэтому
+-- крупность даём жирностью, блоками-разделителями и паддингами).
+-- fg-only (bg=NONE наследует StatusLine): переживает любой тёмный фон.
+-- :colorscheme сносит кастомные группы — переопределяем на каждом ColorScheme.
+local _stl_khold = {
+	StlModeN = { fg = "#5f8787", bold = true },
+	StlModeI = { fg = "#c1c1c1", bold = true },
+	StlModeV = { fg = "#974b46", bold = true },
+	StlModeS = { fg = "#888888", bold = true },
+	StlModeR = { fg = "#af3a3a", bold = true },
+	StlModeC = { fg = "#aaaaaa", bold = true },
+	StlModeT = { fg = "#5f8787", bold = true },
+	StlSep = { fg = "#3a3a3a", bold = true },
+	StlFile = { fg = "#c1c1c1", bold = true },
+	StlDim = { fg = "#888888" },
+}
+local function _stl_apply_hl()
+	for grp, spec in pairs(_stl_khold) do
+		pcall(vim.api.nvim_set_hl, 0, grp, spec)
+	end
+end
+_stl_apply_hl()
 local _stl_mode_hl = {
-	n = "Comment", i = "String", v = "Keyword", V = "Keyword", ["\22"] = "Keyword",
-	s = "Constant", S = "Constant", ["\19"] = "Constant",
-	R = "DiagnosticWarn", r = "DiagnosticWarn", c = "Type", t = "DiagnosticError",
+	n = "StlModeN", i = "StlModeI", v = "StlModeV", V = "StlModeV", ["\22"] = "StlModeV",
+	s = "StlModeS", S = "StlModeS", ["\19"] = "StlModeS",
+	R = "StlModeR", r = "StlModeR", c = "StlModeC", t = "StlModeT",
 }
 
 local _stl_size_cache = {}
@@ -232,9 +255,9 @@ _G._statusline = function()
 		-- первой букве (как у цвета): неизвестный режим не роняет пилюлю.
 		local m = vim.api.nvim_get_mode().mode
 		local m1 = m:sub(1, 1)
-		local grp = _stl_mode_hl[m] or _stl_mode_hl[m1] or "Comment"
+		local grp = _stl_mode_hl[m] or _stl_mode_hl[m1] or "StlModeN"
 		local face = _stl_faces[m] or "ʕ ᵔᴥᵔ ʔ"
-		parts[#parts + 1] = "%#" .. grp .. "# " .. face .. " " .. (_stl_modes[m] or m) .. " %*"
+		parts[#parts + 1] = "%#StlSep#▌%*%#" .. grp .. "#  " .. face .. "  " .. (_stl_modes[m] or m) .. "  %*%#StlSep#▐%*"
 		-- Запись макроса: reg_recording() — дешёвый C-вызов, на redraw можно.
 		local rec = vim.fn.reg_recording()
 		if rec ~= "" then
@@ -256,7 +279,7 @@ _G._statusline = function()
 					icon = "[" .. ft .. "] "
 				end
 			end
-			parts[#parts + 1] = icon .. vim.fn.fnamemodify(fname, ":.")
+			parts[#parts + 1] = "%#StlFile#" .. icon .. vim.fn.fnamemodify(fname, ":.") .. "%*"
 			if vim.bo.modified then
 				parts[#parts + 1] = " [+]"
 			end
@@ -324,7 +347,7 @@ _G._statusline = function()
 		if git_status then
 			parts[#parts + 1] = git_status
 		end
-		parts[#parts + 1] = "(%L " .. _stl_human_size() .. ")"
+		parts[#parts + 1] = "%#StlDim#(%L " .. _stl_human_size() .. ")%*"
 		return table.concat(parts, " ")
 	end)
 	if ok then
@@ -337,3 +360,10 @@ vim.opt.statusline = "%!v:lua._statusline()"
 
 -- Как у ramojus: перерисовывать статуслайн при смене режима.
 vim.api.nvim_create_autocmd("ModeChanged", { group = _stl_augroup, command = "redrawstatus" })
+-- :colorscheme сносит кастомные группы (включая Stl*): реаплай.
+pcall(vim.api.nvim_create_autocmd, "ColorScheme", {
+	group = _stl_augroup,
+	callback = function()
+		_stl_apply_hl()
+	end,
+})
