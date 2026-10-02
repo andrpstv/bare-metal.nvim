@@ -268,6 +268,10 @@ _G._statusline = function()
 		local m1 = m:sub(1, 1)
 		local grp = _stl_mode_hl[m] or _stl_mode_hl[m1] or "StlMN"
 		local face = _stl_faces[m] or "ʕ ᵔᴥᵔ ʔ"
+		-- Правая сторона подсвечивается цветом режима, но НЕ в normal:
+		-- там тихо (StlMeta). Оператор-пендинг (no/nov/ni*) — тоже normal.
+		local is_norm = m1 == "n"
+		local rgrp = is_norm and "StlMeta" or grp
 		-- Пилюля: цветной чип-столбик + морда + код, всё в цвете режима.
 		-- Никаких фоновых блоков — бар чёрный, как любит black-metal.
 		parts[#parts + 1] = "%#" .. grp .. "#▊ " .. face .. " " .. (_stl_modes[m] or m) .. " %*%#StlSep#│%*"
@@ -354,14 +358,16 @@ _G._statusline = function()
 		-- путём съедал "[lua_ls]" до "<ua_ls]".
 		parts[#parts + 1] = "%<"
 		parts[#parts + 1] = "%="
-		-- Ruler + git (cached) + meta. Ruler и мета — правым тёмным блоком,
+		-- Ruler + git (cached) + meta. Ruler открывает группу правой стороны:
+		-- в normal это тихий StlMeta, иначе цвет режима (git-сегмент ниже
+		-- наследует её же — вся правая сторона светится целиком).
 		-- %P бесплатен (считает сам статуслайн).
-		parts[#parts + 1] = "%#StlMeta# %5(%l:%c%) %P "
+		parts[#parts + 1] = "%#" .. rgrp .. "# %5(%l:%c%) %P "
 		local git_status = _stl_get_git_status(0)
 		if git_status then
 			parts[#parts + 1] = git_status
 		end
-		parts[#parts + 1] = "%#StlMeta#(%L " .. _stl_human_size() .. ") %*"
+		parts[#parts + 1] = "%#" .. rgrp .. "#(%L " .. _stl_human_size() .. ") %*"
 		return table.concat(parts, " ")
 	end)
 	if ok then
