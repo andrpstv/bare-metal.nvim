@@ -82,22 +82,22 @@ local _stl_faces = {
 -- fg-only (bg=NONE наследует StatusLine): переживает любой тёмный фон.
 -- :colorscheme сносит кастомные группы — переопределяем на каждом ColorScheme.
 local _stl_khold = {
-	-- Блоки режимов: сплошной фон + контрастный fg, жирно. Плоские сегменты
-	-- встык (без  — не требуем nerd font): весь бар красится от режима.
-	-- NOR/TER — khold-teal, INS — бумага, VIS/REP — тёмно-красные,
-	-- CMD/SEL — серебро/серый, prompt — тусклый блок.
-	StlMN = { fg = "#000000", bg = "#5f8787", bold = true },
-	StlMI = { fg = "#000000", bg = "#c1c1c1", bold = true },
-	StlMV = { fg = "#f5f5f5", bg = "#974b46", bold = true },
-	StlMS = { fg = "#000000", bg = "#888888", bold = true },
-	StlMR = { fg = "#ffffff", bg = "#af3a3a", bold = true },
-	StlMC = { fg = "#000000", bg = "#aaaaaa", bold = true },
-	StlMT = { fg = "#000000", bg = "#5f8787", bold = true },
-	StlMP = { fg = "#c1c1c1", bg = "#3a3a3a", bold = true },
-	-- Блок файла и правый блок: тёмная плашка #161616 на чёрном баре.
-	StlFile = { fg = "#c1c1c1", bg = "#161616", bold = true },
-	StlMeta = { fg = "#888888", bg = "#161616" },
+	-- Сдержанный fg-стиль под black-metal: бар остаётся чёрным (фон темы),
+	-- цвет — только акценты текстом. Режимы — приглушёнными khold-тонами:
+	-- NOR/TER — teal, INS — бумага, VIS — тёмно-красный, REP — красный,
+	-- CMD — серебро, SEL/prompt — серые. Жирным — только пилюля режима.
+	StlMN = { fg = "#5f8787", bold = true },
+	StlMI = { fg = "#c1c1c1", bold = true },
+	StlMV = { fg = "#974b46", bold = true },
+	StlMS = { fg = "#888888", bold = true },
+	StlMR = { fg = "#af3a3a", bold = true },
+	StlMC = { fg = "#aaaaaa", bold = true },
+	StlMT = { fg = "#5f8787", bold = true },
+	StlMP = { fg = "#666666", bold = true },
+	StlFile = { fg = "#c1c1c1" },
+	StlMeta = { fg = "#666666" },
 	StlDim = { fg = "#888888" },
+	StlSep = { fg = "#2a2a2a" },
 }
 local function _stl_apply_hl()
 	for grp, spec in pairs(_stl_khold) do
@@ -268,7 +268,9 @@ _G._statusline = function()
 		local m1 = m:sub(1, 1)
 		local grp = _stl_mode_hl[m] or _stl_mode_hl[m1] or "StlMN"
 		local face = _stl_faces[m] or "ʕ ᵔᴥᵔ ʔ"
-		parts[#parts + 1] = "%#" .. grp .. "#  " .. face .. "  " .. (_stl_modes[m] or m) .. "  %*"
+		-- Пилюля: цветной чип-столбик + морда + код, всё в цвете режима.
+		-- Никаких фоновых блоков — бар чёрный, как любит black-metal.
+		parts[#parts + 1] = "%#" .. grp .. "#▊ " .. face .. " " .. (_stl_modes[m] or m) .. " %*%#StlSep#│%*"
 		-- Запись макроса: reg_recording() — дешёвый C-вызов, на redraw можно.
 		local rec = vim.fn.reg_recording()
 		if rec ~= "" then
