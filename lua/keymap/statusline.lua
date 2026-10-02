@@ -1,5 +1,7 @@
--- Статуслайн в духе heirline ramojus (без плагинов):
--- `[NOR] fname [+] | ●[E W] [servers] %= Ln:Col |  branch(+a-r~c) | (lines size)`
+-- Статуслайн-каомодзи (без плагинов):
+-- `ʕ ᵔᴥᵔ ʔ NOR fname [+] | ●[E W] [servers] %< %= Ln:Col %P | branch | (lines size)`
+-- Морда зависит от режима: normal ʕ ᵔᴥᵔ ʔ, insert ʕ •ᴥ• ʔ, visual ʕ ◕ᴥ◕ ʔ,
+-- select ʕ ￣ᴥ￣ ʔ, replace ʕ ºᴥº ʔ, command ʕ oᴥo ʔ, prompt ʕ ?ᴥ? ʔ, terminal ʕ >ᴥ< ʔ.
 -- Цвета — ссылками на группы темы (следуют за сменой colorscheme сами).
 -- PerfDefer-флаг: defer_on() дёргает settings + nvim_list_uis() — на каждый
 -- redraw дорого. Кэшируем по ключу из дешёвых vim.g/vim.env проб; ключ меняется
@@ -60,6 +62,19 @@ local _stl_modes = {
 	R = "REP", Rc = "REP", Rx = "REP", Rv = "REP", Rvc = "REP", Rvx = "REP",
 	c = "CMD", cv = "CMD", r = "···", rm = "···", ["r?"] = "···", ["!"] = "···",
 	t = "TER",
+}
+-- Каомодзи-морда на режим. Ключи — точные значения mode(), фолбэк по первой
+-- букве там же, где выбирается цвет (ниже). Только литералы: на redraw ни
+-- одного вызова, одна табличная подстановка.
+local _stl_faces = {
+	n = "ʕ ᵔᴥᵔ ʔ", no = "ʕ ᵔᴥᵔ ʔ", nov = "ʕ ᵔᴥᵔ ʔ", niI = "ʕ ᵔᴥᵔ ʔ", niR = "ʕ ᵔᴥᵔ ʔ", niV = "ʕ ᵔᴥᵔ ʔ",
+	v = "ʕ ◕ᴥ◕ ʔ", vs = "ʕ ◕ᴥ◕ ʔ", V = "ʕ ◕ᴥ◕ ʔ", Vs = "ʕ ◕ᴥ◕ ʔ", ["\22"] = "ʕ ◕ᴥ◕ ʔ", ["\22s"] = "ʕ ◕ᴥ◕ ʔ",
+	s = "ʕ ￣ᴥ￣ ʔ", S = "ʕ ￣ᴥ￣ ʔ", ["\19"] = "ʕ ￣ᴥ￣ ʔ",
+	i = "ʕ •ᴥ• ʔ", ic = "ʕ •ᴥ• ʔ", ix = "ʕ •ᴥ• ʔ",
+	R = "ʕ ºᴥº ʔ", Rc = "ʕ ºᴥº ʔ", Rx = "ʕ ºᴥº ʔ", Rv = "ʕ ºᴥº ʔ", Rvc = "ʕ ºᴥº ʔ", Rvx = "ʕ ºᴥº ʔ",
+	c = "ʕ oᴥo ʔ", cv = "ʕ oᴥo ʔ",
+	r = "ʕ ?ᴥ? ʔ", rm = "ʕ ?ᴥ? ʔ", ["r?"] = "ʕ ?ᴥ? ʔ", ["!"] = "ʕ ?ᴥ? ʔ",
+	t = "ʕ >ᴥ< ʔ",
 }
 local _stl_mode_hl = {
 	n = "Comment", i = "String", v = "Keyword", V = "Keyword", ["\22"] = "Keyword",
@@ -213,11 +228,18 @@ pcall(vim.api.nvim_create_autocmd, { "BufWipeout", "BufDelete" }, {
 _G._statusline = function()
 	local ok, line = pcall(function()
 		local parts = {}
-		-- Режим-пилюля.
+		-- Режим-пилюля: морда + код. Морда — по точному режиму, фолбэк по
+		-- первой букве (как у цвета): неизвестный режим не роняет пилюлю.
 		local m = vim.api.nvim_get_mode().mode
 		local m1 = m:sub(1, 1)
 		local grp = _stl_mode_hl[m] or _stl_mode_hl[m1] or "Comment"
-		parts[#parts + 1] = "%#" .. grp .. "# " .. (_stl_modes[m] or m) .. " %*"
+		local face = _stl_faces[m] or "ʕ ᵔᴥᵔ ʔ"
+		parts[#parts + 1] = "%#" .. grp .. "# " .. face .. " " .. (_stl_modes[m] or m) .. " %*"
+		-- Запись макроса: reg_recording() — дешёвый C-вызов, на redraw можно.
+		local rec = vim.fn.reg_recording()
+		if rec ~= "" then
+			parts[#parts + 1] = " " .. "%#DiagnosticError#●REC @" .. rec .. "%*"
+		end
 		-- Файл: иконка + имя + флаги.
 		local fname = vim.api.nvim_buf_get_name(0)
 		if vim.bo.filetype == "netrw" then
@@ -225,12 +247,32 @@ _G._statusline = function()
 		elseif fname == "" then
 			parts[#parts + 1] = "[No Name]"
 		else
-			parts[#parts + 1] = _stl_icon(fname) .. vim.fn.fnamemodify(fname, ":.")
+			local icon = _stl_icon(fname)
+			if icon == "" then
+				-- devicons молчит (неизвестное расширение): показываем filetype,
+				-- иначе сегмент немой.
+				local ft = vim.bo.filetype
+				if ft ~= "" then
+					icon = "[" .. ft .. "] "
+				end
+			end
+			parts[#parts + 1] = icon .. vim.fn.fnamemodify(fname, ":.")
 			if vim.bo.modified then
 				parts[#parts + 1] = " [+]"
 			end
 			if not vim.bo.modifiable or vim.bo.readonly then
 				parts[#parts + 1] = "%#DiagnosticError#[-]%*"
+			end
+			-- Только нестандарт: spell, не-utf8, не-unix. Пустой буфер молчит.
+			if vim.wo.spell then
+				parts[#parts + 1] = " [SPELL]"
+			end
+			local fe = vim.bo.fileencoding
+			if fe ~= "" and fe ~= "utf-8" then
+				parts[#parts + 1] = " [" .. fe .. "]"
+			end
+			if vim.bo.fileformat ~= "unix" then
+				parts[#parts + 1] = " [" .. vim.bo.fileformat .. "]"
 			end
 		end
 		-- Диагностика: читаем кэш DiagnosticChanged (никаких get() на redraw).
@@ -276,8 +318,8 @@ _G._statusline = function()
 		-- путём съедал "[lua_ls]" до "<ua_ls]".
 		parts[#parts + 1] = "%<"
 		parts[#parts + 1] = "%="
-		-- Ruler + git (cached) + meta.
-		parts[#parts + 1] = "%5(%l:%c%) "
+		-- Ruler + git (cached) + meta. %P бесплатен (считает сам статуслайн).
+		parts[#parts + 1] = "%5(%l:%c%) %P "
 		local git_status = _stl_get_git_status(0)
 		if git_status then
 			parts[#parts + 1] = git_status
