@@ -82,15 +82,21 @@ local _stl_faces = {
 -- fg-only (bg=NONE наследует StatusLine): переживает любой тёмный фон.
 -- :colorscheme сносит кастомные группы — переопределяем на каждом ColorScheme.
 local _stl_khold = {
-	StlModeN = { fg = "#5f8787", bold = true },
-	StlModeI = { fg = "#c1c1c1", bold = true },
-	StlModeV = { fg = "#974b46", bold = true },
-	StlModeS = { fg = "#888888", bold = true },
-	StlModeR = { fg = "#af3a3a", bold = true },
-	StlModeC = { fg = "#aaaaaa", bold = true },
-	StlModeT = { fg = "#5f8787", bold = true },
-	StlSep = { fg = "#3a3a3a", bold = true },
-	StlFile = { fg = "#c1c1c1", bold = true },
+	-- Блоки режимов: сплошной фон + контрастный fg, жирно. Плоские сегменты
+	-- встык (без  — не требуем nerd font): весь бар красится от режима.
+	-- NOR/TER — khold-teal, INS — бумага, VIS/REP — тёмно-красные,
+	-- CMD/SEL — серебро/серый, prompt — тусклый блок.
+	StlMN = { fg = "#000000", bg = "#5f8787", bold = true },
+	StlMI = { fg = "#000000", bg = "#c1c1c1", bold = true },
+	StlMV = { fg = "#f5f5f5", bg = "#974b46", bold = true },
+	StlMS = { fg = "#000000", bg = "#888888", bold = true },
+	StlMR = { fg = "#ffffff", bg = "#af3a3a", bold = true },
+	StlMC = { fg = "#000000", bg = "#aaaaaa", bold = true },
+	StlMT = { fg = "#000000", bg = "#5f8787", bold = true },
+	StlMP = { fg = "#c1c1c1", bg = "#3a3a3a", bold = true },
+	-- Блок файла и правый блок: тёмная плашка #161616 на чёрном баре.
+	StlFile = { fg = "#c1c1c1", bg = "#161616", bold = true },
+	StlMeta = { fg = "#888888", bg = "#161616" },
 	StlDim = { fg = "#888888" },
 }
 local function _stl_apply_hl()
@@ -98,11 +104,16 @@ local function _stl_apply_hl()
 		pcall(vim.api.nvim_set_hl, 0, grp, spec)
 	end
 end
+-- Глобально: тема black-metal в apply_custom_body делает свой load() (hi clear
+-- БЕЗ события ColorScheme) — она же и зовёт это обратно в конце кастома.
+-- Иначе Stl* бута применяются, сносятся темой и остаются cleared навсегда
+-- (диагноз 2026-10-02: `:hi StlModeN` → cleared, бар монохромный).
+_G._stl_apply_hl = _stl_apply_hl
 _stl_apply_hl()
 local _stl_mode_hl = {
-	n = "StlModeN", i = "StlModeI", v = "StlModeV", V = "StlModeV", ["\22"] = "StlModeV",
-	s = "StlModeS", S = "StlModeS", ["\19"] = "StlModeS",
-	R = "StlModeR", r = "StlModeR", c = "StlModeC", t = "StlModeT",
+	n = "StlMN", i = "StlMI", v = "StlMV", V = "StlMV", ["\22"] = "StlMV",
+	s = "StlMS", S = "StlMS", ["\19"] = "StlMS",
+	R = "StlMR", r = "StlMR", c = "StlMC", t = "StlMT",
 }
 
 local _stl_size_cache = {}
@@ -255,9 +266,9 @@ _G._statusline = function()
 		-- первой букве (как у цвета): неизвестный режим не роняет пилюлю.
 		local m = vim.api.nvim_get_mode().mode
 		local m1 = m:sub(1, 1)
-		local grp = _stl_mode_hl[m] or _stl_mode_hl[m1] or "StlModeN"
+		local grp = _stl_mode_hl[m] or _stl_mode_hl[m1] or "StlMN"
 		local face = _stl_faces[m] or "ʕ ᵔᴥᵔ ʔ"
-		parts[#parts + 1] = "%#StlSep#▌%*%#" .. grp .. "#  " .. face .. "  " .. (_stl_modes[m] or m) .. "  %*%#StlSep#▐%*"
+		parts[#parts + 1] = "%#" .. grp .. "#  " .. face .. "  " .. (_stl_modes[m] or m) .. "  %*"
 		-- Запись макроса: reg_recording() — дешёвый C-вызов, на redraw можно.
 		local rec = vim.fn.reg_recording()
 		if rec ~= "" then
@@ -279,7 +290,7 @@ _G._statusline = function()
 					icon = "[" .. ft .. "] "
 				end
 			end
-			parts[#parts + 1] = "%#StlFile#" .. icon .. vim.fn.fnamemodify(fname, ":.") .. "%*"
+			parts[#parts + 1] = icon .. "%#StlFile#" .. vim.fn.fnamemodify(fname, ":.") .. "%*"
 			if vim.bo.modified then
 				parts[#parts + 1] = " [+]"
 			end
@@ -341,13 +352,14 @@ _G._statusline = function()
 		-- путём съедал "[lua_ls]" до "<ua_ls]".
 		parts[#parts + 1] = "%<"
 		parts[#parts + 1] = "%="
-		-- Ruler + git (cached) + meta. %P бесплатен (считает сам статуслайн).
-		parts[#parts + 1] = "%5(%l:%c%) %P "
+		-- Ruler + git (cached) + meta. Ruler и мета — правым тёмным блоком,
+		-- %P бесплатен (считает сам статуслайн).
+		parts[#parts + 1] = "%#StlMeta# %5(%l:%c%) %P "
 		local git_status = _stl_get_git_status(0)
 		if git_status then
 			parts[#parts + 1] = git_status
 		end
-		parts[#parts + 1] = "%#StlDim#(%L " .. _stl_human_size() .. ")%*"
+		parts[#parts + 1] = "%#StlMeta#(%L " .. _stl_human_size() .. ") %*"
 		return table.concat(parts, " ")
 	end)
 	if ok then

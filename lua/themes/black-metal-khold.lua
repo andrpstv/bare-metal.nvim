@@ -271,6 +271,14 @@ local apply_custom_body = function()
 		pcall(vim.cmd, "colorscheme habamax")
 		return
 	end
+	-- Статуслайн красит СВОИ группы (Stl*): load() выше делает hi clear БЕЗ
+	-- события ColorScheme, поэтому хук на ColorScheme их не чинит — зовём
+	-- реаплай напрямую. Иначе бар навсегда монохромный (Stl* cleared).
+	pcall(function()
+		if _G._stl_apply_hl then
+			_G._stl_apply_hl()
+		end
+	end)
 	-- Второй вызов load() (первый — на базовой теме) опять ставит
 	-- termguicolors=true. Гарантированный гард даёт with_term_guard ниже,
 	-- в том числе если этот load() упал и ушёл в habamax.
