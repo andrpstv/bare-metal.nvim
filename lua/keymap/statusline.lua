@@ -389,3 +389,71 @@ pcall(vim.api.nvim_create_autocmd, "ColorScheme", {
 		_stl_apply_hl()
 	end,
 })
+
+-- Winbar: вторая панель сверху (высоту статуслайна Neovim не меняет — она
+-- всегда 1 строка, поэтому «побольше» = ещё один ряд). Хлебные крошки файла:
+-- иконка + относительный путь + флаги + диагностика. Только для файловых
+-- буферов с именем: у терминалов/хелпа/пустых ряда нет вообще (winbar
+-- ставится локально окну, глобально пусто). Кэши те же, новых нет.
+_G._winbar = function()
+	local ok, line = pcall(function()
+		local win = vim.g.statusline_winid or 0
+		local bufnr = (win ~= 0 and vim.api.nvim_win_is_valid(win))
+			and vim.api.nvim_win_get_buf(win)
+			or vim.api.nvim_get_current_buf()
+		if not require("modules.utils").is_file_buffer(bufnr) then
+			return ""
+		end
+		local fname = vim.api.nvim_buf_get_name(bufnr)
+		if fname == "" then
+			return ""
+		end
+		local parts = {}
+		parts[#parts + 1] = "%#StlDim# " .. _stl_icon(fname)
+		parts[#parts + 1] = "%#StlFile#" .. vim.fn.fnamemodify(fname, ":.") .. "%*"
+		if vim.bo[bufnr].modified then
+			parts[#parts + 1] = " %#DiagnosticWarn#[+]%*"
+		end
+		if not vim.bo[bufnr].modifiable or vim.bo[bufnr].readonly then
+			parts[#parts + 1] = " %#DiagnosticError#[-]%*"
+		end
+		local dc = _stl_diag_cache[bufnr]
+		if dc and (dc[1] + dc[2] + dc[3] + dc[4] > 0) then
+			local d = {}
+			if dc[1] > 0 then
+				d[#d + 1] = "%#DiagnosticError#● " .. dc[1] .. "%*"
+			end
+			if dc[2] > 0 then
+				d[#d + 1] = "%#DiagnosticWarn#● " .. dc[2] .. "%*"
+			end
+			parts[#parts + 1] = " " .. table.concat(d, " ")
+		end
+		return table.concat(parts, "")
+	end)
+	if ok then
+		return line
+	end
+	return ""
+end
+
+vim.opt.winbar = ""
+pcall(vim.api.nvim_create_autocmd, { "BufWinEnter", "FileType" }, {
+	group = _stl_augroup,
+	desc = "stl: winbar crumbs for file buffers only",
+	callback = function(args)
+		local ok_u, utils = pcall(require, "modules.utils")
+		if not ok_u or not utils.is_file_buffer(args.buf) then
+			return
+		end
+		if vim.api.nvim_buf_get_name(args.buf) == "" then
+			return
+		end
+		for _, w in ipairs(vim.api.nvim_list_wins()) do
+			if vim.api.nvim_win_get_buf(w) == args.buf then
+				pcall(function()
+					vim.wo[w].winbar = "%!v:lua._winbar()"
+				end)
+			end
+		end
+	end,
+})
