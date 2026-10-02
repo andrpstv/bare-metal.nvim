@@ -37,7 +37,15 @@ return vim.schedule_wrap(function()
 	if not ok_to_init then
 		vim.notify("[treesitter] textobjects init failed: " .. tostring(err_to_init):sub(1, 160), vim.log.levels.WARN, { title = "treesitter" })
 	end
-	require("modules.utils").load_plugin("nvim-treesitter", {		ensure_installed = require("core.settings").treesitter_deps,
+	require("modules.utils").load_plugin("nvim-treesitter", {
+		-- БЕЗ ensure_installed осознанно: плагин ставит перечисленное САМ,
+		-- без спроса (configs.setup -> install.ensure_installed), мимо
+		-- confirm-пайплайна — на свежих машинах это выглядело как
+		-- «после предупреждения само скачивается и падает с ошибкой».
+		-- Парсеры ставит только :DistroParsers/:DistroSetup (с подтверждением).
+		-- auto_install=false явно: дефолт и так false, но молчание здесь
+		-- слишком дорого стоит (см. выше).
+		auto_install = false,
 		highlight = {
 			enable = true,
 			disable = function(lang, bufnr)
