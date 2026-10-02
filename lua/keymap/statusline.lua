@@ -86,7 +86,9 @@ local _stl_khold = {
 	-- цвет — только акценты текстом. Режимы — приглушёнными khold-тонами:
 	-- NOR/TER — teal, INS — бумага, VIS — тёмно-красный, REP — красный,
 	-- CMD — серебро, SEL/prompt — серые. Жирным — только пилюля режима.
-	StlMN = { fg = "#5f8787", bold = true },
+	-- В normal пилюля серая, как правая сторона (там тихо по требованию):
+	-- красится только уход из normal.
+	StlMN = { fg = "#666666", bold = true },
 	StlMI = { fg = "#c1c1c1", bold = true },
 	StlMV = { fg = "#974b46", bold = true },
 	StlMS = { fg = "#888888", bold = true },
