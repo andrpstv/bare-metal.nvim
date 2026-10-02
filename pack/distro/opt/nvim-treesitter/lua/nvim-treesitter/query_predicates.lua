@@ -27,6 +27,19 @@ local function error(str)
   vim.api.nvim_err_writeln(str)
 end
 
+-- 0.12 compat: captures map to LISTS of nodes (table<integer, TSNode[]>),
+-- а не к одиночным нодам. Все паттерны ниже ловят по одной ноде на id,
+-- поэтому разворачиваем первый элемент. Без этого каждый хендлер падает с
+-- "attempt to call method 'range' (a nil value)" (проверено 2026-10-02:
+-- markdown fenced-блок -> set-lang-from-info-string! -> get_node_text).
+-- Пустой список -> nil -> существующие гарды `if not node` отрабатывают.
+local function first_node(v)
+  if type(v) == "table" then
+    return v[1]
+  end
+  return v
+end
+
 local function valid_args(name, pred, count, strict_count)
   local arg_count = #pred - 1
 
@@ -53,7 +66,7 @@ query.add_predicate("nth?", function(match, _pattern, _bufnr, pred)
     return
   end
 
-  local node = match[pred[2]] ---@type TSNode
+  local node = first_node(match[pred[2]]) ---@type TSNode
   local n = tonumber(pred[3])
   if node and node:parent() and node:parent():named_child_count() > n then
     return node:parent():named_child(n) == node
@@ -74,7 +87,7 @@ query.add_predicate("is?", function(match, _pattern, bufnr, pred)
 
   -- Avoid circular dependencies
   local locals = require "nvim-treesitter.locals"
-  local node = match[pred[2]]
+  local node = first_node(match[pred[2]])
   local types = { unpack(pred, 3) }
 
   if not node then
@@ -96,7 +109,7 @@ query.add_predicate("kind-eq?", function(match, _pattern, _bufnr, pred)
     return
   end
 
-  local node = match[pred[2]]
+  local node = first_node(match[pred[2]])
   local types = { unpack(pred, 3) }
 
   if not node then
@@ -113,7 +126,7 @@ end, opts)
 ---@return boolean|nil
 query.add_directive("set-lang-from-mimetype!", function(match, _, bufnr, pred, metadata)
   local capture_id = pred[2]
-  local node = match[capture_id]
+  local node = first_node(match[capture_id])
   if not node then
     return
   end
@@ -134,7 +147,7 @@ end, opts)
 ---@return boolean|nil
 query.add_directive("set-lang-from-info-string!", function(match, _, bufnr, pred, metadata)
   local capture_id = pred[2]
-  local node = match[capture_id]
+  local node = first_node(match[capture_id])
   if not node then
     return
   end
@@ -154,7 +167,7 @@ query.add_directive("make-range!", function() end, opts)
 ---@return boolean|nil
 query.add_directive("downcase!", function(match, _, bufnr, pred, metadata)
   local id = pred[2]
-  local node = match[id]
+  local node = first_node(match[id])
   if not node then
     return
   end

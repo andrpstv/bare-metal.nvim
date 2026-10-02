@@ -1,5 +1,17 @@
 # Changelog — bare-metal.nvim
 
+## v4.4.9 — фикс падений treesitter-инжекшнов на 0.12 (2026-10-02)
+
+Симптом: `attempt to call method 'range' (a nil value)`, стек через
+`query_predicates.lua:141` (плагин) → `get_node_text` (рантайм), падает
+парсинг при markdown fenced-блоках (и по цепочке инжекшнов — в любых файлах).
+Корень: пин 09-2024 старше 0.12, а 0.12 отдаёт captures списками нод
+(`table<integer, TSNode[]>`, см. аннотацию в runtime query.lua) — старые
+хендлеры брали `match[id]` за ноду. Пропатчены все 6 мест в вендорном
+`query_predicates.lua` (first_node-unwrap): падения ушли, инжекшн go в
+markdown проверен (injected=markdown_inline,go). Внимание: `:DistroUpdate`
+пина затрет шим — помечено в манифесте.
+
 ## v4.4.8 — сдержанный статуслайн (2026-10-02)
 
 Полнозаливные блоки спорили с приглушённой эстетикой khold: редизайн в

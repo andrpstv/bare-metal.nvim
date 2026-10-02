@@ -40,6 +40,12 @@ M.plugins = {
 	{ name = "cmp-cmdline", repo = "hrsh7th/cmp-cmdline", ref = "d126061b624e0af6c3a556428712dd4d4194ec6d", branch = "main", kind = "opt", defer_idle = true, strip = true },
 	-- Editor
 	{ name = "nvim-treesitter", repo = "nvim-treesitter/nvim-treesitter", ref = "cf12346a3414fa1b06af75c79faebe7f76df080a", branch = "master", kind = "opt", defer_idle = true, defer_until_idle = true, event = { "BufReadPre" }, build = "treesitter", config = "editor.treesitter", strip = false, needs = { bins = { "cc" } }, deps = { "nvim-treesitter-textobjects" } },
+	-- ВНИМАНИЕ при :DistroUpdate этого пина: query_predicates.lua несёт наш
+	-- 0.12-compat шим (first_node: captures теперь списки TSNode[], см. коммент
+	-- в файле). Обновление с ref затрет шим и вернёт падения
+	-- "attempt to call method 'range' (a nil value)" на injections (проверено:
+	-- markdown fenced-блок). До переезда на пин с upstream-фиксом шим
+	-- накатывать заново вручную.
 	{ name = "nvim-treesitter-textobjects", repo = "nvim-treesitter/nvim-treesitter-textobjects", ref = "5ca4aaa6efdcc59be46b95a3e876300cfead05ef", branch = "master", kind = "opt", strip = true },
 	{ name = "flash.nvim", repo = "folke/flash.nvim", ref = "5f0f270fdc7c5b0c21d903ee85b9cb06f2ac636a", branch = "main", kind = "opt", event = { "CursorHold", "CursorHoldI" }, config = "editor.flash", strip = true },
 	{ name = "nvim-surround", repo = "kylechui/nvim-surround", ref = "8b47db616ef658b8fc27e61db2896aa2f40134de", branch = "main", kind = "opt", event = { "CursorHold", "CursorHoldI" }, config = "editor.surround", strip = true },
