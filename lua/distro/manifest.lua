@@ -42,6 +42,7 @@ M.plugins = {
 	{ name = "nvim-treesitter", repo = "nvim-treesitter/nvim-treesitter", ref = "cf12346a3414fa1b06af75c79faebe7f76df080a", branch = "master", kind = "opt", defer_idle = true, defer_until_idle = true, event = { "BufReadPre" }, build = "treesitter", config = "editor.treesitter", strip = false, needs = { bins = { "cc" } }, deps = { "nvim-treesitter-textobjects" } },
 	{ name = "nvim-treesitter-textobjects", repo = "nvim-treesitter/nvim-treesitter-textobjects", ref = "5ca4aaa6efdcc59be46b95a3e876300cfead05ef", branch = "master", kind = "opt", strip = true },
 	{ name = "flash.nvim", repo = "folke/flash.nvim", ref = "5f0f270fdc7c5b0c21d903ee85b9cb06f2ac636a", branch = "main", kind = "opt", event = { "CursorHold", "CursorHoldI" }, config = "editor.flash", strip = true },
+	{ name = "nvim-surround", repo = "kylechui/nvim-surround", ref = "8b47db616ef658b8fc27e61db2896aa2f40134de", branch = "main", kind = "opt", event = { "CursorHold", "CursorHoldI" }, config = "editor.surround", strip = true },
 	{ name = "diffview.nvim", repo = "sindrets/diffview.nvim", ref = "4516612fe98ff56ae0415a259ff6361a89419b0a", branch = "main", kind = "opt", cmd = { "DiffviewOpen", "DiffviewClose", "DiffviewFileHistory", "DiffviewRefresh" }, config = "editor.diffview", strip = true, deps = { "plenary.nvim" } },
 	{ name = "plenary.nvim", repo = "nvim-lua/plenary.nvim", ref = "74b06c6c75e4eeb3108ec01852001636d85a932b", branch = "master", kind = "opt", strip = true },
 	-- Tool (пикеры — telescope.nvim, ставится из каталога :DistroInstall)
