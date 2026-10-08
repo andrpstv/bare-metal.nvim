@@ -1,5 +1,27 @@
 # Changelog — bare-metal.nvim
 
+## v4.5.0 — Phase 3: codelens→dev.test, benchmarks, DAP lifecycle (2026-10-08)
+
+Три точечные интеграции поверх существующего движка, ноль новых плагинов
+и зависимостей:
+
+- `<leader>cl` стал адаптером: линза `gopls.run_tests` под курсором
+  разбирается по точным именам из arguments (Tests/Benchmarks, gopls
+  v0.22.0 отдаёт их уже resolved) и уходит в единый dev.test-движок —
+  с выводом, quickfix и rerun вместо слепого запуска. Остальные линзы
+  (generate/tidy/...) — как раньше.
+- Benchmark workflow: `<leader>tb` (функция под курсором, иначе пакет)
+  и `:TestBench`; `go test -run=^$ -bench=…`, итог с ns/op, полный вывод
+  в `:TestOutput`. `last_failed` бенчмарки не трогают.
+- DAP lifecycle: слушатели terminated/exited закрывают только stale
+  `dap-float` окна (REPL живёт); `<leader>dx` — один `terminate()` без
+  `close()` (иначе гасли события и чистка); guard «нет сессии» на
+  scopes/frames/hover.
+
+Проверено: smoke 9/9, живые TUI-циклы (cl pass/fail→qf→tr, bench ns/op,
+3× debug→terminate без stale-floats и orphan-dlv), gopls clients==1,
+startup 84/42мс (без регрессии).
+
 ## v4.4.9 — фикс падений treesitter-инжекшнов на 0.12 (2026-10-02)
 
 Симптом: `attempt to call method 'range' (a nil value)`, стек через

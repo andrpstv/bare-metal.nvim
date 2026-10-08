@@ -315,6 +315,12 @@ settings["leader_help"] = true
 ---@type integer
 settings["leader_help_delay_ms"] = 3000
 
+-- Тихий автсейв сессии проекта на выходе (dev.project, формат тот же,
+-- что <leader>ss). Авторестора НЕТ осознанно: восстанавливаем только
+-- по <leader>sl / <leader>ws-запросу, чужие машины не трогаем.
+---@type boolean
+settings["project_autosave"] = true
+
 -- GUI settings for clients like `neovide` or `neovim-qt`.
 -- NOTE: Only the following GUI options are supported; others will be ignored.
 ---@type { font_name: string, font_size: number }

@@ -40,10 +40,9 @@ vim.api.nvim_create_autocmd("FileType", {
 
 -- Hold off on configuring anything related to the LSP until LspAttach
 local mapping = require("keymap.completion")
--- Go module/stdlib files (pkg/mod, GOROOT): gopls attaches for goto-def/hover,
--- but has NO package metadata there — inlayHint requests fail loudly.
--- (Implementation lives in modules.utils so keymap/go extras can share it.)
-local is_go_lib = require("modules.utils").is_go_lib
+-- Go module/stdlib files (pkg/mod, GOROOT) аттачатся к consumer workspace
+-- (servers/gopls.lua root_dir reuse), поэтому gopls имеет package metadata
+-- и для них: inlay hints включаются везде одинаково.
 vim.api.nvim_create_autocmd("LspAttach", {
 	group = vim.api.nvim_create_augroup("LspKeymapLoader", { clear = true }),
 	callback = function(event)
@@ -68,12 +67,11 @@ vim.api.nvim_create_autocmd("LspAttach", {
 				pcall(vim.lsp.completion.enable, false, event.data.client_id, event.buf)
 			end
 
-			-- LSP Inlay Hints (skip for Go lib files: gopls answers inlayHint
-			-- with "no package metadata" errors there — see is_go_lib above)
+			-- LSP Inlay Hints (везде, включая Go dependency-буферы: у них тот же
+			-- workspace и та же metadata, см. servers/gopls.lua root_dir reuse).
 			local inlayhints_enabled = require("core.settings").lsp_inlayhints
 			if client and client.server_capabilities.inlayHintProvider ~= nil then
-				local fname = vim.api.nvim_buf_get_name(event.buf)
-				if inlayhints_enabled == true and not is_go_lib(fname or "") then
+				if inlayhints_enabled == true then
 					pcall(vim.lsp.inlay_hint.enable, true, { bufnr = event.buf })
 				end
 			end

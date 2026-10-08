@@ -53,6 +53,17 @@ M.plugins = {
 	{ name = "plenary.nvim", repo = "nvim-lua/plenary.nvim", ref = "74b06c6c75e4eeb3108ec01852001636d85a932b", branch = "master", kind = "opt", strip = true },
 	-- Tool (пикеры — telescope.nvim, ставится из каталога :DistroInstall)
 	{ name = "trouble.nvim", repo = "folke/trouble.nvim", ref = "bd67efe408d4816e25e8491cc5ad4088e708a69a", branch = "main", kind = "opt", cmd = { "Trouble", "TroubleToggle", "TroubleRefresh" }, config = "tool.trouble", strip = true, deps = { "nvim-web-devicons" } },
+	-- Discoverability: nested keymap popup (leader_help остаётся текстовым
+	-- фолбэком и гасит свой popup когда which-key активен). Lazy на первой
+	-- паузе — нулевая цена старта.
+	{ name = "which-key.nvim", repo = "folke/which-key.nvim", ref = "3aab2147e74890957785941f0c1ad87d0a44c15a", branch = "main", kind = "opt", event = { "CursorHold", "CursorHoldI" }, config = "tool.whichkey", strip = true },
+	-- Git porcelain: status/commit/push/pull/log поверх gitsigns+diffview.
+	-- Deps уже вендорены (plenary, telescope, diffview опционально).
+	{ name = "neogit", repo = "NeogitOrg/neogit", ref = "70708be9664b7fcdd010eb07bdc3ebc9311c2027", branch = "master", kind = "opt", cmd = { "Neogit" }, config = "tool.neogit", strip = true, deps = { "plenary.nvim" } },
+	-- Debugger engine: только протокол/сессии; UI — свой (dev.debug поверх
+	-- dap.ui.widgets из ядра dap, без dap-ui/nio). Без триггеров: грузится
+	-- только по явному M.load из debug-keymaps (нулевая цена пока не дебажишь).
+	{ name = "nvim-dap", repo = "mfussenegger/nvim-dap", ref = "cfa2d58f4537aca6ca83e2de1a0d9f1491121264", branch = "master", kind = "opt", config = "tool.dap", strip = true },
 	-- Lang (Go)
 	{ name = "go.nvim", repo = "ray-x/go.nvim", ref = "f5d1f11d4f616efbe2339286310bb89c4853d769", branch = "master", kind = "opt", defer_idle = true, ft = { "go", "gomod", "gosum" }, build = ":GoInstallBinaries", config = "lang.go", strip = true, deps = { "guihua.lua" } },
 	{ name = "guihua.lua", repo = "ray-x/guihua.lua", ref = "4c513d5dac550af77034cced421967b393261509", branch = "master", kind = "opt", defer_idle = true, strip = true },
@@ -91,12 +102,10 @@ end
 M.catalog = {
 	{ catalog = true, name = "telescope.nvim", repo = "nvim-telescope/telescope.nvim", ref = "40aedd8a68c78a656a10a8d62d80c54af59420fb", branch = "master", kind = "opt", cmd = { "Telescope" }, config = "tool.telescope", strip = true, deps = { "plenary.nvim" }, desc = "fuzzy finder over lists" },
 	{ catalog = true, name = "oil.nvim", repo = "stevearc/oil.nvim", ref = "b73018b75affd13fa38e2fc94ef753b465f770d7", branch = "master", kind = "opt", cmd = { "Oil" }, config = "tool.oil", strip = true, desc = "file manager as buffer" },
-	{ catalog = true, name = "toggleterm.nvim", repo = "akinsho/toggleterm.nvim", ref = "9a88eae817ef395952e08650b3283726786fb5fb", branch = "main", kind = "opt", cmd = { "ToggleTerm" }, config = "tool.toggleterm", strip = true, desc = "terminal windows" },
-	{ catalog = true, name = "which-key.nvim", repo = "folke/which-key.nvim", ref = "3aab2147e74890957785941f0c1ad87d0a44c15a", branch = "main", kind = "opt", event = { "CursorHold" }, config = "tool.whichkey", strip = true, desc = "keymap popup" },
+	{ catalog = true, name = "toggleterm.nvim", repo = "akinsho/toggleterm.nvim", ref = "9a88eae817ef395952e08650b3283726786fb5fb", branch = "main", kind = "opt", cmd = { "ToggleTerm" }, config = "tool.toggleterm", strip = true, desc = "terminal windows (covered by builtin dev.terminal — not needed)" },
 	{ catalog = true, name = "todo-comments.nvim", repo = "folke/todo-comments.nvim", ref = "31e3c38ce9b29781e4422fc0322eb0a21f4e8668", branch = "main", kind = "opt", event = { "BufReadPre" }, config = "tool.todo", strip = true, deps = { "plenary.nvim" }, desc = "TODO/FIXME highlights" },
 	{ catalog = true, name = "lualine.nvim", repo = "nvim-lualine/lualine.nvim", ref = "221ce6b2d999187044529f49da6554a92f740a96", branch = "master", kind = "opt", config = "ui.lualine", strip = true, deps = { "nvim-web-devicons" }, desc = "statusline (replaces builtin)" },
 	{ catalog = true, name = "indent-blankline.nvim", repo = "lukas-reineke/indent-blankline.nvim", ref = "f1e186e44d3b7f9ae918008e2c28ce37c6023d2d", branch = "master", kind = "opt", event = { "BufReadPre" }, config = "ui.ibl", strip = true, desc = "indent guides (ibl)" },
-	{ catalog = true, name = "neogit", repo = "NeogitOrg/neogit", ref = "5adc81b26232954cd7a90f158aa7844c18fc3165", branch = "master", kind = "opt", cmd = { "Neogit" }, config = "tool.neogit", strip = true, deps = { "plenary.nvim" }, desc = "git UI (magit-like)" },
 	{ catalog = true, name = "nvim-tree.lua", repo = "nvim-tree/nvim-tree.lua", ref = "478c69c0fe253caea88de9c5e138bfa77395a59a", branch = "master", kind = "opt", cmd = { "NvimTreeToggle" }, config = "tool.ntree", strip = true, deps = { "nvim-web-devicons" }, desc = "file tree (netrw alternative)" },
 }
 

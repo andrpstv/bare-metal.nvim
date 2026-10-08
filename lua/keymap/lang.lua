@@ -5,8 +5,17 @@ local map = vim.keymap.set
 
 -- gF убран: его существование заставляло `gf` ждать timeoutlen.
 -- Fill struct теперь на <leader>fs.
-map("n", "<leader>gt", ":silent! GoTestFunc<CR>", { noremap = true, silent = true, desc = "go: Test function" })
-map("n", "<leader>ta", ":silent! GoTest<CR>", { noremap = true, silent = true, desc = "go: Test all" })
+-- Тесты — через dev.test (`go test -json`: падения в quickfix, итог нотифаем,
+-- last_failed для <leader>tr, :TestOutput). Раньше здесь были :GoTestFunc/:GoTest
+-- (go.nvim): связка ta→tr была разорвана — tr отвечал "nothing failed yet",
+-- т.к. last_failed наполняет только dev.test-движок. Команды :GoTest/:GoTestFunc
+-- остаются доступны напрямую; кеймапы ведут на единый движок.
+map("n", "<leader>gt", function()
+	require("dev.test").run("func")
+end, { noremap = true, silent = true, desc = "test: Run test under cursor" })
+map("n", "<leader>ta", function()
+	require("dev.test").run("all")
+end, { noremap = true, silent = true, desc = "test: Run all tests" })
 -- Запуск/сборка пакета: те же silent!, что у тестов (go.nvim шумит Press-ENTER).
 map("n", "<leader>rr", ":silent! GoRun<CR>", { noremap = true, silent = true, desc = "go: Run package" })
 map("n", "<leader>rb", ":silent! GoBuild<CR>", { noremap = true, silent = true, desc = "go: Build package" })

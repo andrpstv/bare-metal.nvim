@@ -182,6 +182,22 @@ else
 	record FAIL "7/7 modules require without error" "$(printf '%s' "$MOD_BAD" | tr '\n' ' ')"
 fi
 
+# --------------------------------------------- check 3b: dev/* modules ------
+# Phase-1 capabilities (terminal/test/replace/debug/project/refactor) must
+# require cleanly. Separate list: these are consumer features, not infra.
+section "3b. dev modules require cleanly"
+DEVMODULES="dev.terminal dev.test dev.replace dev.debug dev.project dev.refactor"
+DEVMOD_OUT="$(nvim --headless \
+	-c "lua local ms={'${DEVMODULES// /','}'}; for _,m in ipairs(ms) do local ok,e=pcall(require,m); print((ok and 'OK ' or 'FAIL ')..m..(ok and '' or (' '..tostring(e)))) end" \
+	-c 'qa!' 2>&1 | tr -d '\r' || true)"
+DEVMOD_BAD="$(printf '%s\n' "$DEVMOD_OUT" | grep '^FAIL' || true)"
+DEVMOD_COUNT="$(printf '%s\n' "$DEVMOD_OUT" | grep -c '^OK' || true)"
+if [ "$DEVMOD_COUNT" -eq 6 ] && [ -z "$DEVMOD_BAD" ]; then
+	record PASS "6/6 dev modules require without error"
+else
+	record FAIL "6/6 dev modules require without error" "$(printf '%s' "$DEVMOD_BAD" | tr '\n' ' ')"
+fi
+
 # =============================================================== check 4 =====
 # Every user command named below exists. CMD_COUNT is derived from the list
 # itself, so the section header, the pass line and the assertion can never
@@ -192,7 +208,7 @@ fi
 #   Two working methods: grep the source for nvim_create_user_command (source
 #   of truth, static) and vim.fn.exists(":Cmd") == 2 (runtime, works in headless
 #   for everything already loaded).
-COMMANDS="ConfigHealth Tutor Distro DistroBench DistroBenchUI DistroBinaries DistroCheck DistroClean DistroDiag DistroInstall DistroMirror DistroParsers DistroSetup DistroTools DistroTrace DistroUpdate Format FormatterToggleFt FormatToggle LeaderHelp PairsStatus TreesitterTier PerfDeferOn PerfDeferOff PerfDeferStatus PerfLeanOn PerfLeanOff PerfLeanStatus"
+COMMANDS="ConfigHealth Tutor Distro DistroBench DistroBenchUI DistroBinaries DistroCheck DistroClean DistroDiag DistroInstall DistroMirror DistroParsers DistroSetup DistroTools DistroTrace DistroUpdate Format FormatterToggleFt FormatToggle LeaderHelp PairsStatus TreesitterTier PerfDeferOn PerfDeferOff PerfDeferStatus PerfLeanOn PerfLeanOff PerfLeanStatus TermToggle TermSend TestOutput TestCovClear TestBench ProjectSwitch"
 CMD_COUNT="$(printf '%s\n' $COMMANDS | wc -l | tr -d ' ')"
 section "4. user commands exist ($CMD_COUNT names)"
 STATIC_MISSING=""

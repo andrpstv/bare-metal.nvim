@@ -22,6 +22,10 @@ map("t", "<C-w>h", "<Cmd>wincmd h<CR>", { noremap = true, silent = true, desc = 
 map("t", "<C-w>l", "<Cmd>wincmd l<CR>", { noremap = true, silent = true, desc = "window: Focus right" })
 map("t", "<C-w>j", "<Cmd>wincmd j<CR>", { noremap = true, silent = true, desc = "window: Focus down" })
 map("t", "<C-w>k", "<Cmd>wincmd k<CR>", { noremap = true, silent = true, desc = "window: Focus up" })
+-- Из терминала (opencode, команды) — одним аккордом обратно в код: выйти
+-- в normal и прыгнуть в предыдущее окно. C-o в terminal-mode свободен
+-- (в normal не трогаем: там это jumplist-назад, святое).
+map("t", "<C-o>", "<C-\\><C-n><C-w>p", { noremap = true, silent = true, desc = "terminal: back to code (previous window)" })
 
 -- Builtins: Tabpage. На <leader>t*: голые tn/tk/tj/to перехватывали till-motion
 -- (t+n открывал таб вместо прыжка к "n"), молча ломая базовый моушен.

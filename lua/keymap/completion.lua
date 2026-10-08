@@ -232,7 +232,11 @@ function M.lsp(buf)
 		end
 		vim.b[buf].lsp_manual_restart = true
 		for _, c in ipairs(vim.lsp.get_clients({ bufnr = buf })) do
-			vim.lsp.stop_client(c.id)
+			-- Client:stop() (бывший stop_client(c.id), deprecated в 0.12):
+			-- метод вместо функции, иначе варнинг на каждый рестарт.
+			pcall(function()
+				c:stop()
+			end)
 		end
 		vim.defer_fn(function()
 			if vim.api.nvim_buf_is_valid(buf) then
@@ -252,7 +256,11 @@ function M.lsp(buf)
 		vim.diagnostic.jump({ count = 1, float = true })
 	end, { buffer = buf, silent = true, desc = "lsp: Next diagnostic" })
 	map("n", "<leader>lx", function()
-		vim.diagnostic.open_float()
+		-- open_float возвращает nil, когда на строке чисто: без хинта
+		-- выглядит сломанным.
+		if not vim.diagnostic.open_float() then
+			vim.notify("[lsp] no diagnostics on this line", vim.log.levels.INFO, { title = "lsp" })
+		end
 	end, { buffer = buf, silent = true, desc = "lsp: Line diagnostic" })
 	map("n", "gs", function()
 		require("completion.signature").show_smart()
@@ -281,8 +289,11 @@ function M.lsp(buf)
 		_pick_lsp("definition", { jump1 = true })
 	end, { buffer = buf, silent = true, desc = "lsp: Goto definition" })
 	map("n", "<leader>rn", function()
-		vim.lsp.buf.rename()
-	end, { buffer = buf, silent = true, nowait = true, desc = "lsp: Rename" })
+		-- Свой rename вместо голого buf.rename(): cross-file правки сразу
+		-- пишутся (только запачканные rename'ом), иначе они висят в скрытых
+		-- буферах без хинта и тесты идут по старому коду.
+		require("dev.refactor").rename()
+	end, { buffer = buf, silent = true, nowait = true, desc = "lsp: Rename (saves touched files)" })
 	-- NOTE: gi перебивает встроенный gi (вернуться к месту инсерта).
 	-- Осознанно: implementations-pick нужнее в LSP-буфере; вне LSP builtin жив.
 	-- Пара разведена как gr/gR: gi = pick, gI = quickfix.
@@ -290,7 +301,18 @@ function M.lsp(buf)
 		_pick_lsp("implementation")
 	end, { buffer = buf, silent = true, desc = "lsp: Implementations (pick)" })
 	map("n", "gI", function()
-		vim.lsp.buf.implementation()
+		-- Принудительный quickfix (а не прыжок): дефолтный on_list прыгает
+		-- при единственном результате, ломая пару gi/gI = pick/quickfix.
+		vim.lsp.buf.implementation({
+			on_list = function(options)
+				if not options or not options.items or #options.items == 0 then
+					vim.notify("[lsp] no implementations here", vim.log.levels.INFO, { title = "lsp" })
+					return
+				end
+				vim.fn.setqflist({}, " ", { title = "Implementations", items = options.items })
+				vim.cmd("copen")
+			end,
+		})
 	end, { buffer = buf, silent = true, desc = "lsp: Implementations to quickfix" })
 	map("n", "gy", function()
 		_pick_lsp("type_definition", { jump1 = true })
@@ -298,6 +320,21 @@ function M.lsp(buf)
 	map("n", "gw", function()
 		type_hierarchy("supertypes")
 	end, { buffer = buf, silent = true, desc = "lsp: Supertypes (interfaces it implements)" })
+	-- Phase-1: call hierarchy + selection range (dev.refactor, zero plugins).
+	-- Второй уровень <leader>l* (lc/lC) и <leader>v* (ve/vE): префиксы свободны,
+	-- существующие сочетания не замедляются (нет общих продолжений).
+	map("n", "<leader>lc", function()
+		require("dev.refactor").calls("incoming")
+	end, { buffer = buf, silent = true, desc = "lsp: Incoming calls (who calls this)" })
+	map("n", "<leader>lC", function()
+		require("dev.refactor").calls("outgoing")
+	end, { buffer = buf, silent = true, desc = "lsp: Outgoing calls (what this calls)" })
+	map("n", "<leader>ve", function()
+		require("dev.refactor").expand()
+	end, { buffer = buf, silent = true, desc = "lsp: Expand selection (structural)" })
+	map("n", "<leader>vE", function()
+		require("dev.refactor").shrink()
+	end, { buffer = buf, silent = true, desc = "lsp: Shrink selection" })
 	map("n", "<leader>lv", function()
 		_toggle_virtuallines()
 	end, { buffer = buf, noremap = true, silent = true, desc = "lsp: Toggle virtual lines" })
@@ -328,7 +365,48 @@ function M.lsp(buf)
 				vim.notify("[lsp] codelens ready, but you moved — jump back and retry", vim.log.levels.INFO, { title = "lsp" })
 				return
 			end
-			pcall(vim.lsp.codelens.run)
+			-- Адаптер gopls.run_tests → dev.test: слепой codelens.run()
+			-- выполняет тест без вывода/qf/rerun. Проверено живьём
+			-- (gopls v0.22.0): свежий textDocument/codeLens отдаёт линзы
+			-- УЖЕ resolved — с command, range и arguments[1].Tests /
+			-- .Benchmarks (имена точные, курсор не нужен). ВАЖНО: брать
+			-- линзы только свежим запросом, как сам runtime (on_lenses_run):
+			-- закэшированные codelens.get() бывают без command/range, а
+			-- отдельного codeLens/resolve у этого gopls нет
+			-- ("not yet implemented"). Неизвестный формат — слепой run,
+			-- никакого brittle-парсинга.
+			local params = { textDocument = vim.lsp.util.make_text_document_params(buf) }
+			vim.lsp.buf_request(buf, "textDocument/codeLens", params, function(err, res)
+				if err or not res then
+					pcall(vim.lsp.codelens.run)
+					return
+				end
+				local pos = vim.api.nvim_win_get_cursor(0)
+				for _, l in ipairs(res or {}) do
+					local cmd = l.command and l.command.command
+					if cmd == "gopls.run_tests" and l.range then
+						local r = l.range
+						if pos[1] - 1 >= r.start.line and pos[1] - 1 <= r["end"].line then
+							local args = (l.command.arguments or {})[1] or {}
+							local function names(v)
+								return type(v) == "table" and v or {}
+							end
+							local benches = names(args.Benchmarks)
+							if #benches > 0 then
+								require("dev.test").bench_names(benches)
+								return
+							end
+							local tests = names(args.Tests)
+							if #tests > 0 then
+								require("dev.test").run_names(tests)
+								return
+							end
+							break
+						end
+					end
+				end
+				pcall(vim.lsp.codelens.run)
+			end)
 		end, 500)
 	end, { buffer = buf, noremap = true, silent = true, desc = "lsp: Run codelens at cursor (test/generate)" })
 

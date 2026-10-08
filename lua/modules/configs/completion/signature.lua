@@ -146,7 +146,7 @@ local function refresh()
 	end
 	local params = vim.lsp.util.make_position_params(0, "utf-16")
 	local clients = sig_clients(bufnr)
-	clients[1].request("textDocument/signatureHelp", params, function(err, result)
+	clients[1]:request("textDocument/signatureHelp", params, function(err, result)
 		if err or not result or not result.signatures or #result.signatures == 0 then
 			close()
 			return

@@ -53,8 +53,10 @@ function M.toggle_format_on_save()
 	local ok, autocmds = pcall(vim.api.nvim_get_autocmds, { group = "format_on_save", event = "BufWritePre" })
 	if ok and #autocmds > 0 then
 		M.disable_format_on_save()
+		vim.notify("[format] format on save OFF", vim.log.levels.INFO, { title = "format" })
 	else
 		M.enable_format_on_save()
+		vim.notify("[format] format on save ON", vim.log.levels.INFO, { title = "format" })
 	end
 end
 
@@ -116,9 +118,13 @@ function M.format(opts)
 
 		-- Асинхронное форматирование c guard changedtick (как в Go-пути):
 		-- правки, прилетевшие после новых изменений, не накладываем.
-		client.request("textDocument/formatting", params, function(err, result)
+		client:request("textDocument/formatting", params, function(err, result)
 			if result and vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_get_changedtick(bufnr) == tick then
 				pcall(vim.lsp.util.apply_text_edits, result, bufnr, client.offset_encoding)
+				-- Ручной :Format молчал об успехе; автосейв (quiet) молчит как раньше.
+				if not opts.quiet and #result > 0 then
+					vim.notify("[format] formatted (" .. #result .. " edits)", vim.log.levels.INFO, { title = "format" })
+				end
 			end
 		end, bufnr)
 	end

@@ -35,12 +35,16 @@ function M.is_file_buffer(bufnr)
 end
 
 ---True if the file lives in the Go module cache or toolchain (read-only libs).
----gopls attaches there for goto-def/hover but has no package metadata.
+---Dependency buffers reuse the consumer workspace (see servers/gopls.lua
+---root_dir): gopls then resolves them through the importing main module
+---instead of a cache-rooted server with no package metadata.
 ---@param file string
 ---@return boolean
 function M.is_go_lib(file)
 	-- Сепаратор-агностично: bufname бывает и C:/Program Files/Go/... (прямые),
 	-- и C:\Users\...\go\pkg\mod\... (обратные). Классы [\\/] вместо двух веток.
+	-- Последний шаблон — общий `[\\/]pkg[\\/]mod[\\/]`: ловит кастомные
+	-- GOPATH/GOMODCACHE (D:/work/gopath/pkg/mod/...), где нет каталога `go`.
 	file = file or ""
 	return file:match("/go/pkg/mod/")
 		or file:match("/opt/homebrew/Cellar/go/")
@@ -48,6 +52,7 @@ function M.is_go_lib(file)
 		or file:match("/usr/local/go/")
 		or file:match("/usr/lib/go")
 		or file:match("[\\/]go[\\/]pkg[\\/]mod[\\/]")
+		or file:match("[\\/]pkg[\\/]mod[\\/]")
 		or file:match("Program Files[\\/]Go[\\/]")
 end
 

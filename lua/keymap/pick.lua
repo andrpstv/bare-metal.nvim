@@ -875,26 +875,12 @@ _G._pick_lsp = function(scope, opts)
 		local req_buf = vim.api.nvim_get_current_buf()
 		local req_pos = vim.api.nvim_win_get_cursor(0)
 		local req_symbol = vim.fn.expand("<cword>")
-		-- Go external packages (go/pkg/mod, GOROOT): go straight to the text
-		-- search, do NOT queue behind gopls first.
-		--
-		-- Why: on these buffers gopls is usually mid-rebuild of the module index
-		-- (a save fires `source.organizeImports` at lua/core/go.lua:50, which is
-		-- what pulls the imported package in), and it answers "no package
-		-- metadata" anyway. So the old order - wait for gopls, and only then run
-		-- lib_grep_fallback from its callback - meant the user's gd sat in the
-		-- queue behind a multi-second package build before the rg search even
-		-- started. That is the "gd is slow on mongo.Client" report, and the
-		-- 5249 ms incident recorded in docs/distro.
-		--
-		-- rg over the package directory is both faster and correct here. If it
-		-- cannot start (no rg, not a lib buffer, a scan already in flight) we
-		-- return false and fall through to the normal gopls path unchanged.
-		if require("modules.utils").is_go_lib(vim.api.nvim_buf_get_name(req_buf)) then
-			if lib_grep_fallback(req_buf, req_symbol, scope) then
-				return
-			end
-		end
+		-- Go external packages (go/pkg/mod, GOROOT) идут ОБЫЧНЫМ LSP-путём
+		-- ниже: dependency-буферы аттачатся к consumer workspace
+		-- (servers/gopls.lua root_dir reuse), поэтому gopls отдаёт настоящие
+		-- definition/references, а не "no package metadata". Текстовый
+		-- rg-фолбэк остался — но только как fallback в колбэках ниже
+		-- (ошибка сервера / пустой результат), а не вместо LSP.
 		-- Новый gd = новое поколение. Прежний запрос в полёте вытесняется:
 		-- отменяем на проводе, после чего его поздний ответ (если сервер
 		-- проигнорирует cancel) отбросится проверкой поколения в колбэке.

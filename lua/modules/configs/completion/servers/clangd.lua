@@ -3,7 +3,7 @@ local function switch_source_header_splitcmd(bufnr, splitcmd)
 	local clangd_client = require("lspconfig").util.get_active_client_by_name(bufnr, "clangd")
 	local params = { uri = vim.uri_from_bufnr(bufnr) }
 	if clangd_client then
-		clangd_client.request("textDocument/switchSourceHeader", params, function(err, result)
+		clangd_client:request("textDocument/switchSourceHeader", params, function(err, result)
 			if err then
 				error(tostring(err))
 			end

@@ -41,6 +41,14 @@ local function load_options()
 		infercase = true,
 		jumpoptions = "stack,view",
 		laststatus = 3,
+		-- RU: хоткеи на русской раскладке. langmap транслирует РУ->EN для
+		-- builtin-команд normal/visual/operator-pending (hjkl, w, g+..., [/]...):
+		-- нажал "р" — сработало как "h". Формат групп {RU};{EN} через ",":
+		-- запятая и ";" внутри групп экранированы ("\\," "\\;").
+		-- Кастомные <leader>/<C-x> маппинги дублируются отдельно
+		-- (lua/keymap/ru.lua), т.к. nolangremap их не покрывает.
+		-- Insert-текст не трогает: русский ввод печатается как обычно.
+		langmap = [[ёйцукенгшщзхъфывапролджэячсмитьбю.;`qwertyuiop[]asdfghjkl\;'zxcvbnm\,./,ЁЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ\,;~QWERTYUIOP{}ASDFGHJKL:"ZXCVBNM<>?]],
 		list = true,
 		listchars = "tab:»·,nbsp:+,trail:·,extends:→,precedes:←",
 		magic = true,

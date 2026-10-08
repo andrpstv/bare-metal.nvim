@@ -222,6 +222,20 @@ local load_core = function()
 	vim.api.nvim_create_user_command("Tutor", function()
 		vim.cmd("edit " .. vim.fn.stdpath("config") .. "/tutor/intro.tutor")
 	end, { desc = "config: interactive hotkey tour (russian)" })
+	-- 0.12 поставляет СВОЙ :Tutor (runtime/plugin/tutor.vim грузится ПОСЛЕ
+	-- init.lua и затирает наш командой на стоковый vim-01-beginner.tutor).
+	-- Пересоздаём на VimEnter — позже встроенного, наш побеждает.
+	vim.api.nvim_create_autocmd("VimEnter", {
+		group = vim.api.nvim_create_augroup("TutorOverride", { clear = true }),
+		once = true,
+		desc = "core: re-claim :Tutor after builtin tutor.vim",
+		callback = function()
+			pcall(vim.api.nvim_del_user_command, "Tutor")
+			vim.api.nvim_create_user_command("Tutor", function()
+				vim.cmd("edit " .. vim.fn.stdpath("config") .. "/tutor/intro.tutor")
+			end, { desc = "config: interactive hotkey tour (russian)" })
+		end,
+	})
 	require("core.perf").setup()
 	-- Стартер-хинт: голый `nvim` без аргументов и без парсеров встречает
 	-- пустым буфером. Одна подсказка вместо мёртвой тишины; после установки

@@ -91,7 +91,7 @@ local function go_save_pipeline(bufnr)
 		organize_busy[bufnr] = true
 		local params = vim.lsp.util.make_range_params(0, enc)
 		params.context = { only = { "source.organizeImports" } }
-		client.request("textDocument/codeAction", params, function(err, result)
+		client:request("textDocument/codeAction", params, function(err, result)
 			if err then
 				organize_busy[bufnr] = nil
 				vim.notify(
@@ -105,9 +105,20 @@ local function go_save_pipeline(bufnr)
 				go_apply_code_actions(bufnr, { { result = result } }, enc)
 				vim.cmd("noautocmd silent! update")
 			end)
-			tick = vim.api.nvim_buf_get_changedtick(bufnr)
-			local fparams = vim.lsp.util.make_formatting_params()
-			client.request("textDocument/formatting", fparams, function(err2, result2)
+		tick = vim.api.nvim_buf_get_changedtick(bufnr)
+		-- Параметры format — от ЯВНОГО bufnr, а не current: этот колбэк
+		-- асинхронный, к моменту ответа фокус может быть где угодно
+		-- (напр. quickfix после project-replace) — и gopls получал чужой
+		-- URI ("read /: is a directory"). buf_call не трогает окна.
+		local fparams = nil
+		vim.api.nvim_buf_call(bufnr, function()
+			fparams = vim.lsp.util.make_formatting_params()
+		end)
+		if not fparams then
+			organize_busy[bufnr] = nil
+			return
+		end
+			client:request("textDocument/formatting", fparams, function(err2, result2)
 				if err2 then
 					vim.notify(
 						"[go] async format failed: " .. (err2.message or "?"),
@@ -139,8 +150,10 @@ end
 vim.api.nvim_create_autocmd("BufWritePost", {
 	group = vim.api.nvim_create_augroup("GoSave", { clear = true }),
 	pattern = "*.go",
-	callback = function()
-		go_save_pipeline(vim.api.nvim_get_current_buf())
+	callback = function(args)
+		-- args.buf, а не current: programmatic-write (project-replace)
+		-- идёт через buf_call/hidden-буферы, current там чужой.
+		go_save_pipeline(args.buf)
 	end,
 })
 

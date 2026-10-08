@@ -61,7 +61,7 @@ local _stl_modes = {
 	i = "INS", ic = "INS", ix = "INS",
 	R = "REP", Rc = "REP", Rx = "REP", Rv = "REP", Rvc = "REP", Rvx = "REP",
 	c = "CMD", cv = "CMD", r = "···", rm = "···", ["r?"] = "···", ["!"] = "···",
-	t = "TER",
+	t = "TER", nt = "TER",
 }
 -- Каомодзи-морда на режим. Ключи — точные значения mode(), фолбэк по первой
 -- букве там же, где выбирается цвет (ниже). Только литералы: на redraw ни
@@ -74,7 +74,7 @@ local _stl_faces = {
 	R = "ʕ ºᴥº ʔ", Rc = "ʕ ºᴥº ʔ", Rx = "ʕ ºᴥº ʔ", Rv = "ʕ ºᴥº ʔ", Rvc = "ʕ ºᴥº ʔ", Rvx = "ʕ ºᴥº ʔ",
 	c = "ʕ oᴥo ʔ", cv = "ʕ oᴥo ʔ",
 	r = "ʕ ?ᴥ? ʔ", rm = "ʕ ?ᴥ? ʔ", ["r?"] = "ʕ ?ᴥ? ʔ", ["!"] = "ʕ ?ᴥ? ʔ",
-	t = "ʕ >ᴥ< ʔ",
+	t = "ʕ >ᴥ< ʔ", nt = "ʕ >ᴥ< ʔ",
 }
 -- Свои группы в палитре khold (чёрный металл: серые + тёмно-красный + teal),
 -- жирным — бар «больше» визуально (высоту строки Neovim не меняет, поэтому
@@ -115,7 +115,7 @@ _stl_apply_hl()
 local _stl_mode_hl = {
 	n = "StlMN", i = "StlMI", v = "StlMV", V = "StlMV", ["\22"] = "StlMV",
 	s = "StlMS", S = "StlMS", ["\19"] = "StlMS",
-	R = "StlMR", r = "StlMR", c = "StlMC", t = "StlMT",
+	R = "StlMR", r = "StlMR", c = "StlMC", t = "StlMT", nt = "StlMT",
 }
 
 local _stl_size_cache = {}
@@ -271,8 +271,9 @@ _G._statusline = function()
 		local grp = _stl_mode_hl[m] or _stl_mode_hl[m1] or "StlMN"
 		local face = _stl_faces[m] or "ʕ ᵔᴥᵔ ʔ"
 		-- Правая сторона подсвечивается цветом режима, но НЕ в normal:
-		-- там тихо (StlMeta). Оператор-пендинг (no/nov/ni*) — тоже normal.
-		local is_norm = m1 == "n"
+		-- там тихо (StlMeta). Оператор-пендинг (no/nov/ni*) — тоже normal,
+		-- а terminal-normal (nt) — светится teal, как терминал.
+		local is_norm = m1 == "n" and m ~= "nt"
 		local rgrp = is_norm and "StlMeta" or grp
 		-- Пилюля: цветной чип-столбик + морда + код, всё в цвете режима.
 		-- Никаких фоновых блоков — бар чёрный, как любит black-metal.
