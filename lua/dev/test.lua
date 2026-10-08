@@ -33,29 +33,38 @@ local function pkg_dir()
 end
 
 --- Ближайший `func TestXxx` выше курсора (regex, без treesitter-зависимости).
----@return string? имя теста
+--- Второй return: true если это метод с ресивером (`func (s *S) TestX`)
+--- такие `go test -run` напрямую не запускает (нужен suite-runner).
+---@return string? имя, boolean? is_method
 function M.nearest_test()
 	return M._nearest_func("Test")
 end
 
 --- Ближайший `func BenchmarkXxx` выше курсора. Та же механика, что у тестов.
----@return string? имя бенчмарка
+---@return string? имя, boolean? is_method
 function M.nearest_bench()
 	return M._nearest_func("Benchmark")
 end
 
 ---@param prefix "Test"|"Benchmark"
----@return string?
+---@return string? имя, boolean? is_method
 function M._nearest_func(prefix)
 	local cur = vim.api.nvim_win_get_cursor(0)[1]
 	local lines = vim.api.nvim_buf_get_lines(0, 0, cur, false)
 	for i = #lines, 1, -1 do
-		local name = lines[i]:match("^%s*func%s+((" .. prefix .. ")%w*)%s*%(")
+		local line = lines[i]
+		-- Сначала форма с ресивером: `func (s *Suite) TestX(...)`.
+		-- %b() ест сбалансированные скобки (дженерик-ресиверы тоже).
+		local name = line:match("^%s*func%s*%b()%s*((" .. prefix .. ")%w*)%s*%(")
 		if name then
-			return name
+			return name, true
+		end
+		name = line:match("^%s*func%s*((" .. prefix .. ")%w*)%s*%(")
+		if name then
+			return name, false
 		end
 	end
-	return nil
+	return nil, false
 end
 
 --- Разбор `go test -json`: failures → qf items, counters → summary.
@@ -112,12 +121,25 @@ function M.run(scope, extra)
 	local argv = { "go", "test", "-json", "-count=1" }
 	local dir = pkg_dir()
 	if scope == "func" then
-		local t = M.nearest_test()
+		local t, is_method = M.nearest_test()
 		if not t then
 			vim.notify("[test] no Test func above cursor (try <leader>ta for package)", vim.log.levels.WARN, { title = "test" })
 			return
 		end
-		vim.list_extend(argv, { "-run", "^" .. t .. "$", "." })
+		if t == "TestMain" then
+			-- TestMain(m) запускает весь пакет через m.Run(): -run на него
+			-- ничего не сматчит. Пакетный прогон — честная интерпретация.
+			vim.notify("[test] TestMain runs the whole package — running package instead", vim.log.levels.INFO, { title = "test" })
+			argv[#argv + 1] = "."
+		elseif is_method then
+			-- Suite-метод (`func (s *S) TestX`): go test -run его напрямую
+			-- не видит (нужен suite-Runner), молчаливый "pass" был бы враньём.
+			-- Пакетный прогон с явным объяснением вместо тихого не-того-теста.
+			vim.notify("[test] " .. t .. " is a suite method — no direct -run support, running package instead", vim.log.levels.INFO, { title = "test" })
+			argv[#argv + 1] = "."
+		else
+			vim.list_extend(argv, { "-run", "^" .. t .. "$", "." })
+		end
 	elseif scope == "pkg" then
 		argv[#argv + 1] = "."
 	elseif scope == "all" then
@@ -169,14 +191,19 @@ function M.bench()
 		vim.notify("[test] Go buffers only", vim.log.levels.WARN, { title = "test" })
 		return
 	end
-	local name = M.nearest_bench()
+	local name, is_bmethod = M.nearest_bench()
 	local argv = { "go", "test", "-json", "-count=1", "-run=^$" }
-	if name then
+	local btitle = "bench:pkg"
+	if name and not is_bmethod then
 		vim.list_extend(argv, { "-bench=^" .. name .. "$", "." })
+		btitle = "bench:" .. name
 	else
+		if name then
+			vim.notify("[test] " .. name .. " is a suite method — running package benchmarks instead", vim.log.levels.INFO, { title = "test" })
+		end
 		vim.list_extend(argv, { "-bench=.", "." })
 	end
-	M._execute(argv, pkg_dir(), name and ("bench:" .. name) or "bench:pkg", "bench")
+	M._execute(argv, pkg_dir(), btitle, "bench")
 end
 
 --- Benchmark конкретных имён (для codelens-адаптера).
@@ -230,17 +257,26 @@ function M._execute(argv, dir, title, mode)
 				msg = msg .. " (cached lines in output)"
 			end
 			if mode == "bench" then
-				-- Строки бенчмарка живут внутри JSON Output-событий
-				-- ("...\"Output\":\"BenchmarkAdd-10 ... ns/op\\n\"..."),
-				-- поэтому ищем подстроку, а не начало строки.
-				local lines = {}
+				-- go test -json режет длинные строки на куски: имя бенчмарка
+				-- ("BenchmarkFoo-4 \t") и результат ("... ns/op") часто лежат
+				-- в РАЗНЫХ Output-событиях (проверено живьём). Поэтому сначала
+				-- склеиваем весь Output-поток в один blob и ищем в нём —
+				-- построчный поиск молча ничего не находит.
+				local parts = {}
 				for _, l in ipairs(M.last_output) do
-					-- Останавливаемся только на кавычке: внутри JSON есть
-					-- экранированные \t (бэкслэш — не стоп-символ).
-					local b = l:match("(Benchmark[^\"]-ns/op)")
-					if b and #lines < 8 then
-						lines[#lines + 1] = (vim.trim(b:gsub("\\t", " ")))
+					local okj, ev = pcall(vim.json.decode, l)
+					if okj and type(ev) == "table" and ev.Action == "output" and type(ev.Output) == "string" then
+						parts[#parts + 1] = ev.Output
+					elseif not okj then
+						parts[#parts + 1] = l -- не-JSON строка (go warnings и т.п.)
 					end
+				end
+				local lines = {}
+				for b in table.concat(parts):gmatch("Benchmark[^\n]-ns/op") do
+					if #lines >= 8 then
+						break
+					end
+					lines[#lines + 1] = vim.trim((b:gsub("%s+", " ")))
 				end
 				if #lines > 0 then
 					msg = table.concat(lines, " | ") .. " — full output: :TestOutput"

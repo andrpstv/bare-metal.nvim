@@ -35,31 +35,157 @@ function M.ensure()
 		)
 	end
 	-- Delve DAP напрямую, без nvim-dap-go: меньше версий — меньше дрейфа.
+	-- Windows-закалка (по тикету: висело с консолью "_debug_bin.exe"):
+	--   1. dlv резолвим в абсолютный путь (exepath находит .exe, пробелы
+	--      в пути больше не вопрос shell-квотинга — spawn без shell);
+	--   2. свободный порт вместо фиксированного (коллизии/файрвол-профили);
+	--   3. пайпы ОБЯЗАТЕЛЬНО читаем: нечитаемый stderr переполняется и
+	--      delve встаёт насмерть — это и было зависание;
+	--   4. hide=true на Windows: без него консольному dlv винда рисует
+	--      отдельное окно (DETACHED_PROCESS консоли не прячет);
+	--   5. ждём listen вместо sleep(100): на медленной VM delve поднимается
+	--      дольше; колбэк отдаём только когда порт реально слушает, иначе
+	--      nvim-dap пишет "adapter didn't respond";
+	--   6. stderr копим (срез) и показываем хвост при неудаче — вместо тишины.
 	dap.adapters.go = function(callback)
-		local stdout = vim.uv.new_pipe(false)
-		local stderr = vim.uv.new_pipe(false)
-		local handle
-		local port = 38697
-		handle = vim.uv.spawn("dlv", {
-			stdio = { nil, stdout, stderr },
-			args = { "dap", "-l", "127.0.0.1:" .. port },
-			detached = true,
-		}, function(code)
+		local dlv = vim.fn.exepath("dlv")
+		if dlv == "" then
+			vim.schedule(function()
+				vim.notify("[debug] 'dlv' not found in PATH — run :DistroBinaries to install delve", vim.log.levels.ERROR, { title = "debug" })
+			end)
+			return
+		end
+    -- Свободный порт отдаёт сам delve: `-l 127.0.0.1:0`, ОС выбирает порт,
+    -- delve печатает `DAP server listening at: 127.0.0.1:PORT`. Парсим эту
+    -- строку из stdout вместо пробных TCP-соединений: голый connect без
+    -- handshake delve трактует как обрыв и может завершаться, а парсинг
+    -- ничего лишнего не трогает.
+    local stdout = vim.uv.new_pipe(false)
+    local stderr = vim.uv.new_pipe(false)
+    local errlog = {}
+    local finished = false
+    local outbuf = ""
+    local function finish(ok, port)
+      if finished then
+        return
+      end
+      finished = true
+      if ok and port then
+        -- Колбэк — только из главного цикла: read-колбэки libuv —
+        -- fast event, а nvim-dap внутри attach тянет
+        -- require("dap.session") → logger → mkdir, что в fast event
+        -- запрещено (E5560).
+        vim.schedule(function()
+          callback({ type = "server", host = "127.0.0.1", port = port })
+        end)
+      else
+        local tail = table.concat(errlog):sub(-500)
+        pcall(function()
+          if handle then
+            handle:kill("sigterm")
+          end
+        end)
+        vim.schedule(function()
+          vim.notify(
+            "[debug] dlv did not start listening within 20s"
+              .. (tail ~= "" and (" — dlv output: " .. tail:gsub("%s+", " ")) or " — check firewall/antivirus for localhost listeners and that `dlv dap` works manually"),
+            vim.log.levels.ERROR,
+            { title = "debug" }
+          )
+        end)
+      end
+    end
+    local started = vim.uv.hrtime()
+    local function drain(pipe)
+      pcall(vim.uv.read_start, pipe, function(err, data)
+        if finished then
+          return
+        end
+        if data then
+          -- Срез: delve болтлив (сборка тестов), память не растим.
+          errlog[#errlog + 1] = data:sub(-4000)
+          if #errlog > 8 then
+            table.remove(errlog, 1)
+          end
+          -- Слушаем оба пайпа: delve пишет listening-строку то в stdout,
+          -- то в stderr в зависимости от версии/платформы.
+          outbuf = (outbuf .. data):sub(-2000)
+          local port = outbuf:match("DAP server listening at:%s*127%.0%.0%.1:(%d+)")
+          if port then
+            finish(true, tonumber(port))
+            return
+          end
+          if (vim.uv.hrtime() - started) / 1e6 > 20000 then
+            finish(false)
+          end
+        elseif err then
+          pcall(vim.uv.read_stop, pipe)
+        end
+      end)
+    end
+    local is_win = vim.uv.os_uname().sysname == "Windows_NT"
+    local handle, pid_or_err = vim.uv.spawn(dlv, {
+      stdio = { nil, stdout, stderr },
+      args = { "dap", "-l", "127.0.0.1:0" },
+      detached = true,
+      hide = is_win or nil, -- CREATE_NO_WINDOW: без консольного окна
+    }, function(code)
+			pcall(vim.uv.read_stop, stdout)
+			pcall(vim.uv.read_stop, stderr)
+			pcall(stdout.close, stdout)
+			pcall(stderr.close, stderr)
 			if handle then
-				stdout:close()
-				stderr:close()
-				handle:close()
+				pcall(handle.close, handle)
+				handle = nil
 			end
 			if code ~= 0 then
+				local tail = table.concat(errlog):sub(-500)
 				vim.schedule(function()
-					vim.notify("[debug] dlv exited with code " .. code, vim.log.levels.ERROR, { title = "debug" })
+					vim.notify(
+						"[debug] dlv exited with code " .. code .. (tail ~= "" and (": " .. tail:gsub("%s+", " ")) or ""),
+						vim.log.levels.ERROR,
+						{ title = "debug" }
+					)
 				end)
 			end
 		end)
-		vim.defer_fn(function()
-			callback({ type = "server", host = "127.0.0.1", port = port })
-		end, 100)
-	end
+    if not handle then
+      vim.schedule(function()
+        vim.notify("[debug] cannot start dlv: " .. tostring(pid_or_err), vim.log.levels.ERROR, { title = "debug" })
+      end)
+      return
+    end
+    -- read_start СТРОГО после spawn: чтение, начатое до спавна, libuv
+    -- молча инвалидирует при dup пайпов в потомка — данные не приходят
+    -- вообще (проверено: до — тишина, после — 41 байт listening-строки).
+    drain(stdout)
+    drain(stderr)
+    -- Сторож от orphan-dlv: если launch упал, nvim-dap сессию не создаёт,
+    -- а адаптерный dlv остаётся слушать навсегда (видели живой процесс
+    -- после "Failed to launch"). Через 90с проверяем: хендл жив, а сессии
+    -- нет — значит этот запуск ни во что не превратился, гасим.
+    -- Ложное срабатывание (сборка дольше 90с) лечится повторным запуском.
+    -- Edge: успешный повторный запуск маскирует старый stray (сессия есть) —
+    -- остаток в худшем случае один процесс на цепочку fail→retry, чинится
+    -- повторным dx/выходом; тихое накопление исключено.
+    local my_handle = handle
+    vim.defer_fn(function()
+      local ok_s, dapmod = pcall(require, "dap")
+      if ok_s and dapmod.session() ~= nil then
+        return -- живая сессия: руки прочь
+      end
+      if not my_handle then
+        return
+      end
+      local ok_c, closing = pcall(my_handle.is_closing, my_handle)
+      if not ok_c or closing then
+        return -- уже мёртв/закрыт
+      end
+      if pcall(my_handle.kill, my_handle, "sigterm") then
+        vim.notify("[debug] killed stale dlv without session — safe to retry", vim.log.levels.WARN, { title = "debug" })
+      end
+    end, 90000)
+  end
 	dap.configurations.go = {
 		{
 			type = "go",
@@ -96,6 +222,38 @@ function M.ensure()
 	end
 	dap.listeners.after.event_terminated["dev_float_cleanup"] = close_dap_floats
 	dap.listeners.after.event_exited["dev_float_cleanup"] = close_dap_floats
+	-- Canonicalize program paths (symlinked checkouts!): delve сравнивает
+	-- program-dir с корнем модуля, и symlink-форма (/var → /private/var
+	-- на macOS, /tmp, джанкшены) роняет сборку с криптичным
+	-- "Failed to launch ... outside main module". Хук независим от порядка
+	-- относительно встроенного expand_variable: если мы первые — раскрываем
+	-- ${} сами сразу в canonical-форму, встроенному раскрывать нечего;
+	-- если встроенный первый — добиваем canonicalize по готовому пути.
+	-- Работает и для inline-конфигов dt (там program уже конкретный).
+	dap.listeners.on_config["dev_realpath_program"] = function(config)
+		if type(config.program) == "string" then
+			local v = config.program
+			v = v:gsub("%${fileDirname}", function()
+				local d = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":p:h")
+				local ok_r, rp = pcall(vim.uv.fs_realpath, d)
+				return (ok_r and rp) or d
+			end)
+			v = v:gsub("%${file}", function()
+				local f = vim.api.nvim_buf_get_name(0)
+				local ok_r, rp = pcall(vim.uv.fs_realpath, f)
+				return (ok_r and rp) or f
+			end)
+			if not v:match("%${") and vim.uv.fs_stat(v) then
+				local ok_r, rp = pcall(vim.uv.fs_realpath, v)
+				if ok_r and rp then
+					config.program = rp
+				end
+			else
+				config.program = v
+			end
+		end
+		return config
+	end
 	ensured = true
 	return true, dap
 end
@@ -196,19 +354,29 @@ function M.setup_keymaps()
 	end, "debug: Stack frames")
 	dapmap("<leader>dt", function(dap)
 		-- Debug nearest test: та же точка входа, что dev.test.nearest_test.
+		-- Fallback-семантика — как у gt: TestMain/suite-метод напрямую
+		-- не дебажатся, вместо молчаливого "ничего не матчится" — пакет
+		-- с явным объяснением.
 		local ok_t, tst = pcall(require, "dev.test")
-		local name = ok_t and tst.nearest_test() or nil
+		local name, is_method = ok_t and tst.nearest_test() or nil
 		if not name then
 			vim.notify("[debug] no Test func above cursor", vim.log.levels.WARN, { title = "debug" })
 			return
 		end
+		local args = { "-test.run", "^" .. name .. "$" }
+		local label = name
+		if name == "TestMain" or is_method then
+			args = {}
+			label = label .. " (whole package)"
+			vim.notify("[debug] " .. name .. " can't run alone — debugging whole package instead", vim.log.levels.INFO, { title = "debug" })
+		end
 		dap.run({
 			type = "go",
-			name = "Debug " .. name,
+			name = "Debug " .. label,
 			request = "launch",
 			mode = "test",
 			program = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":p:h"),
-			args = { "-test.run", "^" .. name .. "$" },
+			args = args,
 		})
 	end, "debug: Debug test under cursor")
 end
