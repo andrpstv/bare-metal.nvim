@@ -22,7 +22,12 @@ map("n", "<leader>rb", ":silent! GoBuild<CR>", { noremap = true, silent = true, 
 map("n", "<leader>gf", ":GoAlt<CR>", { noremap = true, silent = true, desc = "go: Alternate file" })
 map("n", "<leader>ga", ":GoAddTag<CR>", { noremap = true, silent = true, desc = "go: Add struct tag" })
 map("n", "<leader>gx", ":GoRmTag<CR>", { noremap = true, silent = true, desc = "go: Remove struct tag" })
-map("n", "<leader>gm", ":GoModTidy<CR>", { noremap = true, silent = true, desc = "go: Mod tidy" })
+map("n", "<leader>gm", function()
+	-- NOT :GoModTidy: go.nvim sends the current .go buffer URI to
+	-- gopls.tidy (expects go.mod URIs, 2s timeout) and silently no-ops
+	-- on real modules. Real `go mod tidy` with feedback instead.
+	require("dev.gomod").tidy()
+end, { noremap = true, silent = true, desc = "go: Mod tidy" })
 map("n", "<leader>fs", ":GoFillStruct<CR>", { noremap = true, silent = true, desc = "go: Fill struct" })
 -- GoIfErr на `ie` (if err), а НЕ на `e*`: любой <leader>eX
 -- заставляет bare <leader>e ждать timeoutlen. Так тоггл мгновенный.

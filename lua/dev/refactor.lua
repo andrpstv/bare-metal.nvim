@@ -56,13 +56,33 @@ local function shift_selection(dir)
 	local bufnr = vim.api.nvim_get_current_buf()
 	vim.b[bufnr].dev_sel_stack = vim.b[bufnr].dev_sel_stack or {}
 	local stack = vim.b[bufnr].dev_sel_stack
+	-- Визуально выделить диапазон {start_line(0-based), start_char, end_line, end_char}.
+	-- NOTE: vim.b[bufnr].key возвращает КОПИЮ таблицы при каждом чтении —
+	-- мутации локала теряются, поэтому после push/pop пишем стек обратно.
+	local function apply(r)
+		stack[#stack + 1] = { r.start.line, r.start.character, r["end"].line, r["end"].character }
+		vim.b[bufnr].dev_sel_stack = stack
+		-- Курсор в начало, v + в конец.
+		pcall(vim.api.nvim_win_set_cursor, 0, { r.start.line + 1, r.start.character })
+		vim.cmd("normal! v")
+		pcall(vim.api.nvim_win_set_cursor, 0, { r["end"].line + 1, math.max(0, r["end"].character - 1) })
+	end
 	if dir < 0 then
-		local prev = table.remove(stack)
-		if not prev then
+		local cur = table.remove(stack)
+		vim.b[bufnr].dev_sel_stack = stack
+		if not cur then
 			vim.notify("[lsp] nothing to shrink", vim.log.levels.INFO, { title = "lsp" })
 			return
 		end
+		local prev = stack[#stack]
+		if not prev then
+			pcall(vim.api.nvim_win_set_cursor, 0, { cur[1] + 1, cur[2] })
+			return
+		end
+		-- Перевыделить предыдущий уровень.
 		pcall(vim.api.nvim_win_set_cursor, 0, { prev[1] + 1, prev[2] })
+		vim.cmd("normal! v")
+		pcall(vim.api.nvim_win_set_cursor, 0, { prev[3] + 1, math.max(0, prev[4] - 1) })
 		return
 	end
 	local params
@@ -78,26 +98,42 @@ local function shift_selection(dir)
 			vim.notify("[lsp] no selection range here", vim.log.levels.INFO, { title = "lsp" })
 			return
 		end
-		local r = result[1].range
-		-- Цепочка parent: идём к корню, пока диапазон растёт.
-		local node, parent = result[1], result[1].parent
-		while parent and parent.range do
-			local pr = parent.range
-			if (pr.start.line < r.start.line or pr["end"].line > r["end"].line) or (pr.start.line == r.start.line and pr["end"].line == r["end"].line and (pr.start.character < r.start.character or pr["end"].character > r["end"].character)) then
-				node = parent
-				r = pr
-			end
-			parent = parent.parent
-			if not parent then
-				break
+		-- Цепочка parent идёт от innermost к outermost. Первый expand
+		-- берёт innermost (result[1]), следующие — первый диапазон,
+		-- СТРОГО содержащий текущий (иначе один ve сразу выделял весь файл).
+		local function strictly_contains(outer, inner)
+			local os, oe = outer.start, outer["end"]
+			local is_, ie = inner.start, inner["end"]
+			local starts_before = os.line < is_.line or (os.line == is_.line and os.character < is_.character)
+			local ends_after = oe.line > ie.line or (oe.line == ie.line and oe.character > ie.character)
+			return starts_before or ends_after
+		end
+		local cur = nil
+		if #stack > 0 then
+			local top = stack[#stack]
+			cur = {
+				start = { line = top[1], character = top[2] },
+				["end"] = { line = top[3], character = top[4] },
+			}
+		end
+		local node = result[1]
+		local target = nil
+		if not cur then
+			target = node.range
+		else
+			while node do
+				if node.range and strictly_contains(node.range, cur) then
+					target = node.range
+					break
+				end
+				node = node.parent
 			end
 		end
-		stack[#stack + 1] = { r.start.line, r.start.character }
-		-- Выделяем диапазон визуально: курсор в начало, v + o в конец.
-		pcall(vim.api.nvim_win_set_cursor, 0, { r.start.line + 1, r.start.character })
-		vim.cmd("normal! v")
-		pcall(vim.api.nvim_win_set_cursor, 0, { r["end"].line + 1, math.max(0, r["end"].character - 1) })
-		_ = node
+		if not target then
+			vim.notify("[lsp] already at outermost", vim.log.levels.INFO, { title = "lsp" })
+			return
+		end
+		apply(target)
 	end)
 end
 
