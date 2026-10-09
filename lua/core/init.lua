@@ -172,6 +172,10 @@ local load_core = function()
 	require("core.event")
 	require("core.distro").setup()
 	require("keymap")
+	-- Нативный vim.ui.select/input-провайдер (core.select): ноль плагинов,
+	-- ноль окон до первого использования. До него все select/input падали
+	-- в консольный inputlist (в т.ч. DAP-меню и выбор тредов).
+	require("core.select").setup()
 	-- pairs СТРОГО после keymap: <C-h> и <BS> делят поведение стирания,
 	-- наш хендлер должен побеждать `i|<C-h> -> <Left>` из keymap/editor.lua.
 	-- Так же было со старым autoclose: он грузился по InsertEnter, т.е. позже всех.

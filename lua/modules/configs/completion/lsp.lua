@@ -93,15 +93,22 @@ return function()
 	}
 
 	-- Серверы из settings.lsp_deps. Бинарник должен быть в $PATH
-	-- (go install / brew), иначе сервер молча пропускается.
+	-- (go install / brew), иначе сервер пропускается. Optional-серверы
+	-- (bash/lua — см. settings.lsp_optional) помечаем явно: это штатно,
+	-- а не поломка; подсказка — откуда ставить (:DistroBinaries, consent).
 	local binaries = { lua_ls = "lua-language-server", bashls = "bash-language-server" }
+	local optional = require("core.settings").lsp_optional or {}
 	for _, name in ipairs(require("core.settings").lsp_deps) do
 		if vim.fn.executable(binaries[name] or name) ~= 1 then
-			vim.notify(
-				string.format("[lsp] binary for [%s] not found in $PATH, skipping", name),
-				vim.log.levels.WARN,
-				{ title = "lsp" }
-			)
+			local msg = string.format("[lsp] binary for [%s] not found in $PATH, skipping", name)
+			if optional[name] then
+				local hint = nil
+				pcall(function()
+					hint = require("distro.tools").hint_for(binaries[name] or name)
+				end)
+				msg = msg .. " (optional" .. (hint and (" — " .. hint) or "") .. ")"
+			end
+			vim.notify(msg, vim.log.levels.WARN, { title = "lsp" })
 		else
 			local ok, preset = pcall(require, "completion.servers." .. name)
 			if ok and type(preset) == "table" then

@@ -14,6 +14,17 @@ local HINTS = {
 	},
 	make = { mac = "xcode-select --install (or: brew install make)", win = "w64devkit includes make — see :DistroTools", linux = "sudo apt install make" },
 	go = { mac = "brew install go", win = "winget install GoLang.Go", linux = "sudo apt install golang" },
+	["bash-language-server"] = {
+		mac = "npm i -g bash-language-server (or: :DistroBinaries)",
+		win = "npm i -g bash-language-server (or: :DistroBinaries)",
+		linux = "npm i -g bash-language-server (or: :DistroBinaries)",
+	},
+	["lua-language-server"] = {
+		mac = ":DistroBinaries (release archive, explicit confirm)",
+		win = ":DistroBinaries (release archive, explicit confirm)",
+		linux = ":DistroBinaries (release archive, explicit confirm)",
+	},
+	gopls = { mac = "go install golang.org/x/tools/gopls@latest", win = "go install golang.org/x/tools/gopls@latest", linux = "go install golang.org/x/tools/gopls@latest" },
 }
 
 function M.check_all()
@@ -39,6 +50,23 @@ end
 
 function M.hint(name)
 	return HINTS[name]
+end
+
+--- Install hint string for the current OS (nil when unknown).
+---@param name string check-binary name (e.g. "bash-language-server")
+---@return string?
+function M.hint_for(name)
+	local h = HINTS[name]
+	if type(h) ~= "table" then
+		return nil
+	end
+	local sys = vim.uv.os_uname().sysname
+	if sys == "Windows_NT" then
+		return h.win
+	elseif sys == "Darwin" then
+		return h.mac
+	end
+	return h.linux
 end
 
 --- Install a tool via sanctioned curl archive into tools/<name>/ (config-local).

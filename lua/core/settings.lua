@@ -169,6 +169,15 @@ settings["lsp_deps"] = {
 	"gopls",
 }
 
+-- Optional LSPs: Go — основной workflow, остальное включается по желанию.
+-- Отсутствующий optional-сервер пропускается тихо-тихим варнингом с
+-- подсказкой (без ломки стартапа); gopls отдельно нудит через :DistroSetup.
+---@type table<string, boolean>
+settings["lsp_optional"] = {
+	bashls = true,
+	lua_ls = true,
+}
+
 -- gopls: debounce text changes (ms). 150 default; 250+ on weak PCs / huge repos.
 ---@type number
 settings["gopls_debounce"] = 150

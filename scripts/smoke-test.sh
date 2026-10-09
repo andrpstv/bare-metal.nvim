@@ -199,11 +199,10 @@ else
 fi
 
 # --------------------------------- check 3c: Lua regression scripts --------
-# Headless unit regressions (no user config, no network): Go test/bench
-# name detection incl. underscores, and go-mod-tidy error paths.
-section "3c. Lua regression scripts"
+# Headless unit regressions (no user config, no network).
+section "3c. Lua regression scripts (pure unit)"
 REGRESS_FAIL=""
-for regress in regress-test-names regress-gomod regress-pkg regress-format regress-y regress-dbgui; do
+for regress in regress-test-names regress-gomod regress-pkg regress-format regress-y regress-dbgui regress-select regress-dbg-cycle regress-dbg-running regress-lsp; do
 	REGRESS_OUT="$(nvim --headless --noplugin -u NONE \
 		--cmd "set rtp+=$REPO_ROOT" -l "scripts/$regress.lua" 2>&1 | tr -d '\r' || true)"
 	if printf '%s\n' "$REGRESS_OUT" | grep -q '^FAIL'; then
@@ -211,9 +210,24 @@ for regress in regress-test-names regress-gomod regress-pkg regress-format regre
 	fi
 done
 if [ -z "$REGRESS_FAIL" ]; then
-	record PASS "regression scripts pass (test-names, gomod, pkg, format, y, dbgui)"
+	record PASS "unit regression scripts pass (10 suites)"
 else
-	record FAIL "regression scripts pass (test-names, gomod, pkg, format, y, dbgui)" "$REGRESS_FAIL"
+	record FAIL "unit regression scripts pass (10 suites)" "$REGRESS_FAIL"
+fi
+
+# --------------------------- check 3d: config-needing regression scripts --
+# These run WITH the full config headless (mappings, plugins, git).
+section "3d. config regression scripts (keymaps, git)"
+for regress in regress-keymaps regress-gitmaps regress-gitui; do
+	REGRESS_OUT="$(nvim --headless -c "luafile scripts/$regress.lua" -c 'qa!' 2>&1 | tr -d '\r' || true)"
+	if printf '%s\n' "$REGRESS_OUT" | grep -q '^FAIL'; then
+		REGRESS_FAIL="$REGRESS_FAIL $regress:$(printf '%s' "$REGRESS_OUT" | grep '^FAIL' | tr '\n' ';')"
+	fi
+done
+if [ -z "$REGRESS_FAIL" ]; then
+	record PASS "config regression scripts pass (keymaps, gitmaps, gitui)"
+else
+	record FAIL "config regression scripts pass (keymaps, gitmaps, gitui)" "$REGRESS_FAIL"
 fi
 
 # =============================================================== check 4 =====

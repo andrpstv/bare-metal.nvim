@@ -331,6 +331,9 @@ function M.ensure()
 	end
 	dap.listeners.after.event_terminated["dev_float_cleanup"] = close_dap_floats
 	dap.listeners.after.event_exited["dev_float_cleanup"] = close_dap_floats
+	dap.listeners.after.event_exited["dev_exit_feedback"] = function(session, body)
+		M._on_exited(session, body)
+	end
 	-- Owned-dlv cleanup on session end: `dlv dap` в server-режиме после
 	-- disconnect сам не всегда завершается — без этого каждый stop
 	-- оставлял бы слушающий процесс до 90с-сторожа (и плодил бы их при
@@ -423,6 +426,53 @@ local function need_session(dap)
 	return false
 end
 
+--- Continue с предсказуемой семантикой по состоянию сессии.
+--- Голый dap.continue() на RUNNING-сессии (не stopped) падает в generic
+--- vim.ui.select-меню из 7 пунктов ("Session active, but not stopped…") —
+--- выглядит как вис и не является continue. Поэтому:
+---   нет сессии → запуск (селектор конфигурации — штатно);
+---   stopped → resume;
+---   initializing → ждём, короткий хинт;
+---   running → НЕ меню, а хинт (pause discoverable, stop явный).
+---@param dap any
+function M.smart_continue(dap)
+	local s = dap.session()
+	if not s then
+		dap.continue()
+		return
+	end
+	if s.stopped_thread_id then
+		dap.continue()
+		return
+	end
+	if not s.initialized then
+		vim.notify("[debug] session still starting — wait for the breakpoint", vim.log.levels.INFO, { title = "debug" })
+		return
+	end
+	vim.notify("[debug] already running — <leader>dp to pause, <leader>dx to stop", vim.log.levels.INFO, { title = "debug" })
+end
+
+-- Отмеченные завершённые сессии (защита от дублей terminated+exited).
+M._exit_notified = M._exit_notified or {}
+
+--- Фидбэк нормального завершения программы: один INFO на сессию и только
+--- при exitCode 0. Ошибки сборки/запуска/ненулевые коды уже отчитываются
+--- своими путями — дублировать их успехом нельзя.
+---@param session any
+---@param body any
+function M._on_exited(session, body)
+	local code = body and body.exitCode
+	if code ~= 0 then
+		return
+	end
+	local id = session and session.id or "?"
+	if M._exit_notified[id] then
+		return
+	end
+	M._exit_notified[id] = true
+	vim.notify("[debug] program exited (code 0)", vim.log.levels.INFO, { title = "debug" })
+end
+
 function M.setup_keymaps()
 	local map = vim.keymap.set
 	local function dapmap(lhs, method_or_fn, desc)
@@ -445,7 +495,9 @@ function M.setup_keymaps()
 			end
 		end)
 	end, "debug: Conditional breakpoint")
-	dapmap("<leader>dc", "continue", "debug: Continue / start")
+	dapmap("<leader>dc", function(dap)
+		M.smart_continue(dap)
+	end, "debug: Continue / start")
 	dapmap("<leader>dn", "step_over", "debug: Step over (next)")
 	dapmap("<leader>di", "step_into", "debug: Step into")
 	dapmap("<leader>do", "step_out", "debug: Step out")
