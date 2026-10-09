@@ -8,6 +8,20 @@ local function has(cmd)
     return vim.fn.executable(cmd) == 1
 end
 
+-- Redact credentials embedded in proxy URLs (GOPROXY userinfo/token)
+-- before printing them to :checkhealth output. Primary: distro.mirror
+-- redact; fallback: local userinfo scrub (same as distro.diag).
+local function redact_proxy(s)
+    local ok, mirror = pcall(require, "distro.mirror")
+    if ok and mirror and mirror.redact then
+        local ok2, out = pcall(mirror.redact, tostring(s or ""))
+        if ok2 and type(out) == "string" then
+            return out
+        end
+    end
+    return tostring(s or ""):gsub("://[^@]*@", "://***@")
+end
+
 local function add(level, msg)
     if level == "error" then
         table.insert(results.errors, msg)
@@ -121,10 +135,11 @@ local function check_go_env()
         vim.health.ok("version: " .. goversion)
     end
 
-    -- GOPROXY (important for China/behind firewall)
+    -- GOPROXY (important for China/behind firewall).
+    -- Never print raw: corp proxies embed user:TOKEN@host userinfo.
     local goproxy = sys({ "go", "env", "GOPROXY" }):match("^%S+")
     if goproxy and goproxy ~= "https://proxy.golang.org,direct" then
-        vim.health.info("GOPROXY: " .. goproxy)
+        vim.health.info("GOPROXY: " .. redact_proxy(goproxy))
     end
 end
 

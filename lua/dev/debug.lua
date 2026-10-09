@@ -11,6 +11,53 @@ local M = {}
 
 local ensured = false
 
+-- Owned delve server handles, spawned by our adapter only (never matched
+-- by executable name: taskkill /IM dlv.exe could hit another project or
+-- another Neovim instance). Entries removed when the process exits.
+M._dlv_handles = M._dlv_handles or {}
+
+local function track_dlv(handle)
+	if handle then
+		M._dlv_handles[#M._dlv_handles + 1] = handle
+	end
+end
+
+local function untrack_dlv(handle)
+	for i, h in ipairs(M._dlv_handles) do
+		if h == handle then
+			table.remove(M._dlv_handles, i)
+			return
+		end
+	end
+end
+
+--- Kill owned live delve processes. Only handles WE spawned are touched.
+---@param why string notify context (empty = silent)
+local function kill_owned_dlv(why)
+	for _, h in ipairs(M._dlv_handles) do
+		local ok_c, closing = pcall(h.is_closing, h)
+		if ok_c and not closing then
+			if pcall(h.kill, h, "sigterm") and why ~= "" then
+				vim.notify("[debug] stopped owned dlv (" .. why .. ")", vim.log.levels.INFO, { title = "debug" })
+			end
+		end
+	end
+end
+
+-- Redact credentials embedded in proxy URLs before dlv/go output reaches
+-- notify: test-binary compilation errors can echo the (corp, credentialed)
+-- GOPROXY URL. Same helper shape as distro.diag / core.health.
+local function redact_proxy(s)
+	local ok, mirror = pcall(require, "distro.mirror")
+	if ok and mirror and mirror.redact then
+		local ok2, out = pcall(mirror.redact, tostring(s or ""))
+		if ok2 and type(out) == "string" then
+			return out
+		end
+	end
+	return tostring(s or ""):gsub("://[^@]*@", "://***@")
+end
+
 --- Загрузить dap + delve-адаптер + конфигурации. Идемпотентно.
 ---@return boolean ok, any dap_or_err
 function M.ensure()
@@ -75,14 +122,21 @@ function M.ensure()
         -- fast event, а nvim-dap внутри attach тянет
         -- require("dap.session") → logger → mkdir, что в fast event
         -- запрещено (E5560).
+        -- initialize_timeout_sec: delve собирает тестовый бинарь ДО ответа
+        -- на initialize; дефолт nvim-dap (4с) даёт ложный "adapter didn't
+        -- respond" на холодную сборку. 20с покрывает реалистичную сборку,
+        -- но не маскирует мёртвый адаптер: до initialize дело доходит
+        -- только после реального listen (см. выше), а провал listen и
+        -- код выхода отчитываются отдельно.
         vim.schedule(function()
-          callback({ type = "server", host = "127.0.0.1", port = port })
+          callback({ type = "server", host = "127.0.0.1", port = port, options = { initialize_timeout_sec = 20 } })
         end)
       else
-        local tail = table.concat(errlog):sub(-500)
+        local tail = redact_proxy(table.concat(errlog):sub(-500))
         pcall(function()
           if handle then
             handle:kill("sigterm")
+            untrack_dlv(handle)
           end
         end)
         vim.schedule(function()
@@ -130,36 +184,55 @@ function M.ensure()
       detached = true,
       hide = is_win or nil, -- CREATE_NO_WINDOW: без консольного окна
     }, function(code)
-			pcall(vim.uv.read_stop, stdout)
-			pcall(vim.uv.read_stop, stderr)
-			pcall(stdout.close, stdout)
-			pcall(stderr.close, stderr)
-			if handle then
-				pcall(handle.close, handle)
-				handle = nil
-			end
-			if code ~= 0 then
-				local tail = table.concat(errlog):sub(-500)
-				vim.schedule(function()
-					vim.notify(
-						"[debug] dlv exited with code " .. code .. (tail ~= "" and (": " .. tail:gsub("%s+", " ")) or ""),
-						vim.log.levels.ERROR,
-						{ title = "debug" }
-					)
-				end)
-			end
-		end)
+		pcall(vim.uv.read_stop, stdout)
+		pcall(vim.uv.read_stop, stderr)
+		pcall(stdout.close, stdout)
+		pcall(stderr.close, stderr)
+		if handle then
+			pcall(handle.close, handle)
+			untrack_dlv(handle)
+			handle = nil
+		end
+		-- Процесс мёртв: 20s-сторож слушанья больше не актуален, иначе он
+		-- следом выдаст ложное "did not start listening" поверх уже
+		-- показанной причины (например, "exited with code 3"). Флаг
+		-- ставим ПОСЛЕ разбора кода — ветке code==0 он нужен для решения.
+		if code ~= 0 then
+			local tail = redact_proxy(table.concat(errlog):sub(-500))
+			vim.schedule(function()
+				vim.notify(
+					"[debug] dlv exited with code " .. code .. (tail ~= "" and (": " .. tail:gsub("%s+", " ")) or ""),
+					vim.log.levels.ERROR,
+					{ title = "debug" }
+				)
+			end)
+		elseif not finished then
+			-- Умер до listen без ошибки: без этого вообще ни одного
+			-- сообщения (код 0 молчит, а 20s-сторож ниже глушим).
+			vim.schedule(function()
+				vim.notify("[debug] dlv exited before listening (code 0) — check `dlv dap` manually", vim.log.levels.ERROR, { title = "debug" })
+			end)
+		end
+		finished = true
+	end)
     if not handle then
       vim.schedule(function()
         vim.notify("[debug] cannot start dlv: " .. tostring(pid_or_err), vim.log.levels.ERROR, { title = "debug" })
       end)
       return
     end
+    track_dlv(handle)
     -- read_start СТРОГО после spawn: чтение, начатое до спавна, libuv
     -- молча инвалидирует при dup пайпов в потомка — данные не приходят
     -- вообще (проверено: до — тишина, после — 41 байт listening-строки).
     drain(stdout)
     drain(stderr)
+    -- Независимый 20s-сторож: проверка таймаута внутри drain срабатывает
+    -- только на входящих данных; молча висящий процесс (ни байта в stdout
+    -- и stderr) иначе ждал бы только 90s-сторожа. finish идемпотентен.
+    vim.defer_fn(function()
+      finish(false)
+    end, 20000)
     -- Сторож от orphan-dlv: если launch упал, nvim-dap сессию не создаёт,
     -- а адаптерный dlv остаётся слушать навсегда (видели живой процесс
     -- после "Failed to launch"). Через 90с проверяем: хендл жив, а сессии
@@ -222,6 +295,34 @@ function M.ensure()
 	end
 	dap.listeners.after.event_terminated["dev_float_cleanup"] = close_dap_floats
 	dap.listeners.after.event_exited["dev_float_cleanup"] = close_dap_floats
+	-- Owned-dlv cleanup on session end: `dlv dap` в server-режиме после
+	-- disconnect сам не всегда завершается — без этого каждый stop
+	-- оставлял бы слушающий процесс до 90с-сторожа (и плодил бы их при
+	-- start/stop-циклах). Гасим СВОИ хендлы с короткой задержкой (сессия
+	-- уже мертва, 5с — на доставку событий), но только если не поднялась
+	-- новая сессия (быстрый retry/run_last её переживает).
+	local function owned_cleanup_after_session()
+		vim.defer_fn(function()
+			local ok_s, dapmod = pcall(require, "dap")
+			if ok_s and dapmod.session() ~= nil then
+				return
+			end
+			kill_owned_dlv("")
+		end, 5000)
+	end
+	dap.listeners.after.event_terminated["dev_owned_dlv_cleanup"] = owned_cleanup_after_session
+	dap.listeners.after.event_exited["dev_owned_dlv_cleanup"] = owned_cleanup_after_session
+	-- Editor exit with an active session: nvim-dap никого не гасит сам,
+	-- :qa! оставлял бы живой `dlv dap`. VimLeavePre — только свои хендлы.
+	if not M._leave_autocmd then
+		M._leave_autocmd = true
+		vim.api.nvim_create_autocmd("VimLeavePre", {
+			desc = "debug: stop owned delve servers on editor exit",
+			callback = function()
+				kill_owned_dlv("editor exit")
+			end,
+		})
+	end
 	-- Canonicalize program paths (symlinked checkouts!): delve сравнивает
 	-- program-dir с корнем модуля, и symlink-форма (/var → /private/var
 	-- на macOS, /tmp, джанкшены) роняет сборку с криптичным

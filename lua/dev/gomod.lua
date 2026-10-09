@@ -5,6 +5,20 @@
 -- `go mod tidy` in the enclosing module root instead.
 local M = {}
 
+-- Redact credentials embedded in proxy URLs before they reach notify:
+-- `go` stderr can echo the proxy URL (corp GOPROXY with userinfo).
+-- Same helper shape as distro.diag / core.health.
+local function redact_proxy(s)
+	local ok, mirror = pcall(require, "distro.mirror")
+	if ok and mirror and mirror.redact then
+		local ok2, out = pcall(mirror.redact, tostring(s or ""))
+		if ok2 and type(out) == "string" then
+			return out
+		end
+	end
+	return tostring(s or ""):gsub("://[^@]*@", "://***@")
+end
+
 ---@param path string file path to start from
 ---@return string? module root dir
 local function mod_root(path)
@@ -30,7 +44,8 @@ function M.tidy()
 				vim.notify("[go] tidy clean", vim.log.levels.INFO, { title = "go" })
 			else
 				local raw = (res.stderr ~= "" and res.stderr) or res.stdout or ""
-				vim.notify("[go] tidy FAILED: " .. raw:gsub("%s+$", ""):sub(1, 300), vim.log.levels.ERROR, { title = "go" })
+				raw = redact_proxy(raw:gsub("%s+$", ""):sub(1, 300))
+				vim.notify("[go] tidy FAILED: " .. raw, vim.log.levels.ERROR, { title = "go" })
 			end
 		end)
 	end)

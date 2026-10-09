@@ -55,11 +55,11 @@ function M._nearest_func(prefix)
 		local line = lines[i]
 		-- Сначала форма с ресивером: `func (s *Suite) TestX(...)`.
 		-- %b() ест сбалансированные скобки (дженерик-ресиверы тоже).
-		local name = line:match("^%s*func%s*%b()%s*((" .. prefix .. ")%w*)%s*%(")
+		local name = line:match("^%s*func%s*%b()%s*((" .. prefix .. ")[%w_]*)%s*%(")
 		if name then
 			return name, true
 		end
-		name = line:match("^%s*func%s*((" .. prefix .. ")%w*)%s*%(")
+		name = line:match("^%s*func%s*((" .. prefix .. ")[%w_]*)%s*%(")
 		if name then
 			return name, false
 		end
@@ -70,6 +70,7 @@ end
 --- Разбор `go test -json`: failures → qf items, counters → summary.
 local function parse_json(raw)
 	local qf, pass, fail, skip, cached = {}, 0, 0, 0, 0
+	local norun = false
 	local fail_pkgs = {}
 	for _, line in ipairs(raw) do
 		local ok, ev = pcall(vim.json.decode, line)
@@ -90,6 +91,11 @@ local function parse_json(raw)
 				if ev.Output:find("%(cached%)") then
 					cached = cached + 1
 				end
+				if ev.Output:find("no tests to run") then
+					-- Паттерн -run ничего не сматчил: go test выходит 0,
+					-- и без этого флага итог выглядел бы как "all green".
+					norun = true
+				end
 				-- Строка вида "    foo_test.go:42: message".
 				local f, l, msg = ev.Output:match("^%s+([%w_%.%-]+%.go):(%d+):%s*(.-)%s*$")
 				if f and msg and msg ~= "" then
@@ -104,7 +110,7 @@ local function parse_json(raw)
 			failed[#failed + 1] = pkg
 		end
 	end
-	return qf, { pass = pass, fail = fail, skip = skip, cached = cached }, failed
+	return qf, { pass = pass, fail = fail, skip = skip, cached = cached, norun = norun }, failed
 end
 
 --- Прогон. scope: "func"|"pkg"|"all"|"rerun". extra — доп. флаги go test.
@@ -162,8 +168,20 @@ function M.run(scope, extra)
 	M._execute(argv, dir, scope, "test")
 end
 
+--- Экранирование имени для Go-regexp (-run/-bench): только метасимволы
+--- RE2 получают обратный слэш. Underscore и буквы — как есть: Lua-эскейп
+--- `%_` в Go означает буквальный `%` (ложный "all green", см. выше).
+---@param name string
+---@return string
+function M._go_escape(name)
+	return (name:gsub("([%.%+%*%?%^%$%(%)%[%]%{%}%|%\\])", "\\%1"))
+end
+
 --- Прогон конкретных тестов по именам (для codelens-адаптера: имена уже
---- точные, из lens arguments — курсор не нужен). Имена экранируем.
+--- точные, из lens arguments — курсор не нужен). Имена уходят в Go-regexp
+--- (-run), поэтому экранируем по правилам Go/RE2 (обратный слэш), а НЕ
+--- Lua-паттернов: Lua-эскейп `%_` в Go означает буквальный `%` и даёт
+--- ложный "all green" через "[no tests to run]" на именах с underscore.
 ---@param names string[]
 function M.run_names(names)
 	if not go_bin() then
@@ -174,7 +192,7 @@ function M.run_names(names)
 	end
 	local esc = {}
 	for _, n in ipairs(names) do
-		esc[#esc + 1] = n:gsub("([^%w])", "%%%1")
+		esc[#esc + 1] = M._go_escape(n)
 	end
 	local argv = { "go", "test", "-json", "-count=1", "-run", "^(" .. table.concat(esc, "|") .. ")$", "." }
 	M._execute(argv, pkg_dir(), "lens", "test")
@@ -207,6 +225,7 @@ function M.bench()
 end
 
 --- Benchmark конкретных имён (для codelens-адаптера).
+--- Экранирование — Go-style, как в run_names (см. выше).
 ---@param names string[]
 function M.bench_names(names)
 	if not go_bin() then
@@ -217,7 +236,7 @@ function M.bench_names(names)
 	end
 	local esc = {}
 	for _, n in ipairs(names) do
-		esc[#esc + 1] = n:gsub("([^%w])", "%%%1")
+		esc[#esc + 1] = M._go_escape(n)
 	end
 	local argv = { "go", "test", "-json", "-count=1", "-run=^$", "-bench=^(" .. table.concat(esc, "|") .. ")$", "." }
 	M._execute(argv, pkg_dir(), "lens-bench", "bench")
@@ -288,9 +307,16 @@ function M._execute(argv, dir, title, mode)
 			-- (перезапустилось бы старое). Для bench — только факт.
 			local tail = ""
 			if mode == "test" then
-				tail = #failed > 0 and " — rerun with <leader>tr" or " — all green"
+				if #failed > 0 then
+					tail = " — rerun with <leader>tr"
+				elseif sum.norun then
+					tail = " — WARNING: pattern matched no tests"
+				else
+					tail = " — all green"
+				end
 			end
-			vim.notify("[test] " .. msg .. tail, (#failed > 0) and vim.log.levels.WARN or vim.log.levels.INFO, { title = "test" })
+			local level = (#failed > 0 or (mode == "test" and sum.norun)) and vim.log.levels.WARN or vim.log.levels.INFO
+			vim.notify("[test] " .. msg .. tail, level, { title = "test" })
 		end)
 	end)
 end

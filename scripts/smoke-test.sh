@@ -198,6 +198,24 @@ else
 	record FAIL "6/6 dev modules require without error" "$(printf '%s' "$DEVMOD_BAD" | tr '\n' ' ')"
 fi
 
+# --------------------------------- check 3c: Lua regression scripts --------
+# Headless unit regressions (no user config, no network): Go test/bench
+# name detection incl. underscores, and go-mod-tidy error paths.
+section "3c. Lua regression scripts"
+REGRESS_FAIL=""
+for regress in regress-test-names regress-gomod; do
+	REGRESS_OUT="$(nvim --headless --noplugin -u NONE \
+		--cmd "set rtp+=$REPO_ROOT" -l "scripts/$regress.lua" 2>&1 | tr -d '\r' || true)"
+	if printf '%s\n' "$REGRESS_OUT" | grep -q '^FAIL'; then
+		REGRESS_FAIL="$REGRESS_FAIL $regress:$(printf '%s' "$REGRESS_OUT" | grep '^FAIL' | tr '\n' ';')"
+	fi
+done
+if [ -z "$REGRESS_FAIL" ]; then
+	record PASS "regression scripts pass (test-names, gomod)"
+else
+	record FAIL "regression scripts pass (test-names, gomod)" "$REGRESS_FAIL"
+fi
+
 # =============================================================== check 4 =====
 # Every user command named below exists. CMD_COUNT is derived from the list
 # itself, so the section header, the pass line and the assertion can never
