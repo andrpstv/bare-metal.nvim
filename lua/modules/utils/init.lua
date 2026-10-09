@@ -34,6 +34,53 @@ function M.is_file_buffer(bufnr)
 	return scheme == nil or scheme == "file"
 end
 
+---Format-on-save policy: why should this path NOT be formatted?
+---Returns nil when formatting is fine, otherwise a short reason code.
+---Conservative by design: vendor/, generated files, module cache and
+---user-configured disabled dirs are third-party or pinned code where a
+---local gofmt/LSP version would only produce diff noise. Ordinary project
+---files (incl. /tmp scratch) always return nil.
+---@param path string file path (any separators)
+---@param disabled_dirs string[]? vim-regex dirs from settings
+---@param bufnr integer? buffer to check for a "Code generated" marker
+---@return string? reason ("module-cache"|"vendor"|"generated"|"disabled-dir")
+function M.format_skip_reason(path, disabled_dirs, bufnr)
+	-- Сепараторы нормализуем сами (обратные тоже): vim.fs.normalize на
+	-- unix-платформах обратный слэш не трогает, а Windows-пути в тестах
+	-- должны вести себя так же, как на Windows.
+	path = (path or ""):gsub("\\", "/")
+	path = vim.fs.normalize(path)
+	if path == "" then
+		return nil
+	end
+	if M.is_go_lib(path) then
+		return "module-cache"
+	end
+	local lower = path:lower()
+	if lower:match("[\\/]vendor[\\/]") then
+		return "vendor"
+	end
+	local base = lower:match("[\\/]?([^\\/]+)$") or lower
+	if base:match("%.pb%.gw%.go$") or base:match("%.pb%.go$") or base:match("_generated%.go$") or base:match("%.gen%.go$") then
+		return "generated"
+	end
+	if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+		local head = vim.api.nvim_buf_get_lines(bufnr, 0, math.min(5, vim.api.nvim_buf_line_count(bufnr)), false)
+		for _, l in ipairs(head) do
+			if l:find("Code generated") and l:find("DO NOT EDIT") then
+				return "generated"
+			end
+		end
+	end
+	for _, pat in ipairs(disabled_dirs or {}) do
+		local ok, re = pcall(vim.regex, vim.fs.normalize(pat))
+		if ok and re:match_str(path) then
+			return "disabled-dir"
+		end
+	end
+	return nil
+end
+
 ---True if the file lives in the Go module cache or toolchain (read-only libs).
 ---Dependency buffers reuse the consumer workspace (see servers/gopls.lua
 ---root_dir): gopls then resolves them through the importing main module

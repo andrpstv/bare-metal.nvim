@@ -59,7 +59,11 @@ map("x", ">", ">gv", { noremap = true, silent = false, desc = "edit: Increase in
 map("x", "p", '"_dP', { noremap = true, silent = false, desc = "edit: Paste without yanking" })
 
 -- Builtins: "Suckless" - named after r/suckless
-map("n", "Y", "y$", { noremap = false, silent = false, desc = "edit: Yank text to EOL" })
+-- NOTE: noremap=true is load-bearing here: with remap, y$ re-resolves
+-- through mappings and any plugin mapping on y/$ (surround, flash,
+-- textobjects) silently changes what gets yanked (e.g. Yp duplicating
+-- inside the line instead of duplicating the line).
+map("n", "Y", "y$", { noremap = true, silent = false, desc = "edit: Yank text to EOL" })
 map("n", "D", "d$", { noremap = false, silent = false, desc = "edit: Delete text to EOL" })
 map("n", "n", "nzzzv", { noremap = true, silent = false, desc = "edit: Next search result" })
 map("n", "N", "Nzzzv", { noremap = true, silent = false, desc = "edit: Prev search result" })

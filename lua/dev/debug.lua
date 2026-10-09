@@ -94,13 +94,47 @@ function M.ensure()
 	--      дольше; колбэк отдаём только когда порт реально слушает, иначе
 	--      nvim-dap пишет "adapter didn't respond";
 	--   6. stderr копим (срез) и показываем хвост при неудаче — вместо тишины.
-	dap.adapters.go = function(callback)
+	dap.adapters.go = function(callback, config)
 		local dlv = vim.fn.exepath("dlv")
 		if dlv == "" then
 			vim.schedule(function()
 				vim.notify("[debug] 'dlv' not found in PATH — run :DistroBinaries to install delve", vim.log.levels.ERROR, { title = "debug" })
 			end)
 			return
+		end
+		-- delve резолвит модуль И компилирует относительно СВОЕГО CWD, а не
+		-- program-dir: запуск из чужого каталога (корень проекта при отладке
+		-- nested-пакета, /tmp-файл и т.п.) роняет сборку с "directory ...
+		-- outside main module". Поэтому спавним delve из каталога program
+		-- (файл → его dirname). Нет program/нет каталога — наследуем CWD.
+		local spawn_cwd = nil
+		local prog = config and config.program
+		if type(prog) == "string" and not prog:match("%${") then
+			local ok_s, st = pcall(vim.uv.fs_stat, prog)
+			if ok_s and st then
+				spawn_cwd = (st.type == "directory") and prog or vim.fn.fnamemodify(prog, ":p:h")
+			end
+		end
+		-- PWD sync: libuv chdir'ит потомка, но PWD в env не трогает. Go
+		-- (os.Getwd) доверяет $PWD, если он валиден, и дальше весь
+		-- module-resolution идёт в symlink-форме, а наш program уже
+		-- canonical — delve сравнивает строки и падает с "outside main
+		-- module". Синкаем PWD с cwd, который реально выставили.
+		local spawn_env = nil
+		if spawn_cwd then
+			spawn_env = {}
+			local replaced = false
+			for k, v in pairs(vim.fn.environ()) do
+				if k == "PWD" then
+					spawn_env[#spawn_env + 1] = "PWD=" .. spawn_cwd
+					replaced = true
+				else
+					spawn_env[#spawn_env + 1] = k .. "=" .. v
+				end
+			end
+			if not replaced then
+				spawn_env[#spawn_env + 1] = "PWD=" .. spawn_cwd
+			end
 		end
     -- Свободный порт отдаёт сам delve: `-l 127.0.0.1:0`, ОС выбирает порт,
     -- delve печатает `DAP server listening at: 127.0.0.1:PORT`. Парсим эту
@@ -181,6 +215,8 @@ function M.ensure()
     local handle, pid_or_err = vim.uv.spawn(dlv, {
       stdio = { nil, stdout, stderr },
       args = { "dap", "-l", "127.0.0.1:0" },
+      cwd = spawn_cwd,
+      env = spawn_env,
       detached = true,
       hide = is_win or nil, -- CREATE_NO_WINDOW: без консольного окна
     }, function(code)
@@ -312,6 +348,10 @@ function M.ensure()
 	end
 	dap.listeners.after.event_terminated["dev_owned_dlv_cleanup"] = owned_cleanup_after_session
 	dap.listeners.after.event_exited["dev_owned_dlv_cleanup"] = owned_cleanup_after_session
+	-- disconnect тоже: настоящий delve на terminate/disconnect далеко не
+	-- всегда шлёт terminated/exited (проверено живьём: сессия умирает
+	-- молча), а без этого слушателя stop оставлял бы процесс 90s-сторожу.
+	dap.listeners.after.disconnect["dev_owned_dlv_cleanup"] = owned_cleanup_after_session
 	-- Editor exit with an active session: nvim-dap никого не гасит сам,
 	-- :qa! оставлял бы живой `dlv dap`. VimLeavePre — только свои хендлы.
 	if not M._leave_autocmd then
@@ -480,6 +520,42 @@ function M.setup_keymaps()
 			args = args,
 		})
 	end, "debug: Debug test under cursor")
+	dapmap("<leader>du", function(_)
+		-- Unified inspector (dev.inspect): frames + scopes + watches в одном
+		-- правом сплите. Своя реализация поверх dap.ui.widgets была бы
+		-- тяжелее; float-виджеты dw/df/de продолжают работать отдельно.
+		require("dev.inspect").toggle()
+	end, "debug: Toggle inspector (frames/scopes/watches)")
+	dapmap("<leader>dW", function(_)
+		require("dev.inspect").add_watch()
+	end, "debug: Add watch expression")
+	dapmap("<leader>dp", function(dap)
+		if not need_session(dap) then
+			return
+		end
+		-- Таблица тредов у nvim-dap наполняется на stopped-событиях: у
+		-- ни разу не останавливавшейся сессии она пуста, и голый pause
+		-- отвечает "No thread to stop". Обновляем явно — delve отдаёт
+		-- threads и на running-сессии.
+		local sess = dap.session()
+		local function do_pause()
+			vim.schedule(function()
+				dap.pause()
+			end)
+		end
+		if sess and sess.update_threads then
+			local ok, err = pcall(function()
+				sess:update_threads(function()
+					do_pause()
+				end)
+			end)
+			if not ok then
+				vim.notify("[debug] pause failed: " .. tostring(err):sub(1, 120), vim.log.levels.ERROR, { title = "debug" })
+			end
+			return
+		end
+		do_pause()
+	end, "debug: Pause")
 end
 
 return M

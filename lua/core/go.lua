@@ -65,6 +65,22 @@ local organize_rerun = {}
 
 local function go_save_pipeline(bufnr)
 	if vim.b[bufnr].large_file then return end
+	-- Safe-format policy: vendor/, generated files, module cache and
+	-- user disabled-dirs не трогаем (там чужой или зафиксированный стиль —
+	-- локальный gofmt дал бы только diff-шум). Один тихий хинт на буфер,
+	-- чтобы пропуск не выглядел молчаливой поломкой, и без спама.
+	local skip = require("modules.utils").format_skip_reason(
+		vim.api.nvim_buf_get_name(bufnr),
+		require("core.settings").format_disabled_dirs,
+		bufnr
+	)
+	if skip then
+		if not vim.b[bufnr].fmt_skip_notified then
+			vim.b[bufnr].fmt_skip_notified = true
+			vim.notify("[go] skip format on save (" .. skip .. ") — run :Format to force", vim.log.levels.INFO, { title = "format" })
+		end
+		return
+	end
 	if organize_busy[bufnr] then
 		-- One is already in flight; remember that the world moved on and do a
 		-- single catch-up run when it finishes, instead of stacking a new one.

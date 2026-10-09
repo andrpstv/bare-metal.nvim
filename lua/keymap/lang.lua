@@ -19,9 +19,16 @@ end, { noremap = true, silent = true, desc = "test: Run all tests" })
 map("n", "<leader>at", function()
 	require("dev.test").run("all")
 end, { noremap = true, silent = true, desc = "test: Run all tests (alias)" })
--- Запуск/сборка пакета: те же silent!, что у тестов (go.nvim шумит Press-ENTER).
-map("n", "<leader>rr", ":silent! GoRun<CR>", { noremap = true, silent = true, desc = "go: Run package" })
-map("n", "<leader>rb", ":silent! GoBuild<CR>", { noremap = true, silent = true, desc = "go: Build package" })
+-- Запуск/сборка пакета ТЕКУЩЕГО ФАЙЛА: свой движок (dev.build) вместо
+-- голых :GoRun/:GoBuild — те без аргументов выполняют `go run|build` в CWD
+-- (корне проекта), а не в пакете (падало "no Go files" на nested-пакетах).
+-- Команды :GoRun/:GoBuild остаются доступны напрямую.
+map("n", "<leader>rr", function()
+	require("dev.build").run()
+end, { noremap = true, silent = true, desc = "go: Run package" })
+map("n", "<leader>rb", function()
+	require("dev.build").build()
+end, { noremap = true, silent = true, desc = "go: Build package" })
 map("n", "<leader>gf", ":GoAlt<CR>", { noremap = true, silent = true, desc = "go: Alternate file" })
 map("n", "<leader>ga", ":GoAddTag<CR>", { noremap = true, silent = true, desc = "go: Add struct tag" })
 map("n", "<leader>gx", ":GoRmTag<CR>", { noremap = true, silent = true, desc = "go: Remove struct tag" })

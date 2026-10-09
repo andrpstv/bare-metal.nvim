@@ -21,7 +21,7 @@ end
 
 ---@param path string file path to start from
 ---@return string? module root dir
-local function mod_root(path)
+function M.mod_root(path)
 	local dir = vim.fn.fnamemodify(path, ":p:h")
 	local found = vim.fs.find("go.mod", { upward = true, path = dir })
 	if not found or #found == 0 then
@@ -32,7 +32,7 @@ end
 
 --- Run `go mod tidy` for the module enclosing the current buffer.
 function M.tidy()
-	local root = mod_root(vim.api.nvim_buf_get_name(0))
+	local root = M.mod_root(vim.api.nvim_buf_get_name(0))
 	if not root then
 		vim.notify("[go] no go.mod above current file", vim.log.levels.WARN, { title = "go" })
 		return

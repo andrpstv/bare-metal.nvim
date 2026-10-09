@@ -85,6 +85,19 @@ function M.format(opts)
 	if vim.api.nvim_buf_line_count(bufnr) > max_lines_for_format then
 		return -- не форматируем большие файлы
 	end
+	-- Та же safe-политик, что у Go-пайплайна: vendor/generated/disabled.
+	local skip = require("modules.utils").format_skip_reason(
+		vim.api.nvim_buf_get_name(bufnr),
+		settings.format_disabled_dirs,
+		bufnr
+	)
+	if skip then
+		if not vim.b[bufnr].fmt_skip_notified then
+			vim.b[bufnr].fmt_skip_notified = true
+			vim.notify("[format] skip (" .. skip .. ") — run :Format to force", vim.log.levels.INFO, { title = "format" })
+		end
+		return
+	end
 
 	local filedir = vim.fn.expand("%:p:h")
 	for _, path in ipairs(disabled_workspaces) do
