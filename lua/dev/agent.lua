@@ -144,7 +144,7 @@ function M.start(opts)
 			git(root, { "ls-files", "--others", "--exclude-standard", "-z" }, function(_, files)
 				local reset = M.session ~= nil
 				M.session = { root = root, base = base, untracked = untracked_set(files) }
-				M.changed = 0
+				M.changed = nil -- _count перерисует статуслайн, даже если новое значение 0
 				watch(true)
 				gitsigns_base(base)
 				M._count()
@@ -259,7 +259,7 @@ function M.quickfix()
 			vim.fn.setqflist({}, " ", { title = "agent: changes since " .. s.base:sub(1, 7), items = items })
 			if #items == 0 then
 				pcall(vim.cmd, "cclose")
-				return notify("no changes since the session started")
+				return notify("no changes since the review base (" .. s.base:sub(1, 7) .. ")")
 			end
 			vim.cmd("copen")
 		end)
@@ -272,9 +272,21 @@ function M.diffview()
 	if not s then
 		return notify("no review session — <leader>Ab starts one", WARN)
 	end
-	if require("distro.loader").load("diffview.nvim") then
-		vim.cmd({ cmd = "DiffviewOpen", args = { s.base, "-C" .. s.root } })
+	if not require("distro.loader").load("diffview.nvim") then
+		return
 	end
+	-- Diffview ищет репозиторий и с -C падает «Not a repo», если текущий буфер не файл
+	-- (quickfix после <leader>Aq, окно агента) — открываем из обычного окна вкладки.
+	if vim.bo.buftype ~= "" then
+		for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+			if vim.bo[vim.api.nvim_win_get_buf(w)].buftype == "" then
+				vim.api.nvim_set_current_win(w)
+				break
+			end
+		end
+	end
+	-- Untracked-файлы Diffview при сравнении с ревизией не показывает никогда — они в <leader>Aq.
+	vim.cmd({ cmd = "DiffviewOpen", args = { s.base, "-C" .. s.root } })
 end
 
 return M

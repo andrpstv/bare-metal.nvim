@@ -41,6 +41,12 @@ ext.setup()
 -- 1. Conflict policy (pure).
 check("clean buffer may auto-reload", ext.should_reload(false) == true)
 check("modified buffer never auto-reloads", ext.should_reload(true) == false)
+-- Stale v:fcs_reason (it is global): only the real state may produce a warning.
+check("conflict reported for a modified buffer", ext.post_report("conflict", true, true) == "conflict")
+check("stale 'conflict' on a clean reload is silent", ext.post_report("conflict", false, true) == nil)
+check("deleted reported when the file is gone", ext.post_report("deleted", false, false) == "deleted")
+check("stale 'deleted' with the file present is silent", ext.post_report("deleted", false, true) == nil)
+check("plain reload is silent", ext.post_report("", false, true) == nil)
 
 -- 2. Watcher lifecycle on a real temp file.
 local tmp = vim.fn.tempname()

@@ -66,6 +66,44 @@ check("statusline: agent segment with a session", (_G._statusline() or ""):find(
 agent.session, agent.changed = nil, nil
 check("statusline: segment gone after session", not (_G._statusline() or ""):find("agent:", 1, true))
 
+-- Diffview of the session opened from the quickfix window (TUI QA defect).
+-- Root cause: Diffview expand()s its -C path, and our 'wildignore' has
+-- **/tmp/** — any repo under a "tmp" directory loses -C, and Diffview falls
+-- back to the current buffer (the quickfix list) -> "Not a repo".
+if vim.fn.executable("git") == 1 then
+	local dir = vim.fn.tempname() .. "/tmp/repo"
+	vim.fn.mkdir(dir, "p")
+	local function git(...)
+		return vim.system(vim.list_extend({ "git", "-C", dir, "-c", "user.email=t@t", "-c", "user.name=t" }, { ... })):wait()
+	end
+	git("init", "-q")
+	vim.fn.writefile({ "a", "b" }, dir .. "/f.txt")
+	git("add", ".")
+	git("commit", "-qm", "i")
+	vim.cmd("edit " .. dir .. "/f.txt")
+	agent.start()
+	vim.wait(3000, function()
+		return agent.session ~= nil
+	end)
+	vim.fn.writefile({ "a", "B" }, dir .. "/f.txt")
+	vim.fn.setqflist({ { filename = dir .. "/f.txt", lnum = 2, text = "x" } })
+	vim.cmd("copen")
+	local errs = {}
+	local real_notify = vim.notify
+	---@diagnostic disable-next-line: duplicate-set-field
+	vim.notify = function(m, l)
+		if l == vim.log.levels.ERROR then
+			errs[#errs + 1] = tostring(m)
+		end
+	end
+	local tabs = #vim.api.nvim_list_tabpages()
+	local ok = pcall(agent.diffview)
+	vim.notify = real_notify
+	check("diffview from the quickfix window opens (" .. table.concat(errs, "|") .. ")", ok and #errs == 0 and #vim.api.nvim_list_tabpages() == tabs + 1)
+	pcall(vim.cmd, "DiffviewClose")
+	agent.stop()
+end
+
 print(string.format("total=%d failures=%d", total, failures))
 if failures > 0 then
 	os.exit(1)

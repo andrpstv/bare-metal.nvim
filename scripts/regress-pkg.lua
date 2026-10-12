@@ -209,7 +209,7 @@ do
 	run_check(function()
 		return { code = 0, stdout = "", stderr = "" }
 	end)
-	check("check: build ./... first", calls[1] and calls[1].argv[2] == "build" and calls[1].argv[3] == "./...")
+	check("check: build ./... first, output discarded", calls[1] and calls[1].argv[2] == "build" and calls[1].argv[3] == "-o" and calls[1].argv[5] == "./...")
 	check("check: vet ./... second", calls[2] and calls[2].argv[2] == "vet" and calls[2].argv[3] == "./...")
 	check("check: lint only when installed", #calls == (has_lint and 3 or 2))
 	check("check: cwd is module root", calls[1] and calls[1].cwd == mod)
@@ -288,6 +288,7 @@ if vim.fn.executable("go") == 1 then
 	end, 100)
 	local qf = vim.fn.getqflist()
 	check("real go vet: Printf issue in quickfix at line 6", qf[1] ~= nil and qf[1].lnum == 6 and qf[1].text:find("^%[vet%]") ~= nil)
+	check("real go build leaves no binary in the module", vim.uv.fs_stat(vroot .. "/vetme") == nil)
 	vim.env.PATH = real_path
 else
 	print("SKIP real go vet (no go)")

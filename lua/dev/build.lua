@@ -115,7 +115,8 @@ function M.check()
 		vim.notify("[go] no go.mod above " .. start, vim.log.levels.WARN, { title = "go" })
 		return
 	end
-	local steps = { { "go", "build", "./..." }, { "go", "vet", "./..." } }
+	-- -o null: один main-пакет иначе оставит бинарник в корне проекта (виден в git и в ревью).
+	local steps = { { "go", "build", "-o", require("distro.install").null_dev(), "./..." }, { "go", "vet", "./..." } }
 	if vim.fn.executable("golangci-lint") == 1 then
 		steps[#steps + 1] = { "golangci-lint", "run", "./..." }
 	end

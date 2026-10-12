@@ -36,6 +36,19 @@
   теперь читает колонку (`file.go:10:2: msg` → col 2, раньше «2:» попадало в текст) —
   это касается и `<leader>rb`/`<leader>rr`. Тесты: `regress-pkg.lua` (+11, включая
   настоящий `go vet`).
+- **Исправления по TUI-проверке (tui-test, фазы 3–5).**
+  - `<leader>Ac`: `go build` пишет в null-устройство — на модуле с одним main-пакетом
+    в корне оставался бинарник (его видел git, он попадал в `agent:N` и в ревью).
+  - `<leader>Ad` из quickfix (обычный путь после `<leader>Aq`) падал «Not a repo»:
+    Diffview прогоняет `-C` через `expand()`, а `wildignore` с `**/tmp/**` обнуляет
+    любой путь внутри каталога `tmp`. Теперь Diffview открывается из окна с файлом.
+  - После `<leader>Ab` счётчик `agent:N` не перерисовывался до движения курсора.
+  - `core.external`: ложное «File changed on disk and has unsaved edits» на каждой
+    чистой перезагрузке после первого настоящего конфликта — `v:fcs_reason` глобальная
+    и «залипает»; теперь сверяется с реальным состоянием буфера/файла (`post_report`).
+  - Тесты: `regress-agent` (35), `regress-pkg` (24, бинарника нет после настоящего
+    build), `regress-external` (28, +5 на залипший reason), `regress-sidekick` (17,
+    Diffview из quickfix в репозитории под `tmp/` — падает на старом коде).
 
 ## Unreleased — внешняя синхронизация + gopls watched-files
 

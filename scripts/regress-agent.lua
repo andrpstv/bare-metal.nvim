@@ -224,19 +224,36 @@ else
 
 	-- Reset from the quickfix window (current buffer is not a project file).
 	check("reset is triggered from the quickfix window", vim.bo.buftype == "quickfix")
+	-- Reset must redraw the statusline even when the new count equals the old one.
+	local redraws = 0
+	local real_cmd = vim.cmd
+	vim.cmd = setmetatable({}, {
+		__index = real_cmd,
+		__call = function(_, c, ...)
+			if c == "redrawstatus!" then
+				redraws = redraws + 1
+			end
+			return real_cmd(c, ...)
+		end,
+	})
 	notices = {}
 	A.start()
 	vim.wait(3000, function()
 		return noticed("base reset")
 	end)
 	check("start() again resets the base", noticed("base reset") and A.session.base ~= s.base)
+	vim.wait(2000, function()
+		return redraws > 0
+	end)
+	vim.cmd = real_cmd
+	check("reset redraws the statusline counter", redraws > 0 and A.changed == 0)
 	vim.fn.setqflist({}, " ")
 	notices = {}
 	A.quickfix()
 	vim.wait(3000, function()
 		return noticed("no changes")
 	end)
-	check("after reset: no changes reported", noticed("no changes since the session started"))
+	check("after reset: no changes reported against the new base", noticed("no changes since the review base"))
 	vim.wait(2000, function()
 		return A.changed == 0
 	end)

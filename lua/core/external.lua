@@ -67,6 +67,23 @@ function M.should_reload(modified)
 	return not modified
 end
 
+--- Pure, unit-testable: what to report after FileChangedShellPost.
+--- v:fcs_reason is global and keeps its last value — after one real conflict
+--- every later clean reload still reads "conflict" — so check the actual state.
+---@param reason string v:fcs_reason
+---@param modified boolean buffer has unsaved edits
+---@param exists boolean file exists on disk
+---@return "deleted"|"conflict"|nil
+function M.post_report(reason, modified, exists)
+	if reason == "deleted" and not exists then
+		return "deleted"
+	end
+	if reason == "conflict" and modified then
+		return "conflict"
+	end
+	return nil
+end
+
 local function is_watchable(buf)
 	if not vim.api.nvim_buf_is_valid(buf) then
 		return false
@@ -290,8 +307,9 @@ function M.setup()
 		pattern = "*",
 		desc = "sync: report deletion/conflict, keep buffer",
 		callback = function(args)
-			local reason = vim.v.fcs_reason or ""
 			local buf = args.buf
+			local modified = vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].modified
+			local reason = M.post_report(vim.v.fcs_reason or "", modified, vim.uv.fs_stat(args.file) ~= nil)
 			if reason == "deleted" then
 				vim.notify(
 					"File deleted on disk: " .. vim.fn.fnamemodify(args.file, ":~:.") .. " — buffer kept, nothing lost.",
@@ -299,14 +317,12 @@ function M.setup()
 					{ title = "[sync]" }
 				)
 			elseif reason == "conflict" then
-				if vim.api.nvim_buf_is_valid(buf) then
-					throttled_notify(
-						buf,
-						vim.log.levels.WARN,
-						"File changed on disk and has unsaved edits — not reloaded. :w! keeps your edits, :e! takes the disk version.",
-						"[sync]"
-					)
-				end
+				throttled_notify(
+					buf,
+					vim.log.levels.WARN,
+					"File changed on disk and has unsaved edits — not reloaded. :w! keeps your edits, :e! takes the disk version.",
+					"[sync]"
+				)
 			end
 		end,
 	})
