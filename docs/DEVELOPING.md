@@ -61,6 +61,7 @@ init.lua → core/init.lua:load_core()
 | Select/input UI | `core/select.lua` | — | `regress-select.lua` |
 | Внешние изменения файлов | `core/external.lua` | — | `regress-external.lua` |
 | Агенты (sidekick) | `keymap/agent.lua`, `modules/configs/tool/sidekick.lua`; план — `docs/distro/34-agent-workflow.md` | — | `regress-sidekick.lua` |
+| Ревью правок агента | `dev/agent.lua` (`start`, `quickfix`, `_parse_diff`) | — | `regress-agent.lua` |
 | Хоткей | `keymap/<область>.lua`, справка `keymap/leader_help.lua` | `keymap/dev.lua` | `regress-keymaps.lua` (коллизии), `regress-gitmaps.lua`, `regress-y.lua` |
 | Настройка | `core/settings.lua` (комментарий у каждого ключа) | — | — |
 | Сеть / установка | `distro/install.lua` (`require_consent`), `distro/tools.lua` | — | ручные кейсы `docs/distro/04-cases-matrix.md` |
@@ -79,6 +80,7 @@ init.lua → core/init.lua:load_core()
 | `terminal` | постоянный `:terminal` на проект | toggleterm |
 | `replace` | rg → quickfix → confirm → apply | grug-far |
 | `refactor` | LSP call hierarchy, selection range | — |
+| `agent` | сессия ревью: база `git stash create`, gitsigns base, ханки → quickfix, Diffview | — (нет агентно-независимых аналогов) |
 
 Общий шаблон (по `test`/`build`/`gomod`): шапка с «почему свой» → `local M = {}` → внешние
 процессы через `vim.system(argv, { cwd = ... }, cb)` + `vim.schedule` → результат в quickfix,

@@ -78,7 +78,7 @@ for _, lhs in ipairs({ " ff", " fp", " fb", " tt", " sr", " sl", " fm" }) do
 end
 
 -- Agent (keymap/agent.lua; behaviour covered by regress-sidekick).
-for _, lhs in ipairs({ " Aa", " An", " As", " Ap" }) do
+for _, lhs in ipairs({ " Aa", " An", " As", " Ap", " Ab", " Aq", " Ad", " Ae" }) do
 	check("agent map " .. lhs, has_map(lhs, "n"))
 end
 for _, lhs in ipairs({ " As", " Av", " Ap" }) do

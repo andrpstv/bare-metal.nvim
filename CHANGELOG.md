@@ -14,6 +14,13 @@
   `<leader>Av` ссылка + текст, `<leader>Ap` промпты. Отправка из visual — функцией,
   иначе выделение терялось (находка фазы 0). Тесты: `regress-sidekick.lua` (13),
   `regress-keymaps.lua` (+7).
+- **Сессия ревью правок агента (`dev.agent`, фаза 3).** База — `git stash create`
+  (снимок дерева с незакоммиченными правками; дерево, индекс и stash не меняются),
+  без изменений — HEAD. Знаки gitsigns — относительно базы, `<leader>Aq` — ханки
+  `git diff -U0 <base>` + новые untracked-файлы в quickfix, `<leader>Ad` — Diffview,
+  `<leader>Ab` — старт/сброс базы, `<leader>Ae` — конец (база gitsigns возвращается).
+  Автостарт по `User SidekickCliAttach`, вне git — молча. Тесты: `regress-agent.lua`
+  (27: парсер + цикл на настоящем временном репозитории).
 
 ## Unreleased — внешняя синхронизация + gopls watched-files
 

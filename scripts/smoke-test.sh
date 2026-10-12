@@ -186,23 +186,23 @@ fi
 # Phase-1 capabilities (terminal/test/replace/debug/project/refactor) must
 # require cleanly. Separate list: these are consumer features, not infra.
 section "3b. dev modules require cleanly"
-DEVMODULES="dev.terminal dev.test dev.replace dev.debug dev.project dev.refactor dev.build dev.inspect dev.gomod"
+DEVMODULES="dev.terminal dev.test dev.replace dev.debug dev.project dev.refactor dev.build dev.inspect dev.gomod dev.agent"
 DEVMOD_OUT="$(nvim --headless \
 	-c "lua local ms={'${DEVMODULES// /','}'}; for _,m in ipairs(ms) do local ok,e=pcall(require,m); print((ok and 'OK ' or 'FAIL ')..m..(ok and '' or (' '..tostring(e)))) end" \
 	-c 'qa!' 2>&1 | tr -d '\r' || true)"
 DEVMOD_BAD="$(printf '%s\n' "$DEVMOD_OUT" | grep '^FAIL' || true)"
 DEVMOD_COUNT="$(printf '%s\n' "$DEVMOD_OUT" | grep -c '^OK' || true)"
-if [ "$DEVMOD_COUNT" -eq 9 ] && [ -z "$DEVMOD_BAD" ]; then
-	record PASS "9/9 dev modules require without error"
+if [ "$DEVMOD_COUNT" -eq 10 ] && [ -z "$DEVMOD_BAD" ]; then
+	record PASS "10/10 dev modules require without error"
 else
-	record FAIL "9/9 dev modules require without error" "$(printf '%s' "$DEVMOD_BAD" | tr '\n' ' ')"
+	record FAIL "10/10 dev modules require without error" "$(printf '%s' "$DEVMOD_BAD" | tr '\n' ' ')"
 fi
 
 # --------------------------------- check 3c: Lua regression scripts --------
 # Headless unit regressions (no user config, no network).
 section "3c. Lua regression scripts (pure unit)"
 REGRESS_FAIL=""
-for regress in regress-test-names regress-gomod regress-pkg regress-format regress-y regress-dbgui regress-select regress-dbg-cycle regress-dbg-running regress-lsp regress-external regress-gowatch; do
+for regress in regress-test-names regress-gomod regress-pkg regress-format regress-y regress-dbgui regress-select regress-dbg-cycle regress-dbg-running regress-lsp regress-external regress-gowatch regress-agent; do
 	REGRESS_OUT="$(nvim --headless --noplugin -u NONE \
 		--cmd "set rtp+=$REPO_ROOT" -l "scripts/$regress.lua" 2>&1 | tr -d '\r' || true)"
 	if printf '%s\n' "$REGRESS_OUT" | grep -q '^FAIL'; then
@@ -210,9 +210,9 @@ for regress in regress-test-names regress-gomod regress-pkg regress-format regre
 	fi
 done
 if [ -z "$REGRESS_FAIL" ]; then
-	record PASS "unit regression scripts pass (12 suites)"
+	record PASS "unit regression scripts pass (13 suites)"
 else
-	record FAIL "unit regression scripts pass (12 suites)" "$REGRESS_FAIL"
+	record FAIL "unit regression scripts pass (13 suites)" "$REGRESS_FAIL"
 fi
 
 # --------------------------- check 3d: config-needing regression scripts --

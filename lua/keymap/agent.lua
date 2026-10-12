@@ -34,3 +34,28 @@ map({ "n", "x" }, "<leader>Ap", function()
 	local c = cli()
 	return c and c.prompt()
 end, { noremap = true, silent = true, desc = "agent: Prompt library" })
+
+-- Ревью правок агента (dev.agent): база сессии = снимок дерева в момент старта.
+map("n", "<leader>Ab", function()
+	require("dev.agent").start()
+end, { noremap = true, silent = true, desc = "agent: Start review session / reset base to now" })
+map("n", "<leader>Aq", function()
+	require("dev.agent").quickfix()
+end, { noremap = true, silent = true, desc = "agent: Changes since session start → quickfix" })
+map("n", "<leader>Ad", function()
+	require("dev.agent").diffview()
+end, { noremap = true, silent = true, desc = "agent: Diffview since session start" })
+map("n", "<leader>Ae", function()
+	require("dev.agent").stop()
+end, { noremap = true, silent = true, desc = "agent: End review session" })
+
+-- Открыли агента — сессия ревью стартует сама (вне git — молча). Событие шлёт
+-- sidekick; пока он не загружен, автокоманда ничего не стоит.
+vim.api.nvim_create_autocmd("User", {
+	group = vim.api.nvim_create_augroup("AgentReview", { clear = true }),
+	pattern = "SidekickCliAttach",
+	desc = "agent: auto-start review session when an agent window opens",
+	callback = function()
+		require("dev.agent").ensure()
+	end,
+})
