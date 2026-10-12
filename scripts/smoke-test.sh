@@ -218,16 +218,16 @@ fi
 # --------------------------- check 3d: config-needing regression scripts --
 # These run WITH the full config headless (mappings, plugins, git).
 section "3d. config regression scripts (keymaps, git)"
-for regress in regress-keymaps regress-gitmaps regress-gitui; do
+for regress in regress-keymaps regress-gitmaps regress-gitui regress-sidekick; do
 	REGRESS_OUT="$(nvim --headless -c "luafile scripts/$regress.lua" -c 'qa!' 2>&1 | tr -d '\r' || true)"
 	if printf '%s\n' "$REGRESS_OUT" | grep -q '^FAIL'; then
 		REGRESS_FAIL="$REGRESS_FAIL $regress:$(printf '%s' "$REGRESS_OUT" | grep '^FAIL' | tr '\n' ';')"
 	fi
 done
 if [ -z "$REGRESS_FAIL" ]; then
-	record PASS "config regression scripts pass (keymaps, gitmaps, gitui)"
+	record PASS "config regression scripts pass (keymaps, gitmaps, gitui, sidekick)"
 else
-	record FAIL "config regression scripts pass (keymaps, gitmaps, gitui)" "$REGRESS_FAIL"
+	record FAIL "config regression scripts pass (keymaps, gitmaps, gitui, sidekick)" "$REGRESS_FAIL"
 fi
 
 # =============================================================== check 4 =====

@@ -77,6 +77,14 @@ for _, lhs in ipairs({ " ff", " fp", " fb", " tt", " sr", " sl", " fm" }) do
 	check("tool map " .. lhs, has_map(lhs, "n"))
 end
 
+-- Agent (keymap/agent.lua; behaviour covered by regress-sidekick).
+for _, lhs in ipairs({ " Aa", " An", " As", " Ap" }) do
+	check("agent map " .. lhs, has_map(lhs, "n"))
+end
+for _, lhs in ipairs({ " As", " Av", " Ap" }) do
+	check("agent x-map " .. lhs, has_map(lhs, "x"))
+end
+
 -- Builtin gc comment operator must not be shadowed BY US: scan our own
 -- keymap sources for a gc mapping (Neovim itself ships gc "Toggle
 -- comment" by default — that one is expected and must stay working).

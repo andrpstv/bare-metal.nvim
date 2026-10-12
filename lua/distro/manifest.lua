@@ -72,6 +72,10 @@ M.plugins = {
 	-- при открытии Go-файла. Сама фича не изменилась: BufWritePost-триггер
 	-- вешается в lang.lint, а заглушка грузит плагин и перевызывает команду.
 	{ name = "nvim-lint", repo = "mfussenegger/nvim-lint", ref = "3d55c8f67c6ae5c15e1042571e107c7a3d5c5f4e", branch = "master", kind = "opt", defer_idle = true, cmd = { "Lint" }, config = "lang.lint", strip = true },
+	-- CLI-агенты (Claude Code, OpenCode, …) в окне рядом с кодом: только CLI-часть,
+	-- NES (Copilot) выключен в tool.sidekick. Без триггеров на старте: грузится из
+	-- <leader>A… (keymap/agent.lua) или по :Sidekick. План: docs/distro/34-agent-workflow.md.
+	{ name = "sidekick.nvim", repo = "folke/sidekick.nvim", ref = "3d80a47e6375f6d647c9695d3afea6fa1b3275df", branch = "main", kind = "opt", cmd = { "Sidekick" }, config = "tool.sidekick", strip = true },
 }
 
 --- Binaries managed via Tools section (same confirm pipeline).

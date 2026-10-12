@@ -60,6 +60,7 @@ init.lua → core/init.lua:load_core()
 | Format on save | `completion/formatting.lua`, `core/go.lua` | — | `regress-format.lua` |
 | Select/input UI | `core/select.lua` | — | `regress-select.lua` |
 | Внешние изменения файлов | `core/external.lua` | — | `regress-external.lua` |
+| Агенты (sidekick) | `keymap/agent.lua`, `modules/configs/tool/sidekick.lua`; план — `docs/distro/34-agent-workflow.md` | — | `regress-sidekick.lua` |
 | Хоткей | `keymap/<область>.lua`, справка `keymap/leader_help.lua` | `keymap/dev.lua` | `regress-keymaps.lua` (коллизии), `regress-gitmaps.lua`, `regress-y.lua` |
 | Настройка | `core/settings.lua` (комментарий у каждого ключа) | — | — |
 | Сеть / установка | `distro/install.lua` (`require_consent`), `distro/tools.lua` | — | ручные кейсы `docs/distro/04-cases-matrix.md` |

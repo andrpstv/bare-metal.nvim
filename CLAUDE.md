@@ -19,7 +19,8 @@ quickfix, `:terminal`, `vim.ui.select`, notify, модальные хоткеи.
 
 1. **Ноль сети без согласия.** Сеть — только команды `:Distro*` и только через
    `install.require_consent()`; никаких загрузок на старте, в autocmd или при `require`.
-   Контракт: `docs/distro/00-requirements.md` §2.
+   Контракт: `docs/distro/00-requirements.md` §2. Не считается сетью: localhost-IPC с агентом,
+   которого запустил сам пользователь (sidekick подключается к уже запущенному OpenCode по HTTP).
 2. **Всё тяжёлое — лениво.** Новый плагин — запись в `lua/distro/manifest.lua` с триггером
    (`event`/`ft`/`cmd`/`defer_idle`), загрузка только через `distro.loader.load()`. Новый модуль
    `lua/dev/*` — `require` внутри обработчика хоткея/команды, не на старте.

@@ -74,6 +74,7 @@ require("keymap.lang")
 require("keymap.tool")
 require("keymap.ui")
 require("keymap.dev")
+require("keymap.agent")
 
 -- Сносим ГЛОБАЛЬНЫЕ дефолты 0.11 (vim/_defaults.lua ставит их всегда,
 -- не только в LSP-буферах): grn/grr/gri/gra/grt душат bare `gr`

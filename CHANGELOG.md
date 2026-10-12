@@ -5,6 +5,15 @@
 - **Минимум Neovim поднят до 0.12.5** (было 0.11): `init.lua` (гард и сообщение),
   `scripts/install.sh`, `scripts/install.ps1`, smoke-тест (секция 2), README.
   Причина — sidekick.nvim требует ≥ 0.11.2; решено зафиксировать текущую рабочую версию.
+- **CLI-агенты в окне рядом (sidekick.nvim, фаза 2).** Вендорен folke/sidekick.nvim
+  (pin 3d80a47), грузится только из `<leader>A…` или `:Sidekick` — старт не меняется.
+  Включена только CLI-часть: NES (Copilot) выключен и не грузится, свой вотчер
+  sidekick выключен (перезагрузку держит `core.external`), окно — 40% ширины вместо
+  80 колонок, пикеры `<c-f>`/`<c-b>` выключены (нужны snacks/telescope/fzf-lua).
+  Хоткеи: `<leader>Aa` окно, `<leader>An` выбрать CLI, `<leader>As` ссылка на код,
+  `<leader>Av` ссылка + текст, `<leader>Ap` промпты. Отправка из visual — функцией,
+  иначе выделение терялось (находка фазы 0). Тесты: `regress-sidekick.lua` (13),
+  `regress-keymaps.lua` (+7).
 
 ## Unreleased — внешняя синхронизация + gopls watched-files
 
