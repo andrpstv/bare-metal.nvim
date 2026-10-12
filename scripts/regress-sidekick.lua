@@ -58,6 +58,14 @@ vim.api.nvim_feedkeys(vim.keycode("<Esc>Vj<Space>Av"), "x", false)
 check("x-mode <leader>Av quotes ref + text", seen.msg == "{this}\n{selection}")
 vim.api.nvim_feedkeys(vim.keycode("<Esc>"), "x", false)
 
+-- Statusline segment of the review session (dev.agent, phase 4).
+check("statusline: no agent segment without dev.agent", not (_G._statusline() or ""):find("agent:", 1, true))
+local agent = require("dev.agent")
+agent.session, agent.changed = { root = "/x", base = string.rep("0", 40), untracked = {} }, 3
+check("statusline: agent segment with a session", (_G._statusline() or ""):find("agent:3", 1, true) ~= nil)
+agent.session, agent.changed = nil, nil
+check("statusline: segment gone after session", not (_G._statusline() or ""):find("agent:", 1, true))
+
 print(string.format("total=%d failures=%d", total, failures))
 if failures > 0 then
 	os.exit(1)

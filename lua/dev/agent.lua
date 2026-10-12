@@ -19,6 +19,9 @@ local M = {}
 
 ---@type {root:string, base:string, untracked:table<string,boolean>}?
 M.session = nil
+--- Файлов изменено с начала сессии — для статуслайна (считается асинхронно).
+---@type integer?
+M.changed = nil
 
 local WARN = vim.log.levels.WARN
 
@@ -43,6 +46,70 @@ local function untracked_set(out)
 		set[p] = true
 	end
 	return set
+end
+
+local DEBOUNCE_MS = 300
+local count_timer
+
+--- Пересчитать M.changed: `git diff --name-only <base>` + новые untracked.
+function M._count()
+	local s = M.session
+	if not s then
+		return
+	end
+	git(s.root, { "diff", "--name-only", "--no-renames", "-z", s.base }, function(ok, out)
+		if not ok or M.session ~= s then
+			return
+		end
+		local n = #vim.split(out, "\0", { plain = true, trimempty = true })
+		git(s.root, { "ls-files", "--others", "--exclude-standard", "-z" }, function(_, files)
+			if M.session ~= s then
+				return
+			end
+			for p in pairs(untracked_set(files)) do
+				if not s.untracked[p] then
+					n = n + 1
+				end
+			end
+			if n ~= M.changed then
+				M.changed = n
+				vim.cmd("redrawstatus!")
+			end
+		end)
+	end)
+end
+
+--- Счётчик с debounce: пачка событий (агент переписал 10 файлов) — один пересчёт.
+function M.refresh()
+	if not M.session then
+		return
+	end
+	count_timer = count_timer or vim.uv.new_timer()
+	count_timer:stop()
+	count_timer:start(DEBOUNCE_MS, 0, vim.schedule_wrap(M._count))
+end
+
+--- Сегмент статуслайна; nil без сессии.
+---@return string?
+function M.status_text()
+	if not M.session then
+		return nil
+	end
+	return "%#DiagnosticInfo#agent:" .. (M.changed or 0) .. "%* "
+end
+
+-- Автокоманды живут только пока идёт сессия. FileChangedShellPost приходит и
+-- на тихую перезагрузку (core.external/autoread); правки в неоткрытых файлах
+-- ловим на BufEnter/CursorHold (вернулся из окна агента, остановил курсор).
+local function watch(on)
+	local grp = vim.api.nvim_create_augroup("AgentReviewCount", { clear = true })
+	if on then
+		vim.api.nvim_create_autocmd({ "BufEnter", "FocusGained", "CursorHold", "BufWritePost", "FileChangedShellPost" }, {
+			group = grp,
+			desc = "agent: recount files changed since the review base",
+			callback = M.refresh,
+		})
+	end
 end
 
 local function gitsigns_base(base)
@@ -77,7 +144,10 @@ function M.start(opts)
 			git(root, { "ls-files", "--others", "--exclude-standard", "-z" }, function(_, files)
 				local reset = M.session ~= nil
 				M.session = { root = root, base = base, untracked = untracked_set(files) }
+				M.changed = 0
+				watch(true)
 				gitsigns_base(base)
+				M._count()
 				notify(
 					(reset and "review base reset to now (" or "review session started (")
 						.. base:sub(1, 7)
@@ -112,6 +182,9 @@ function M.stop()
 		return notify("no review session", WARN)
 	end
 	M.session = nil
+	M.changed = nil
+	watch(false)
+	vim.cmd("redrawstatus!")
 	gitsigns_base(nil)
 	notify("review session ended — git signs compare with the index again")
 end

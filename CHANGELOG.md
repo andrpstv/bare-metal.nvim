@@ -21,6 +21,14 @@
   `<leader>Ab` — старт/сброс базы, `<leader>Ae` — конец (база gitsigns возвращается).
   Автостарт по `User SidekickCliAttach`, вне git — молча. Тесты: `regress-agent.lua`
   (27: парсер + цикл на настоящем временном репозитории).
+- **Счётчик `agent:N` в статуслайне (фаза 4).** Сколько файлов изменено с начала
+  сессии (`git diff --name-only <base>` + новые untracked). Пересчёт с debounce 300мс
+  по BufEnter/FocusGained/CursorHold/BufWritePost/FileChangedShellPost — автокоманды
+  есть только пока идёт сессия; статуслайн читает готовое значение через
+  `package.loaded` и без сессии ничего не делает. `core.external` не менялся:
+  FileChangedShellPost приходит и на тихую перезагрузку. Тесты: `regress-agent.lua`
+  (+7: счёт, debounce 5 событий → 1 запрос, без сессии — ноль вызовов git),
+  `regress-sidekick.lua` (+3: сегмент статуслайна).
 
 ## Unreleased — внешняя синхронизация + gopls watched-files
 

@@ -50,6 +50,17 @@ package.loaded["gitsigns"] = {
 
 local A = require("dev.agent")
 
+-- Spy: count `git diff --name-only` calls (the statusline counter's query).
+local name_only_calls = 0
+local real_system = vim.system
+---@diagnostic disable-next-line: duplicate-set-field
+vim.system = function(argv, ...)
+	if vim.tbl_contains(argv, "--name-only") then
+		name_only_calls = name_only_calls + 1
+	end
+	return real_system(argv, ...)
+end
+
 -- Parser ----------------------------------------------------------------------
 do
 	local out = table.concat({
@@ -193,6 +204,24 @@ else
 	check("new file listed, pre-existing untracked not", names[2] == "new.txt:1:new file")
 	check("quickfix title names the base", vim.fn.getqflist({ title = 1 }).title:find("agent: changes since", 1, true) ~= nil)
 
+	-- Statusline counter: 2 files changed since the base (a.txt + new.txt).
+	A.changed = nil
+	A._count()
+	vim.wait(3000, function()
+		return A.changed == 2
+	end)
+	check("counter: 2 files since base", A.changed == 2)
+	check("status_text shows the count", (A.status_text() or ""):find("agent:2", 1, true) ~= nil)
+	-- Debounce: a burst of events -> one recount.
+	name_only_calls = 0
+	for _ = 1, 5 do
+		vim.api.nvim_exec_autocmds("CursorHold", {})
+	end
+	vim.wait(1500, function()
+		return false
+	end, 50)
+	check("burst of 5 events -> exactly 1 recount", name_only_calls == 1)
+
 	-- Reset from the quickfix window (current buffer is not a project file).
 	check("reset is triggered from the quickfix window", vim.bo.buftype == "quickfix")
 	notices = {}
@@ -208,11 +237,24 @@ else
 		return noticed("no changes")
 	end)
 	check("after reset: no changes reported", noticed("no changes since the session started"))
+	vim.wait(2000, function()
+		return A.changed == 0
+	end)
+	check("after reset: counter back to 0", A.changed == 0)
 
 	-- Stop restores gitsigns base.
 	bases = {}
 	A.stop()
 	check("stop clears session", A.session == nil)
+	check("stop hides the statusline segment", A.status_text() == nil)
+	check("stop removes the recount autocmds", #vim.api.nvim_get_autocmds({ group = "AgentReviewCount" }) == 0)
+	name_only_calls = 0
+	vim.api.nvim_exec_autocmds("CursorHold", {})
+	A.refresh()
+	vim.wait(600, function()
+		return false
+	end, 50)
+	check("no session -> no git calls", name_only_calls == 0)
 	check("stop restores gitsigns base (nil, global)", bases[1] and bases[1].base == nil and bases[1].global == true)
 	notices = {}
 	A.quickfix()

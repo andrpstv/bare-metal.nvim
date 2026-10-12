@@ -370,6 +370,13 @@ _G._statusline = function()
 		if git_status then
 			parts[#parts + 1] = git_status
 		end
+		-- Сессия ревью агента: готовая строка, git считает dev.agent асинхронно.
+		-- package.loaded — модуль не грузим ради статуслайна, без сессии ноль работы.
+		local agent = package.loaded["dev.agent"]
+		local agent_text = agent and agent.status_text()
+		if agent_text then
+			parts[#parts + 1] = agent_text
+		end
 		parts[#parts + 1] = "%#" .. rgrp .. "#(%L " .. _stl_human_size() .. ") %*"
 		return table.concat(parts, " ")
 	end)

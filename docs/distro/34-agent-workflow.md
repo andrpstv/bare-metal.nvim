@@ -80,7 +80,8 @@
 
 ### Фаза 4 — видимость в статуслайне
 
-- `core.external`: после перезагрузки буфера — `User` autocmd (одна строка), чтобы не дублировать вотчеры.
+- ~~`core.external`: `User` autocmd после перезагрузки~~ — не понадобилось: `FileChangedShellPost`
+  приходит и на тихую перезагрузку autoread (проверено 2026-10-12), `core.external` не менялся.
 - `dev.agent`: счётчик «agent: N files» (`git diff --name-only <base>` + untracked), пересчёт с debounce
   по этому событию и `FocusGained`; без активной сессии — ноль работы.
 - `keymap/statusline.lua`: сегмент счётчика.
