@@ -1,5 +1,11 @@
 # distroManager — Architecture
 
+> **Сверено с кодом 2026-10-12 — есть расхождения:** счётчики плагинов (в коде 25 + 7 catalog),
+> `checkhealth distro`/`:DistroHealth` (нет; health — `lua/core/health.lua`), экспорт `TOOLS`/`PARSERS`
+> (в коде `tools`/`binaries`/`get`/`get_tool`), неполный список команд. Актуальная карта —
+> [`../DEVELOPING.md`](../DEVELOPING.md) §9; описанные поля manifest верны,
+> но не перечислены `deps`, `defer_idle`, `defer_until_idle`, `branch`, `catalog`, `desc`.
+
 ```
 ~/.config/nvim/
 ├── distro-lock.json            # versions (replaces lazy-lock.json)
