@@ -29,6 +29,13 @@
   FileChangedShellPost приходит и на тихую перезагрузку. Тесты: `regress-agent.lua`
   (+7: счёт, debounce 5 событий → 1 запрос, без сессии — ноль вызовов git),
   `regress-sidekick.lua` (+3: сегмент статуслайна).
+- **Проверка всего Go-модуля `<leader>Ac` (фаза 5, `dev.build.check`).** `go build ./...`
+  → `go vet ./...` → `golangci-lint run ./...` (если установлен) в корне модуля, один
+  quickfix с метками `[build]`/`[vet]`/`[lint]`; сломанная сборка обрывает цепочку.
+  Работает и из quickfix/окна агента (корень — от проекта). Парсер ошибок `dev.build`
+  теперь читает колонку (`file.go:10:2: msg` → col 2, раньше «2:» попадало в текст) —
+  это касается и `<leader>rb`/`<leader>rr`. Тесты: `regress-pkg.lua` (+11, включая
+  настоящий `go vet`).
 
 ## Unreleased — внешняя синхронизация + gopls watched-files
 

@@ -181,7 +181,117 @@ do
 		return false
 	end)())
 end
+
+-- Module check (agent workflow phase 5): steps, cwd, chain break, columns.
+local has_lint = vim.fn.executable("golangci-lint") == 1
+local function run_check(reply)
+	calls, notices = {}, {}
+	vim.fn.setqflist({}, " ")
+	---@diagnostic disable-next-line: duplicate-set-field
+	vim.system = function(argv, opts, cb)
+		calls[#calls + 1] = { argv = argv, cwd = opts and opts.cwd }
+		cb(reply(argv))
+		return nil
+	end
+	build.check()
+	vim.wait(3000, function()
+		for _, m in ipairs(notices) do
+			if m:find("check clean") or m:find("issue%(s%)") then
+				return true
+			end
+		end
+		return false
+	end, 20)
+end
+do
+	local buf = open_file(root .. "/inner/inner.go")
+	local mod = vim.fn.fnamemodify(bufdir(buf), ":h") -- inner/ has no go.mod -> module root
+	run_check(function()
+		return { code = 0, stdout = "", stderr = "" }
+	end)
+	check("check: build ./... first", calls[1] and calls[1].argv[2] == "build" and calls[1].argv[3] == "./...")
+	check("check: vet ./... second", calls[2] and calls[2].argv[2] == "vet" and calls[2].argv[3] == "./...")
+	check("check: lint only when installed", #calls == (has_lint and 3 or 2))
+	check("check: cwd is module root", calls[1] and calls[1].cwd == mod)
+	check("check: clean notified", (function()
+		for _, m in ipairs(notices) do
+			if m:find("check clean") then
+				return true
+			end
+		end
+		return false
+	end)())
+
+	run_check(function(argv)
+		if argv[2] == "build" then
+			return { code = 1, stdout = "", stderr = "# example.com/mono\n./main.go:3:9: undefined: wat\n" }
+		end
+		return { code = 0, stdout = "", stderr = "" }
+	end)
+	local qf = vim.fn.getqflist()
+	check("check: broken build stops the chain", #calls == 1)
+	check("check: build error with column", qf[1] and qf[1].lnum == 3 and qf[1].col == 9 and qf[1].text == "[build] undefined: wat")
+
+	run_check(function(argv)
+		if argv[2] == "vet" then
+			return { code = 1, stdout = "", stderr = "# example.com/mono\n./main.go:3:2: fmt.Printf format %d has arg s of wrong type string\n" }
+		end
+		return { code = 0, stdout = "", stderr = "" }
+	end)
+	qf = vim.fn.getqflist()
+	check("check: vet issue tagged", qf[1] and qf[1].text:find("^%[vet%] fmt.Printf") ~= nil and qf[1].col == 2)
+	check("check: vet issue notified", (function()
+		for _, m in ipairs(notices) do
+			if m:find("1 issue%(s%) — vet failed") then
+				return true
+			end
+		end
+		return false
+	end)())
+
+	run_check(function(argv)
+		if argv[2] == "build" then
+			return { code = 1, stdout = "", stderr = "go: cannot find main module\n" }
+		end
+		return { code = 0, stdout = "", stderr = "" }
+	end)
+	check("check: failure without file lines explains itself", (function()
+		for _, m in ipairs(notices) do
+			if m:find("build failed: go: cannot find main module", 1, true) then
+				return true
+			end
+		end
+		return false
+	end)())
+end
 vim.system = real_system
+
+-- Real `go vet` (lint hidden via PATH so the run stays fast and deterministic).
+if vim.fn.executable("go") == 1 then
+	local real_path = vim.env.PATH
+	vim.env.PATH = vim.fn.fnamemodify(vim.fn.exepath("go"), ":h") .. ":/usr/bin:/bin"
+	local vroot = mktree({
+		["go.mod"] = "module example.com/vetme\n\ngo 1.22\n",
+		["main.go"] = 'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Printf("%d\\n", "s")\n}\n',
+	})
+	open_file(vroot .. "/main.go")
+	notices = {}
+	vim.fn.setqflist({}, " ")
+	build.check()
+	vim.wait(60000, function()
+		for _, m in ipairs(notices) do
+			if m:find("check clean") or m:find("issue%(s%)") then
+				return true
+			end
+		end
+		return false
+	end, 100)
+	local qf = vim.fn.getqflist()
+	check("real go vet: Printf issue in quickfix at line 6", qf[1] ~= nil and qf[1].lnum == 6 and qf[1].text:find("^%[vet%]") ~= nil)
+	vim.env.PATH = real_path
+else
+	print("SKIP real go vet (no go)")
+end
 
 -- Non-go buffer refused with guidance.
 do

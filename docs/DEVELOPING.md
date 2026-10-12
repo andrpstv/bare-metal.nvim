@@ -73,7 +73,7 @@ init.lua → core/init.lua:load_core()
 | Модуль | Делает | Вместо |
 |---|---|---|
 | `test` | `go test -json` → quickfix + summary, rerun-failed, coverage-знаки | neotest |
-| `build` | `go build`/`go run` пакета текущего файла | `:GoBuild`/`:GoRun` без пакета |
+| `build` | `go build`/`go run` пакета текущего файла; `check()` — build+vet+lint всего модуля | `:GoBuild`/`:GoRun` без пакета |
 | `gomod` | настоящий `go mod tidy` в корне модуля | `:GoModTidy` |
 | `debug`, `inspect` | nvim-dap + `dlv dap`, своё окно Frames/Scopes/Watches | nvim-dap-ui, nio, dap-go |
 | `project` | корень (go.work/go.mod/.git), сессии, автосейв | project-плагины |

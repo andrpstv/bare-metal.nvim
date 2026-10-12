@@ -32,18 +32,21 @@ local function module_root(bufnr)
 	return nil
 end
 
--- Строка вида "foo.go:42: message" (go build/run) → qf item. Тот же формат,
--- что парсит dev.test (там локально); дублируем однострочник осознанно,
+-- Строка вида "foo.go:42[:7]: message" (go build/run/vet, golangci-lint) → qf item.
+-- Тот же формат, что парсит dev.test (там локально); дублируем осознанно,
 -- чтобы не тащить зависимость между движками.
 local function qf_items(output, dir)
 	local items = {}
 	for _, line in ipairs(vim.split(output or "", "\n", { plain = true })) do
-		local f, l, msg = line:match("^%s*([%w_%.%-/\\]+%.go):(%d+):%s*(.-)%s*$")
+		local f, l, c, msg = line:match("^%s*([%w_%.%-/\\]+%.go):(%d+):(%d+):%s*(.-)%s*$")
+		if not f then
+			f, l, msg = line:match("^%s*([%w_%.%-/\\]+%.go):(%d+):%s*(.-)%s*$")
+		end
 		if f and msg and msg ~= "" then
 			if not f:match("^/") and not f:match("^%a:") then
 				f = dir .. "/" .. f
 			end
-			items[#items + 1] = { filename = f, lnum = tonumber(l), col = 1, text = msg }
+			items[#items + 1] = { filename = f, lnum = tonumber(l), col = tonumber(c) or 1, text = msg }
 		end
 	end
 	return items
@@ -92,6 +95,69 @@ local function execute(op, extra)
 			vim.notify("[go] " .. op .. " FAILED (code " .. code .. ")" .. (#items > 0 and "" or ": " .. first:sub(1, 200)), vim.log.levels.ERROR, { title = "go" })
 		end)
 	end)
+end
+
+--- Проверить весь модуль: `go build ./...`, затем `go vet ./...` и, если стоит,
+--- `golangci-lint run ./...` → один quickfix. Нужно после правок агента: LSP
+--- видит загруженные пакеты, а агент мог тронуть любые. Сломанная сборка
+--- обрывает цепочку — vet/lint повторили бы те же ошибки.
+function M.check()
+	if vim.fn.executable("go") ~= 1 then
+		vim.notify("[go] 'go' not in PATH", vim.log.levels.ERROR, { title = "go" })
+		return
+	end
+	local start = vim.api.nvim_buf_get_name(0)
+	if start == "" or vim.bo.buftype ~= "" then
+		start = require("dev.project").root() -- из quickfix/окна агента: от проекта
+	end
+	local root = require("dev.gomod").mod_root(start)
+	if not root then
+		vim.notify("[go] no go.mod above " .. start, vim.log.levels.WARN, { title = "go" })
+		return
+	end
+	local steps = { { "go", "build", "./..." }, { "go", "vet", "./..." } }
+	if vim.fn.executable("golangci-lint") == 1 then
+		steps[#steps + 1] = { "golangci-lint", "run", "./..." }
+	end
+	vim.notify("[go] checking module " .. root .. " (" .. #steps .. " steps)", vim.log.levels.INFO, { title = "go" })
+	local items, failed = {}, {}
+	local function step(i)
+		local argv = steps[i]
+		if not argv then
+			vim.fn.setqflist({}, " ", { title = "go check: " .. root, items = items })
+			if #items > 0 then
+				vim.cmd("copen")
+			else
+				pcall(vim.cmd, "cclose")
+			end
+			if #failed == 0 then
+				vim.notify("[go] check clean (" .. #steps .. " steps)", vim.log.levels.INFO, { title = "go" })
+			else
+				vim.notify("[go] check: " .. #items .. " issue(s) — " .. table.concat(failed, "; "), vim.log.levels.WARN, { title = "go" })
+			end
+			return
+		end
+		local label = argv[1] == "go" and argv[2] or "lint"
+		vim.system(argv, { text = true, cwd = root }, function(obj)
+			vim.schedule(function()
+				local out = ((obj and obj.stdout) or "") .. "\n" .. ((obj and obj.stderr) or "")
+				local found = qf_items(out, root)
+				for _, it in ipairs(found) do
+					it.text = "[" .. label .. "] " .. it.text
+				end
+				vim.list_extend(items, found)
+				if (obj and obj.code or 1) ~= 0 then
+					local last = #found == 0 and (": " .. (out:gsub("%s+$", ""):match("[^\n]*$") or ""):sub(1, 160)) or ""
+					failed[#failed + 1] = label .. " failed" .. last
+					if i == 1 then
+						return step(#steps + 1)
+					end
+				end
+				step(i + 1)
+			end)
+		end)
+	end
+	step(1)
 end
 
 --- Собрать пакет текущего файла (`go build .` в его каталоге).

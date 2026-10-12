@@ -49,6 +49,11 @@ map("n", "<leader>Ae", function()
 	require("dev.agent").stop()
 end, { noremap = true, silent = true, desc = "agent: End review session" })
 
+-- После правок агента: собрать и проверить весь модуль (не только открытые пакеты).
+map("n", "<leader>Ac", function()
+	require("dev.build").check()
+end, { noremap = true, silent = true, desc = "agent: Check Go module (build, vet, lint) → quickfix" })
+
 -- Открыли агента — сессия ревью стартует сама (вне git — молча). Событие шлёт
 -- sidekick; пока он не загружен, автокоманда ничего не стоит.
 vim.api.nvim_create_autocmd("User", {

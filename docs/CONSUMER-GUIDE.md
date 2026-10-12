@@ -255,6 +255,7 @@ gitsigns+hunks. **Проекты.** `<leader>wp` — переключение (�
 | `<leader>Aq` | все изменения с начала сессии → quickfix (`:cnext`, `<leader>gp` посмотреть, `<leader>gs`/`<leader>gr` принять/откатить) |
 | `<leader>Ad` | полный дифф сессии в Diffview |
 | `<leader>Ae` | закончить сессию (знаки git снова — относительно индекса) |
+| `<leader>Ac` | проверить весь Go-модуль: `go build ./...`, `go vet ./...`, golangci-lint (если стоит) → quickfix |
 
 ### Форматирование
 

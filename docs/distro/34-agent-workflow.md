@@ -90,6 +90,9 @@
 
 ### Фаза 5 — `dev.check`
 
+> Реализовано как `dev.build.check()`, а не отдельный модуль: парсер ошибок и корень
+> модуля уже есть в `dev.build`. Тесты — в `regress-pkg.lua`.
+
 `go build ./... && go vet ./...` (+ `golangci-lint run ./...`, если установлен) в корне модуля
 (`dev.gomod.mod_root`) → quickfix + итог в notify. Шаблон — `dev.build`. Клавиша `<leader>Ac`.
 Проверка: `regress-check.lua` по образцу `regress-pkg.lua`.
