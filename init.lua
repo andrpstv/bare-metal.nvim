@@ -1,9 +1,9 @@
--- Минимальная версия: конфиг использует API Neovim 0.11+
--- (vim.lsp.config/enable, vim.lsp.completion и др.).
+-- Минимальная версия: 0.12.5 — текущая рабочая версия дистрибутива; sidekick.nvim
+-- требует >= 0.11.2, ниже по API (vim.lsp.config/enable, vim.lsp.completion) — 0.11.
 -- На старом nvim вместо каскада криптических ошибок — одно понятное сообщение.
-if vim.fn.has("nvim-0.11") ~= 1 then
+if vim.fn.has("nvim-0.12.5") ~= 1 then
 	local ver = vim.fn.execute("version"):match("NVIM v(%S+)") or "?"
-	vim.notify("[core] This config requires Neovim >= 0.11 (you have " .. ver .. ")", vim.log.levels.ERROR)
+	vim.notify("[core] This config requires Neovim >= 0.12.5 (you have " .. ver .. ")", vim.log.levels.ERROR)
 	return
 end
 

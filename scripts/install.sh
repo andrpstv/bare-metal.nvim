@@ -7,7 +7,7 @@
 set -uo pipefail
 
 # global-scope vars
-REQUIRED_NVIM_VERSION=0.11.0
+REQUIRED_NVIM_VERSION=0.12.5
 REQUIRED_NVIM_VERSION_LEGACY=0.10.0
 USE_SSH=1
 CLONE_ATTR=("--progress")

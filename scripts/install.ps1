@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop" # Exit when command fails
 
 # global-scope vars
 $USE_SSH = $True
-$REQUIRED_NVIM_VERSION = [version]'0.11.0'
+$REQUIRED_NVIM_VERSION = [version]'0.12.5'
 $REQUIRED_NVIM_VERSION_LEGACY = [version]'0.10.0'
 
 # package mgr vars

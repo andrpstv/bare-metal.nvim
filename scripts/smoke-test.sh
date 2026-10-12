@@ -130,9 +130,9 @@ fi
 #       output is not a sound way to assert anything -- that bug made this
 #       check report a false FAIL on a healthy 0.11.4.
 # Plus a static check: the guard is still present in the source.
-section "2. bootstrap version guard (>= 0.11)"
+section "2. bootstrap version guard (>= 0.12.5)"
 NVIM_VER="$(nvim --version | head -1 | sed -n 's/^NVIM v\([0-9][0-9.]*\).*/\1/p')"
-REQUIRED="0.11"
+REQUIRED="0.12.5"
 HAS_FILE="$TMPDIR_SMOKE/has.txt"
 if [ -z "$NVIM_VER" ]; then
 	record FAIL "running nvim satisfies required >= $REQUIRED" "could not parse version banner: '$(nvim --version | head -1)'"

@@ -10,7 +10,7 @@
 
 | Слой | Где | Ответственность |
 |---|---|---|
-| Вход | `init.lua` | проверка nvim ≥ 0.11, env-флаги `NVIM_PERF_DEFER`/`NVIM_PERF_LEAN` (+ deprecated-алиасы), `require("core")` |
+| Вход | `init.lua` | проверка nvim ≥ 0.12.5, env-флаги `NVIM_PERF_DEFER`/`NVIM_PERF_LEAN` (+ deprecated-алиасы), `require("core")` |
 | Ядро | `lua/core/` | `init.lua: load_core()` — порядок старта; `settings.lua` (+ `user.settings`), `options.lua`, `event.lua` (автокоманды, LspAttach, подключает `core.go`, `core.large_file`, `core.external`), `perf.lua` (`:PerfDefer*`/`:PerfLean*`), `select.lua` (нативный `vim.ui.select/input`), `pairs.lua`, `health.lua` (`:checkhealth core` = `:ConfigHealth`) |
 | Пакеты | `lua/distro/` | `manifest.lua` (источник правды), `loader.lua` (packadd + ленивые триггеры, без сети), `install.lua` (единственный curl/tar), `lock.lua` (`distro-lock.json`), `init.lua` (все `:Distro*`), `ui.lua`, `tools.lua`, `treesitter.lua`, `mirror*.lua`, `setup.lua`; диагностика: `bench*`, `diag`, `trace*` |
 | Конфиги плагинов | `lua/modules/configs/<группа>/<имя>.lua` | вызываются loader'ом по полю `config` манифеста; `modules/utils/init.lua` — `load_plugin`, `extend_config`, `register_server`, `gopls_found` |

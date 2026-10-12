@@ -1,5 +1,11 @@
 # Changelog — bare-metal.nvim
 
+## Unreleased — агентная разработка (план: docs/distro/34-agent-workflow.md)
+
+- **Минимум Neovim поднят до 0.12.5** (было 0.11): `init.lua` (гард и сообщение),
+  `scripts/install.sh`, `scripts/install.ps1`, smoke-тест (секция 2), README.
+  Причина — sidekick.nvim требует ≥ 0.11.2; решено зафиксировать текущую рабочую версию.
+
 ## Unreleased — внешняя синхронизация + gopls watched-files
 
 Две точечные правки, ноль новых плагинов и зависимостей:
