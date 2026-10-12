@@ -1,6 +1,30 @@
 # Changelog — bare-metal.nvim
 
-## v4.5.0 — Phase 3: codelens→dev.test, benchmarks, DAP lifecycle (2026-10-08)
+## Unreleased — внешняя синхронизация + gopls watched-files
+
+Две точечные правки, ноль новых плагинов и зависимостей:
+
+- `lua/core/external.lua` (новый, подключён из `core/event.lua`):
+  автоподхват внешних изменений без ручного `:checktime` — один libuv
+  fs_event-вотчер на открытый файл (debounce 300мс, реарм после
+  rename-сейвов) + страховочная сеть `checktime` на
+  BufEnter/CursorHold/CursorHoldI/FocusGained. Политика конфликтов:
+  чистый буфер перезагружается молча, изменённый — никогда (троттлированный
+  варнинг с `:w!`/`:e!`), удалённый — варнинг, буфер цел. Лимит 256 вотчеров
+  с деградацией на checktime-сеть; чистка на BufDelete/BufWipeout/VimLeavePre.
+- `servers/gopls.lua`: убран opt-out `didChangeWatchedFiles
+  dynamicRegistration=false` (воркэраунд ENOENT-шума 2026-09). Цена opt-out
+  оказалась выше: gopls не узнавал о `go.mod`/`go.sum`, и после `go get`
+  stale-диагностика «could not import» висела до касания буфера. На
+  nvim 0.12.5 + gopls 0.22.0 вотчинг чистый (ENOENT в логе — 0).
+
+Проверено: smoke PASS (12 unit-suites: +regress-external 23/23,
++regress-gowatch 6/6); внешняя запись — 316–323мс (5/5, таймаут 5с);
+burst 11 записей — 0 нотификаций; atomic-replace не глушит вотчер;
+`go get` — stale-диагностика гаснет сама (1→0, клиент один); journey 30/30
+на фикстуре 6 пакетов; живые TUI-циклы (gd/gr/K/C-o, cmp auto-popup,
+:w, ff, debug→terminate без orphan-dlv, пост-дебаг навигация); RSS ~31–33МБ,
+startup без регрессии (~61мс vs 21мс clean).
 
 Три точечные интеграции поверх существующего движка, ноль новых плагинов
 и зависимостей:

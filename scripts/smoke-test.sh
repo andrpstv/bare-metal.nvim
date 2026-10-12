@@ -202,7 +202,7 @@ fi
 # Headless unit regressions (no user config, no network).
 section "3c. Lua regression scripts (pure unit)"
 REGRESS_FAIL=""
-for regress in regress-test-names regress-gomod regress-pkg regress-format regress-y regress-dbgui regress-select regress-dbg-cycle regress-dbg-running regress-lsp; do
+for regress in regress-test-names regress-gomod regress-pkg regress-format regress-y regress-dbgui regress-select regress-dbg-cycle regress-dbg-running regress-lsp regress-external regress-gowatch; do
 	REGRESS_OUT="$(nvim --headless --noplugin -u NONE \
 		--cmd "set rtp+=$REPO_ROOT" -l "scripts/$regress.lua" 2>&1 | tr -d '\r' || true)"
 	if printf '%s\n' "$REGRESS_OUT" | grep -q '^FAIL'; then
@@ -210,9 +210,9 @@ for regress in regress-test-names regress-gomod regress-pkg regress-format regre
 	fi
 done
 if [ -z "$REGRESS_FAIL" ]; then
-	record PASS "unit regression scripts pass (10 suites)"
+	record PASS "unit regression scripts pass (12 suites)"
 else
-	record FAIL "unit regression scripts pass (10 suites)" "$REGRESS_FAIL"
+	record FAIL "unit regression scripts pass (12 suites)" "$REGRESS_FAIL"
 fi
 
 # --------------------------- check 3d: config-needing regression scripts --

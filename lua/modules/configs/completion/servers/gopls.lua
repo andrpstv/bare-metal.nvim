@@ -203,14 +203,21 @@ return {
 		debounce_text_changes = weak and (settings.gopls_weak_hw_debounce or 250) or (settings.gopls_debounce or 150),
 	},
 	capabilities = {
-		-- gopls шлёт client/registerCapability для didChangeWatchedFiles порой
-		-- на несуществующие пути (неразрешённые модули без go.sum): nvim тогда
-		-- падает в watch.watch ENOENT-нотифай. Отказываемся штатным путём —
-		-- рантайм сам игнорирует такие регистрации (см. _watchfiles.lua:50).
-		-- Цена: gopls не узнает о внешних изменениях файлов (git checkout,
-		-- go generate) до взаимодействия с буфером; открытые файлы шлют
-		-- didOpen/didChange/didSave как обычно.
-		workspace = { didChangeWatchedFiles = { dynamicRegistration = false } },
+		-- Watched files: do NOT opt out of didChangeWatchedFiles dynamic
+		-- registration. An earlier workaround (2026-09) advertised the
+		-- watched-files opt-out because gopls registered watchers rooted
+		-- at nonexistent paths for unresolvable modules and old nvim
+		-- watchers raised noisy ENOENT notifications. That opt-out had a
+		-- real cost: gopls never learned about go.mod/go.sum changes, so
+		-- after `go get` the stale "could not import" diagnostic persisted
+		-- until the user touched a buffer (reproduced 2026-10-10: stale
+		-- 40s+ with the opt-out, auto-cleared with default caps on
+		-- nvim 0.12.5 + gopls 0.22.0, no ENOENT noise). The runtime now
+		-- watches via vim._watch with include patterns and bounded invalid-
+		-- glob logging, so the workaround is obsolete. If ENOENT noise ever
+		-- returns on some platform, prefer a targeted fallback (manual
+		-- workspace/didChangeWatchedFiles notify for go.mod/go.sum/go.work)
+		-- over a blanket opt-out or a gopls restart loop.
 		textDocument = {
 			completion = {
 				contextSupport = true,

@@ -109,6 +109,12 @@ vim.api.nvim_create_autocmd("DirChanged", {
 
 require("core.large_file")
 require("core.go")
+-- External-change sync (core.external): per-file libuv watchers + checktime
+-- net on BufEnter/CursorHold/FocusGained, conflict-safe (modified buffers
+-- never auto-reload). See the module header for the policy.
+pcall(function()
+	require("core.external").setup()
+end)
 
 -- Autojump to last edit (large files enforced first, see core.large_file).
 vim.api.nvim_create_autocmd("BufReadPost", {
