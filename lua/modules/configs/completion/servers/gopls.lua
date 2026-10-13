@@ -196,6 +196,12 @@ return {
 		on_dir(vim.fs.root(f, { "go.work", "go.mod", ".git" }) or vim.fn.getcwd())
 	end,
 	cmd = { "gopls" },
+	-- Решения компилятора (codelens gc_details) — не диагностика, а тихие метки в конце строки.
+	handlers = {
+		["textDocument/publishDiagnostics"] = function(...)
+			return require("dev.gcdetails").on_publish(...)
+		end,
+	},
 	filetypes = { "go", "gomod", "gowork", "gosum", "gotmpl", "gohtmltmpl", "gotexttmpl" },
 	flags = {
 		allow_incremental_sync = true,

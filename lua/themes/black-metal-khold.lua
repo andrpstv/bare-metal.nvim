@@ -254,6 +254,19 @@ local apply_custom_body = function()
 			DapBreakpointRejected = { fg = "#888888" },
 			DapStopped = { fg = "#5f8787" },
 			DapLogPoint = { fg = "#aaaaaa" },
+			-- Выделение: было #222222 на чёрном — почти не видно; тёмно-красный тон khold.
+			Visual = { bg = blend("#974b46", 0.35, "#000000", "#341a18") },
+			-- Направляющие табов (listchars tab:│) и trail: тише текста, но заметны.
+			Whitespace = { fg = "#262626" },
+			-- Ok (статусы :Distro, ●) — teal палитры вместо ярко-зелёного.
+			DiagnosticOk = { fg = "#5f8787" },
+			-- Вхождения символа (documentHighlight, core/event.lua): чтение — тихий фон,
+			-- запись — ещё и красное подчёркивание: видно, где переменную меняют.
+			LspReferenceText = { bg = "#1c1c1c" },
+			LspReferenceRead = { bg = "#1c1c1c" },
+			LspReferenceWrite = { bg = "#1c1c1c", sp = "#af3a3a", fmt = "underline" },
+			-- Фон строки с ошибкой (vim.diagnostic signs.linehl, completion/lsp.lua).
+			DiagnosticErrorLine = { bg = blend("#af3a3a", 0.18, "#000000", "#1f0a0a") },
 			Search = { fg = "#000000", bg = "#ffffff" },
 			IncSearch = { fg = "#000000", bg = "#ffffff", fmt = "bold" },
 			CurSearch = { fg = "#ffffff", bg = "#af3a3a", fmt = "bold" },

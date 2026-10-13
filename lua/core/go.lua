@@ -262,3 +262,25 @@ vim.api.nvim_create_autocmd("FileType", {
 		end)
 	end,
 })
+
+-- Тихий `if err != nil` (dev.goerr: приглушён всегда, <leader>ge — схлопнуть) и метки
+-- «реализует интерфейс» (dev.implmarks). Модули грузятся первым Go-буфером; первая
+-- отрисовка goerr — через дебаунс, не внутри открытия файла. Метки — по CursorHold:
+-- кэш по changedtick, запросы к gopls асинхронно, только по видимому диапазону.
+local go_marks = vim.api.nvim_create_augroup("GoVisualMarks", { clear = true })
+vim.api.nvim_create_autocmd("FileType", {
+	group = go_marks,
+	pattern = "go",
+	callback = function(args)
+		require("dev.goerr").attach(args.buf)
+	end,
+})
+vim.api.nvim_create_autocmd("CursorHold", {
+	group = go_marks,
+	pattern = "*.go",
+	callback = function(args)
+		if vim.bo[args.buf].filetype == "go" then
+			require("dev.implmarks").refresh(args.buf)
+		end
+	end,
+})

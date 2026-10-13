@@ -77,9 +77,11 @@ local function execute(op, extra)
 		vim.list_extend(argv, extra)
 	end
 	vim.notify("[go] " .. table.concat(argv, " ") .. "  (" .. dir .. ")", vim.log.levels.INFO, { title = "go" })
+	require("dev.bear").busy("go")
 	vim.system(argv, { text = true, cwd = dir }, function(obj)
 		vim.schedule(function()
 			local code = obj and obj.code or 1
+			require("dev.bear").done("go", code == 0)
 			local out = ((obj and obj.stdout) or "") .. "\n" .. ((obj and obj.stderr) or "")
 			if code == 0 then
 				vim.notify("[go] " .. op .. " clean", vim.log.levels.INFO, { title = "go" })
@@ -122,9 +124,11 @@ function M.check()
 	end
 	vim.notify("[go] checking module " .. root .. " (" .. #steps .. " steps)", vim.log.levels.INFO, { title = "go" })
 	local items, failed = {}, {}
+	require("dev.bear").busy("go")
 	local function step(i)
 		local argv = steps[i]
 		if not argv then
+			require("dev.bear").done("go", #failed == 0)
 			vim.fn.setqflist({}, " ", { title = "go check: " .. root, items = items })
 			if #items > 0 then
 				vim.cmd("copen")

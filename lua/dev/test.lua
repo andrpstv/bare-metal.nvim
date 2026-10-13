@@ -11,6 +11,7 @@ local M = {}
 M.last_failed = {} ---@type string[] пакеты последнего красного прогона
 M.last_cmd = nil ---@type table? последний argv для rerun-all
 M.last_output = {} ---@type string[] сырой вывод последнего прогона
+M.last_summary = nil ---@type {pass: integer, fail: integer, ok: boolean}? пакеты последнего go test
 
 local function go_bin()
 	if vim.fn.executable("go") ~= 1 then
@@ -252,12 +253,21 @@ end
 function M._execute(argv, dir, title, mode)
 	M.last_cmd = { argv = argv, dir = dir }
 	vim.notify("[test] " .. table.concat(argv, " "), vim.log.levels.INFO, { title = "test" })
+	require("dev.bear").busy("test")
 	vim.system(argv, { text = true, cwd = dir }, function(obj)
 		vim.schedule(function()
 			M.last_output = vim.split(obj and obj.stdout or "", "\n", { plain = true })
 			local qf, sum, failed = parse_json(M.last_output)
+			local ok = #failed == 0 and (obj and obj.code) == 0 and not (mode == "test" and sum.norun)
 			if mode == "test" then
 				M.last_failed = failed
+				-- Итог для контекстной строки сверху (keymap/statusline.lua: _tabline).
+				M.last_summary = { pass = sum.pass, fail = sum.fail, ok = ok }
+				pcall(vim.cmd, "redrawtabline")
+			end
+			require("dev.bear").done("test", ok)
+			if mode == "test" then
+				require("dev.testmarks").apply(dir, "test", M.last_output)
 			end
 			if #failed > 0 or (obj and obj.code ~= 0 and #qf > 0) then
 				-- Абсолютные пути: qf открывается из любого окна.
@@ -290,6 +300,7 @@ function M._execute(argv, dir, title, mode)
 						parts[#parts + 1] = l -- не-JSON строка (go warnings и т.п.)
 					end
 				end
+				require("dev.testmarks").apply(dir, "bench", table.concat(parts))
 				local lines = {}
 				for b in table.concat(parts):gmatch("Benchmark[^\n]-ns/op") do
 					if #lines >= 8 then
@@ -442,6 +453,15 @@ function M.coverage()
 					end
 				end
 			end
+			-- Покрытие по функциям: тот же resolve, что у знаков; асинхронно, cwd = пакет.
+			vim.system({ "go", "tool", "cover", "-func=" .. out }, { text = true, cwd = dir }, function(o)
+				vim.schedule(function()
+					if o and o.code == 0 then
+						local tm = require("dev.testmarks")
+						tm.apply_cover(tm._parse_cover_func(o.stdout or ""), resolve)
+					end
+				end)
+			end)
 			local pct = stmts > 0 and (covered / stmts * 100) or 0
 			vim.notify(
 				string.format("[test] coverage %.1f%% (%d/%d stmts), uncovered marks: %d — clear with :TestCovClear", pct, covered, stmts, placed),
@@ -458,6 +478,7 @@ function M.coverage_clear()
 			pcall(vim.fn.sign_unplace, "DevTestCov", { buffer = b })
 		end
 	end
+	require("dev.testmarks").clear_cover()
 	vim.notify("[test] coverage marks cleared", vim.log.levels.INFO, { title = "test" })
 end
 

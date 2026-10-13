@@ -355,6 +355,7 @@ function M.ensure()
 	-- всегда шлёт terminated/exited (проверено живьём: сессия умирает
 	-- молча), а без этого слушателя stop оставлял бы процесс 90s-сторожу.
 	dap.listeners.after.disconnect["dev_owned_dlv_cleanup"] = owned_cleanup_after_session
+	require("dev.inlinevals").attach(dap) -- inline-значения переменных (ленивый require внутри ensure)
 	-- Editor exit with an active session: nvim-dap никого не гасит сам,
 	-- :qa! оставлял бы живой `dlv dap`. VimLeavePre — только свои хендлы.
 	if not M._leave_autocmd then

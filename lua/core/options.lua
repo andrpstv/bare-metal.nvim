@@ -50,13 +50,18 @@ local function load_options()
 		-- Insert-текст не трогает: русский ввод печатается как обычно.
 		langmap = [[ёйцукенгшщзхъфывапролджэячсмитьбю.;`qwertyuiop[]asdfghjkl\;'zxcvbnm\,./,ЁЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ\,;~QWERTYUIOP{}ASDFGHJKL:"ZXCVBNM<>?]],
 		list = true,
-		listchars = "tab:»·,nbsp:+,trail:·,extends:→,precedes:←",
+		-- tab: тонкая направляющая вместо »··· — stylua пишет табами, и маркер стоял на
+		-- каждой строке; цвет — Whitespace в теме (едва видно, trail тоже).
+		listchars = "tab:│ ,nbsp:+,trail:·,extends:→,precedes:←",
+		fillchars = "eob: ,fold: ", -- без ~ после конца буфера и без ----- после свёртки
+		foldtext = "v:lua.require'core.fold'.text()", -- строка с подсветкой + «··· N lines»
 		magic = true,
 		mousescroll = "ver:3,hor:6",
 		previewheight = 12,
 		-- Do NOT adjust the following option (pumblend) if you're using transparent background
 		pumblend = 0,
 		pumheight = 15,
+		quickfixtextfunc = "v:lua.require'core.qf'.text", -- `путь │ строка:кол ✗ текст` (core/qf.lua)
 		redrawtime = 1500,
 		ruler = true,
 		scrolloff = 3,

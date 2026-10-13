@@ -38,6 +38,9 @@ map("n", "<leader>gm", function()
 	-- on real modules. Real `go mod tidy` with feedback instead.
 	require("dev.gomod").tidy()
 end, { noremap = true, silent = true, desc = "go: Mod tidy" })
+map("n", "<leader>ge", function()
+	require("dev.goerr").toggle()
+end, { noremap = true, silent = true, desc = "go: Collapse if-err blocks" })
 map("n", "<leader>fs", ":GoFillStruct<CR>", { noremap = true, silent = true, desc = "go: Fill struct" })
 -- GoIfErr на `ie` (if err), а НЕ на `e*`: любой <leader>eX
 -- заставляет bare <leader>e ждать timeoutlen. Так тоггл мгновенный.

@@ -156,6 +156,22 @@ local function restart_watcher(buf, path)
 	end
 end
 
+local TRAIL_MAX_LINES = 5000
+
+--- Pre-reload text for the edit trail, or nil when the buffer is hidden,
+--- large (core.large_file) or long: copying it would cost more than it shows.
+---@param buf integer
+---@return string[]?
+local function trail_snapshot(buf)
+	if vim.fn.bufwinid(buf) == -1 or vim.b[buf].large_file then
+		return nil
+	end
+	if vim.api.nvim_buf_line_count(buf) > TRAIL_MAX_LINES then
+		return nil
+	end
+	return vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+end
+
 --- fs_event callback (scheduled). Debounces rapid agent rewrites into a
 --- single checktime; never reloads a modified buffer itself (checktime +
 --- autoread does the reload, FileChangedShell prompts on conflict).
@@ -207,8 +223,25 @@ function M._on_fs_event(buf, fs_err, events)
 				)
 				return
 			end
+			-- Trail (dev.fx): snapshot only visible, small buffers — animating an
+			-- unseen buffer is wasted work; a reload bumps changedtick.
+			local before = trail_snapshot(buf)
+			local tick = vim.api.nvim_buf_get_changedtick(buf)
 			-- checktime {buf}: stat + autoread reload without touching windows.
 			pcall(vim.cmd, "checktime " .. buf)
+			if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_get_changedtick(buf) ~= tick then
+				-- "Follow the agent": the context bar shows where the last external edit
+				-- landed, <leader>Af jumps there. Hidden buffers have no snapshot, so no row.
+				local ok, rows = pcall(function()
+					return before and require("dev.fx").trail(buf, before) or {}
+				end)
+				M.last_edit = { buf = buf, row = ok and rows[1] or nil, time = vim.uv.now() }
+				pcall(vim.cmd, "redrawtabline")
+				local sb = package.loaded["dev.scrollbar"]
+				if sb then
+					sb.invalidate(buf)
+				end
+			end
 		end)
 	end)
 end
@@ -335,6 +368,27 @@ function M.setup()
 			end
 		end
 	end)
+end
+
+--- Jump to the last external edit (agent, git): its buffer in a window that
+--- already shows it (or the current one), cursor on the first changed line.
+function M.follow()
+	local e = M.last_edit
+	if not e or not vim.api.nvim_buf_is_valid(e.buf) then
+		vim.notify("[sync] no external edits yet", vim.log.levels.INFO, { title = "[sync]" })
+		return
+	end
+	vim.cmd("normal! m'") -- back with <C-o>
+	local win = vim.fn.bufwinid(e.buf)
+	if win ~= -1 then
+		vim.api.nvim_set_current_win(win)
+	else
+		vim.api.nvim_set_current_buf(e.buf)
+	end
+	if e.row then
+		pcall(vim.api.nvim_win_set_cursor, 0, { e.row + 1, 0 })
+		vim.cmd("normal! zz")
+	end
 end
 
 -- Test hooks (same _test_ convention as dev.inspect).

@@ -1,7 +1,10 @@
 -- Статуслайн-каомодзи (без плагинов):
--- `ʕ ᵔᴥᵔ ʔ NOR fname [+] | ●[E W] [servers] %< %= Ln:Col %P | branch | (lines size)`
+-- `ʕ ᵔᴥᵔ ʔ NOR fname [+] | ●[E W] [servers] %< %= Ln:Col %P | (+a -r ~c) | (lines size)`
 -- Морда зависит от режима: normal ʕ ᵔᴥᵔ ʔ, insert ʕ •ᴥ• ʔ, visual ʕ ◕ᴥ◕ ʔ,
 -- select ʕ ￣ᴥ￣ ʔ, replace ʕ ºᴥº ʔ, command ʕ oᴥo ʔ, prompt ʕ ?ᴥ? ʔ, terminal ʕ >ᴥ< ʔ.
+-- Поверх режима: ошибки в буфере ʕ xᴥx ʔ (normal) и состояния dev.bear с ASCII-хвостом
+-- (занят ʕ ·ᴥ· ʔ|/-\, успех, провал, «ого» на внешнюю правку, сон zZz).
+-- Здесь же контекстная строка сверху (_tabline) и сон по простою.
 -- Цвета — ссылками на группы темы (следуют за сменой colorscheme сами).
 -- PerfDefer-флаг: defer_on() дёргает settings + nvim_list_uis() — на каждый
 -- redraw дорого. Кэшируем по ключу из дешёвых vim.g/vim.env проб; ключ меняется
@@ -124,6 +127,8 @@ local _stl_git_cache = {}
 -- Счётчики диагностик: единственный дорогой кусок статуслайна (был get() на redraw).
 -- Обновляется по DiagnosticChanged, на redraw только читается.
 local _stl_diag_cache = {}
+-- Крошки winbar (_wb_crumbs ниже): buf -> { row, tick, text }.
+local _wb_cache = {}
 
 -- Нормализация bufnr: callers historically pass 0 (= current), but caches and
 -- invalidations must key on the REAL buffer id, otherwise entries never clear.
@@ -212,16 +217,17 @@ local function _stl_get_git_status(bufnr)
 		_stl_git_cache[bufnr] = nil
 		return nil
 	end
-	local g = { "  " .. gsd.head }
+	-- Ветка — в контекстной строке сверху (_tabline); здесь только правки файла.
 	local a, r, ch = gsd.added or 0, gsd.removed or 0, gsd.changed or 0
-	if a + r + ch > 0 then
-		local cnt = {}
-		if a > 0 then cnt[#cnt + 1] = "+" .. a end
-		if r > 0 then cnt[#cnt + 1] = "-" .. r end
-		if ch > 0 then cnt[#cnt + 1] = "~" .. ch end
-		g[#g + 1] = " (%#Comment#" .. table.concat(cnt, " ") .. "%*)"
+	if a + r + ch == 0 then
+		_stl_git_cache[bufnr] = nil
+		return nil
 	end
-	local result = table.concat(g) .. " "
+	local cnt = {}
+	if a > 0 then cnt[#cnt + 1] = "+" .. a end
+	if r > 0 then cnt[#cnt + 1] = "-" .. r end
+	if ch > 0 then cnt[#cnt + 1] = "~" .. ch end
+	local result = "(%#Comment#" .. table.concat(cnt, " ") .. "%*) "
 	_stl_git_cache[bufnr] = result
 	return result
 end
@@ -232,6 +238,59 @@ pcall(vim.api.nvim_create_autocmd, { "BufEnter", "BufWritePost" }, {
 	group = _stl_augroup,
 	callback = function()
 		vim.b.stl_size_tick = (vim.b.stl_size_tick or 0) + 1
+	end,
+})
+-- Готовность языкового сервера (как «gopls: Loading packages» в VS Code): пока идёт
+-- $/progress — спиннер и заголовок рядом с [серверами]. Без таймеров: кадр спиннера
+-- двигает каждый отчёт сервера, перерисовка — не чаще раза в 80мс.
+local _stl_progress = {} -- client_id -> token -> { title, message, pct }
+local _stl_progress_n = 0
+local _stl_progress_pending = false
+local _stl_spin = { "|", "/", "-", "\\" }
+local function _stl_progress_text()
+	for _, tokens in pairs(_stl_progress) do
+		for _, p in pairs(tokens) do
+			local t = (p.title or "") .. (p.message and (": " .. p.message) or "")
+			if vim.fn.strchars(t) > 40 then
+				t = vim.fn.strcharpart(t, 0, 39) .. "…"
+			end
+			return _stl_spin[_stl_progress_n % 4 + 1] .. " " .. t .. (p.pct and (" " .. p.pct .. "%%") or "")
+		end
+	end
+end
+pcall(vim.api.nvim_create_autocmd, "LspProgress", {
+	group = _stl_augroup,
+	desc = "stl: language server progress (loading, indexing)",
+	callback = function(ev)
+		local p = ev.data and ev.data.params
+		local v = p and p.value
+		if type(v) ~= "table" or not p.token then
+			return
+		end
+		local id = ev.data.client_id
+		_stl_progress[id] = _stl_progress[id] or {}
+		if v.kind == "end" then
+			_stl_progress[id][p.token] = nil
+		else
+			-- report не повторяет title из begin — держим его.
+			local prev = _stl_progress[id][p.token] or {}
+			_stl_progress[id][p.token] = { title = v.title or prev.title, message = v.message, pct = v.percentage }
+		end
+		_stl_progress_n = _stl_progress_n + 1
+		if not _stl_progress_pending then
+			_stl_progress_pending = true
+			vim.defer_fn(function()
+				_stl_progress_pending = false
+				pcall(vim.cmd, "redrawstatus")
+			end, 80)
+		end
+	end,
+})
+pcall(vim.api.nvim_create_autocmd, "LspDetach", {
+	group = _stl_augroup,
+	desc = "stl: drop progress of a detached server (no frozen spinner)",
+	callback = function(args)
+		_stl_progress[args.data.client_id] = nil
 	end,
 })
 pcall(vim.api.nvim_create_autocmd, { "LspAttach", "LspDetach" }, {
@@ -258,6 +317,7 @@ pcall(vim.api.nvim_create_autocmd, { "BufWipeout", "BufDelete" }, {
 		_stl_lsp_cache[args.buf] = nil
 		_stl_git_cache[args.buf] = nil
 		_stl_diag_cache[args.buf] = nil
+		_wb_cache[args.buf] = nil
 	end,
 })
 
@@ -269,12 +329,33 @@ _G._statusline = function()
 		local m = vim.api.nvim_get_mode().mode
 		local m1 = m:sub(1, 1)
 		local grp = _stl_mode_hl[m] or _stl_mode_hl[m1] or "StlMN"
-		local face = _stl_faces[m] or "ʕ ᵔᴥᵔ ʔ"
 		-- Правая сторона подсвечивается цветом режима, но НЕ в normal:
 		-- там тихо (StlMeta). Оператор-пендинг (no/nov/ni*) — тоже normal,
 		-- а terminal-normal (nt) — светится teal, как терминал.
 		local is_norm = m1 == "n" and m ~= "nt"
 		local rgrp = is_norm and "StlMeta" or grp
+		-- Диагностика: читаем кэш DiagnosticChanged (никаких get() на redraw).
+		-- TURBO (T6): на промахе кэша fallback get() пропускаем и кладём нули.
+		-- Кэшируем: DiagnosticChanged для буфера БЕЗ диагностики не приходит,
+		-- так что без записи кэша баг-буфер светился бы «чистым» до
+		-- следующего публикующего события.
+		local bufnr = vim.api.nvim_get_current_buf()
+		local dc = _stl_diag_cache[bufnr]
+		if not dc then
+			if _stl_defer_on() then
+				dc = { 0, 0, 0, 0 }
+				_stl_diag_cache[bufnr] = dc
+			else
+				dc = _stl_count_diags(bufnr)
+				_stl_diag_cache[bufnr] = dc
+			end
+		end
+		local e, w, it, h = dc[1], dc[2], dc[3], dc[4]
+		-- Морда: состояние dev.bear (занят/успех/сон…) > ошибки в буфере (только в
+		-- normal — в insert их как раз чинят) > режим. dev.bear через package.loaded:
+		-- пока медведь не понадобился, модуль не грузится.
+		local bear = package.loaded["dev.bear"]
+		local face = (bear and bear.text()) or (is_norm and e > 0 and "ʕ xᴥx ʔ") or _stl_faces[m] or "ʕ ᵔᴥᵔ ʔ"
 		-- Пилюля: цветной чип-столбик + морда + код, всё в цвете режима.
 		-- Никаких фоновых блоков — бар чёрный, как любит black-metal.
 		parts[#parts + 1] = "%#" .. grp .. "#▊ " .. face .. " " .. (_stl_modes[m] or m) .. " %*%#StlSep#│%*"
@@ -318,23 +399,6 @@ _G._statusline = function()
 				parts[#parts + 1] = " [" .. vim.bo.fileformat .. "]"
 			end
 		end
-		-- Диагностика: читаем кэш DiagnosticChanged (никаких get() на redraw).
-		-- TURBO (T6): на промахе кэша fallback get() пропускаем и кладём нули.
-		-- Кэшируем: DiagnosticChanged для буфера БЕЗ диагностики не приходит,
-		-- так что без записи кэша баг-буфер светился бы «чистым» до
-		-- следующего публикующего события.
-		local bufnr = vim.api.nvim_get_current_buf()
-		local dc = _stl_diag_cache[bufnr]
-		if not dc then
-			if _stl_defer_on() then
-				dc = { 0, 0, 0, 0 }
-				_stl_diag_cache[bufnr] = dc
-			else
-				dc = _stl_count_diags(bufnr)
-				_stl_diag_cache[bufnr] = dc
-			end
-		end
-		local e, w, it, h = dc[1], dc[2], dc[3], dc[4]
 		if e + w + it + h > 0 then
 			local d = { "%#DiagnosticError#●%*" .. "[" }
 			if e > 0 then
@@ -356,6 +420,10 @@ _G._statusline = function()
 		local names = _stl_get_lsp_names(0)
 		if #names > 0 then
 			parts[#parts + 1] = " [" .. table.concat(names, " ") .. "]"
+		end
+		local prog = _stl_progress_text()
+		if prog then
+			parts[#parts + 1] = " %#StlDim#" .. prog .. "%*"
 		end
 		-- Truncation point — ПОСЛЕ серверов: раньше голый %< перед длинным
 		-- путём съедал "[lua_ls]" до "<ua_ls]".
@@ -403,6 +471,57 @@ pcall(vim.api.nvim_create_autocmd, "ColorScheme", {
 -- иконка + относительный путь + флаги + диагностика. Только для файловых
 -- буферов с именем: у терминалов/хелпа/пустых ряда нет вообще (winbar
 -- ставится локально окну, глобально пусто). Кэши те же, новых нет.
+-- Хлебные крошки (sticky scroll в VS Code, breadcrumbs в JetBrains): функция, метод, тип
+-- вокруг курсора по treesitter. Кэш по (буфер, changedtick, строка): перерисовка без
+-- смены строки — ноль работы; на новой строке — get_node и подъём по родителям.
+local function _wb_name(node, buf)
+	local t = node:type()
+	local name = node:field("name")[1]
+	if not name or not (t:find("function") or t:find("method") or t:find("class") or t == "type_spec") then
+		return nil
+	end
+	local text = vim.treesitter.get_node_text(name, buf)
+	if t == "method_declaration" then
+		-- Go: «(s *Server)» -> «(*Server).Handle» — без типа метод не узнать.
+		local recv = node:field("receiver")[1]
+		local rt = recv and vim.treesitter.get_node_text(recv, buf):match("([%*%w_%.%[%]]+)%s*%)$")
+		text = rt and ("(" .. rt .. ")." .. text) or text
+	end
+	return vim.fn.strchars(text) > 30 and (vim.fn.strcharpart(text, 0, 29) .. "…") or text
+end
+local function _wb_crumbs(win, buf)
+	if vim.b[buf].large_file then
+		return ""
+	end
+	local row = vim.api.nvim_win_get_cursor(win)[1] - 1
+	local tick = vim.api.nvim_buf_get_changedtick(buf)
+	local c = _wb_cache[buf]
+	if c and c.row == row and c.tick == tick then
+		return c.text
+	end
+	-- Первый непробельный символ строки: крошки не зависят от колонки — ключ кэша только строка.
+	local line = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ""
+	local ok, node = pcall(vim.treesitter.get_node, {
+		bufnr = buf,
+		pos = { row, math.max(0, (line:find("%S") or 1) - 1) },
+		ignore_injections = true,
+	})
+	local names = {}
+	while ok and node do
+		local n = _wb_name(node, buf)
+		if n then
+			table.insert(names, 1, n)
+		end
+		node = node:parent()
+	end
+	local text = ""
+	if #names > 0 then
+		text = "%#StlSep# › %#StlDim#" .. table.concat(vim.list_slice(names, math.max(1, #names - 2)), "%#StlSep# › %#StlDim#")
+	end
+	_wb_cache[buf] = { row = row, tick = tick, text = text }
+	return text
+end
+
 _G._winbar = function()
 	local ok, line = pcall(function()
 		local win = vim.g.statusline_winid or 0
@@ -419,6 +538,8 @@ _G._winbar = function()
 		local parts = {}
 		parts[#parts + 1] = "%#StlDim# " .. _stl_icon(fname)
 		parts[#parts + 1] = "%#StlFile#" .. vim.fn.fnamemodify(fname, ":.") .. "%*"
+		local wwin = (win ~= 0 and vim.api.nvim_win_is_valid(win)) and win or vim.api.nvim_get_current_win()
+		parts[#parts + 1] = _wb_crumbs(wwin, bufnr) .. "%*"
 		if vim.bo[bufnr].modified then
 			parts[#parts + 1] = " %#DiagnosticWarn#[+]%*"
 		end
@@ -463,5 +584,102 @@ pcall(vim.api.nvim_create_autocmd, { "BufWinEnter", "FileType" }, {
 				end)
 			end
 		end
+	end,
+})
+
+-- Сон медведя (dev.bear): 5 минут без клавиш. on_key — одно присваивание на
+-- клавишу; проверка — разовым таймером от CursorHold, постоянного тиканья нет.
+local _stl_idle_ms = 5 * 60 * 1000
+local _stl_last_key = vim.uv.now()
+local _stl_idle_timer = nil
+vim.on_key(function()
+	_stl_last_key = vim.uv.now()
+	local bear = package.loaded["dev.bear"]
+	if bear and bear.sleeping() then
+		vim.schedule(bear.wake)
+	end
+end, vim.api.nvim_create_namespace("stl_bear_idle"))
+pcall(vim.api.nvim_create_autocmd, { "CursorHold", "CursorHoldI" }, {
+	group = _stl_augroup,
+	desc = "stl: put the bear to sleep after a long idle",
+	callback = function()
+		_stl_idle_timer = _stl_idle_timer or vim.uv.new_timer()
+		if not _stl_idle_timer then
+			return
+		end
+		_stl_idle_timer:stop()
+		_stl_idle_timer:start(_stl_idle_ms, 0, vim.schedule_wrap(function()
+			if vim.uv.now() - _stl_last_key >= _stl_idle_ms then
+				require("dev.bear").sleep()
+			end
+		end))
+	end,
+})
+
+-- Контекстная строка сверху вместо стоковой таблички вкладок (та дублировала имя
+-- файла из winbar и статуслайна): проект · ветка · последний go test · вкладки,
+-- если их больше одной. На redraw — только кэш и package.loaded.
+local _tl_project = nil
+_G._tabline = function()
+	local ok, line = pcall(function()
+		if not _tl_project then
+			local cwd = vim.fn.getcwd(-1, -1)
+			local ok_p, proj = pcall(require, "dev.project")
+			_tl_project = vim.fs.basename(ok_p and proj.root(cwd) or cwd)
+		end
+		local parts = { "%#StlFile# " .. _tl_project .. " " }
+		local head = vim.g.gitsigns_head
+		if head and head ~= "" then
+			parts[#parts + 1] = "%#StlSep#│%#StlDim#  " .. head .. " "
+		end
+		local t = package.loaded["dev.test"]
+		local s = t and t.last_summary
+		if s then
+			-- Счёт по пакетам: dev.test считает package-level события go test -json.
+			local res = s.ok and ("%#StlMT#" .. s.pass .. " pkg ok")
+				or ("%#DiagnosticError#" .. (s.fail > 0 and (s.fail .. " pkg failed") or "failed"))
+			parts[#parts + 1] = "%#StlSep#│%#StlMeta# go test: " .. res .. " "
+		end
+		-- Куда последний раз писал агент (core.external, «follow the agent» как в Zed):
+		-- 10 минут после правки, <leader>Af — прыжок туда.
+		local ext = package.loaded["core.external"]
+		local le = ext and ext.last_edit
+		local age = le and (vim.uv.now() - le.time) / 1000
+		if age and age < 600 and vim.api.nvim_buf_is_valid(le.buf) then
+			local where = vim.fs.basename(vim.api.nvim_buf_get_name(le.buf)) .. (le.row and (":" .. (le.row + 1)) or "")
+			local ago = age < 60 and (math.floor(age) .. "s") or (math.floor(age / 60) .. "m")
+			parts[#parts + 1] = "%#StlSep#│%#StlMeta# edit → %#StlMV#" .. where .. "%#StlMeta# " .. ago .. " "
+		end
+		parts[#parts + 1] = "%#TabLineFill#%="
+		local n = vim.fn.tabpagenr("$")
+		if n > 1 then
+			local cur = vim.fn.tabpagenr()
+			for i = 1, n do
+				parts[#parts + 1] = "%" .. i .. "T" .. (i == cur and "%#StlFile#" or "%#StlMeta#") .. " " .. i .. " "
+			end
+			parts[#parts + 1] = "%T"
+		end
+		return table.concat(parts)
+	end)
+	return ok and line or ""
+end
+vim.o.tabline = "%!v:lua._tabline()"
+pcall(vim.api.nvim_create_autocmd, "DirChanged", {
+	group = _stl_augroup,
+	desc = "stl: recompute the project name in the context bar",
+	callback = function()
+		_tl_project = nil
+	end,
+})
+-- redrawstatus строку вкладок не трогает. schedule: gitsigns шлёт событие раньше,
+-- чем пишет g:gitsigns_head (gitsigns.lua, setup_cwd_head).
+pcall(vim.api.nvim_create_autocmd, "User", {
+	group = _stl_augroup,
+	pattern = "GitSignsUpdate",
+	desc = "stl: show the new branch in the context bar",
+	callback = function()
+		vim.schedule(function()
+			pcall(vim.cmd, "redrawtabline")
+		end)
 	end,
 })

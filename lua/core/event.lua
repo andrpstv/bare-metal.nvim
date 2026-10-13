@@ -38,6 +38,27 @@ vim.api.nvim_create_autocmd("FileType", {
 	end,
 })
 
+-- ✓/✗ и код выхода у команд в :terminal (dev.termmarks, OSC 133;C/D). Модуль — с первым
+-- терминалом: TermOpen приходит раньше первого TermRequest этого терминала.
+vim.api.nvim_create_autocmd("TermOpen", {
+	group = vim.api.nvim_create_augroup("TermMarks", { clear = true }),
+	once = true,
+	callback = function()
+		require("dev.termmarks").setup()
+	end,
+})
+
+-- Полоса меток справа (dev.scrollbar): модуль и его автокоманды — с первым показом буфера.
+vim.api.nvim_create_autocmd("BufWinEnter", {
+	group = vim.api.nvim_create_augroup("ScrollbarBoot", { clear = true }),
+	once = true,
+	callback = function()
+		if require("core.settings").ui_scrollbar ~= false then
+			require("dev.scrollbar").setup()
+		end
+	end,
+})
+
 -- Hold off on configuring anything related to the LSP until LspAttach
 local mapping = require("keymap.completion")
 -- Go module/stdlib files (pkg/mod, GOROOT) аттачатся к consumer workspace
@@ -74,6 +95,35 @@ vim.api.nvim_create_autocmd("LspAttach", {
 				if inlayhints_enabled == true then
 					pcall(vim.lsp.inlay_hint.enable, true, { bufnr = event.buf })
 				end
+			end
+
+			-- Вхождения символа (как в JetBrains): чтение — тихий фон, запись — с красным
+			-- подчёркиванием (LspReference* в теме). Запрос — по CursorHold, снятие — по
+			-- CursorMoved, и только если подсветка сейчас стоит: в горячем пути одна проверка.
+			local method = "textDocument/documentHighlight"
+			if require("core.settings").lsp_document_highlight and client and client:supports_method(method) then
+				local buf, shown = event.buf, false
+				local grp = vim.api.nvim_create_augroup("LspDocHighlight" .. buf, { clear = true })
+				vim.api.nvim_create_autocmd("CursorHold", {
+					group = grp,
+					buffer = buf,
+					callback = function()
+						if #vim.lsp.get_clients({ bufnr = buf, method = method }) > 0 then
+							vim.lsp.buf.document_highlight()
+							shown = true
+						end
+					end,
+				})
+				vim.api.nvim_create_autocmd({ "CursorMoved", "InsertEnter" }, {
+					group = grp,
+					buffer = buf,
+					callback = function()
+						if shown then
+							shown = false
+							vim.lsp.buf.clear_references()
+						end
+					end,
+				})
 			end
 		end
 	end,
@@ -206,7 +256,7 @@ function autocmd.load_autocmds()
 			{
 				"TextYankPost",
 				"*",
-				[[silent! lua vim.highlight.on_yank({ higroup = 'IncSearch', timeout = 300 })]],
+				[[silent! lua vim.hl.on_yank({ higroup = 'Substitute', timeout = 300 })]],
 			},
 		},
 	}

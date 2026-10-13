@@ -281,6 +281,26 @@ local load_core = function()
 			)
 		end,
 	})
+	-- Стартовый экран (dev.start) — ПОСЛЕ StarterHint: тот проверяет пустой буфер,
+	-- а экран его заменяет. Только голый старт с UI; модуль грузится здесь же, лениво.
+	vim.api.nvim_create_autocmd("VimEnter", {
+		group = vim.api.nvim_create_augroup("StartScreen", { clear = true }),
+		once = true,
+		desc = "core: start screen on empty startup",
+		callback = function()
+			if not settings.start_screen or vim.fn.argc() ~= 0 or #vim.api.nvim_list_uis() == 0 then
+				return
+			end
+			local buf = vim.api.nvim_get_current_buf()
+			if vim.api.nvim_buf_get_name(buf) ~= "" or vim.bo[buf].modified or vim.api.nvim_buf_line_count(buf) ~= 1 then
+				return
+			end
+			if vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] ~= "" then
+				return
+			end
+			require("dev.start").open()
+		end,
+	})
 end
 
 -- netrw НЕ отключаем: встроенный проводник доступен через :Ex / :Vex.

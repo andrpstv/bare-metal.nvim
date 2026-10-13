@@ -147,6 +147,7 @@ function M.start(opts)
 				M.changed = nil -- _count перерисует статуслайн, даже если новое значение 0
 				watch(true)
 				gitsigns_base(base)
+				require("dev.agentmine").start(M.session)
 				M._count()
 				notify(
 					(reset and "review base reset to now (" or "review session started (")
@@ -186,6 +187,7 @@ function M.stop()
 	watch(false)
 	vim.cmd("redrawstatus!")
 	gitsigns_base(nil)
+	require("dev.agentmine").stop()
 	notify("review session ended — git signs compare with the index again")
 end
 

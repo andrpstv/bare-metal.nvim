@@ -132,6 +132,21 @@ settings["defer_theme"] = false
 ---@type boolean
 settings["transparent_background"] = false
 
+-- ASCII-анимации (dev.fx): проявление логотипа, хвост медведя в статуслайне,
+-- след внешних правок. false — reduced motion: всё статично, информация остаётся.
+---@type boolean
+settings["ui_animations"] = true
+
+-- Полоса меток у правого края окна (dev.scrollbar): ошибки, правки git, последняя внешняя
+-- правка и видимая часть файла. false — без полосы (ноль работы при прокрутке).
+---@type boolean
+settings["ui_scrollbar"] = true
+
+-- Стартовый экран при голом `nvim` (dev.start): логотип, время старта, ключи.
+-- false — стоковый intro Neovim.
+---@type boolean
+settings["start_screen"] = true
+
 -- Set the background mode here.
 -- Useful for themes with both light and dark variants.
 -- Valid values: `dark`, `light`.
@@ -157,6 +172,9 @@ settings["lsp_inlayhints"] = true
 settings["signature_enabled"] = true
 ---@type boolean
 settings["codelens_enabled"] = true
+-- Вхождения символа под курсором (LSP documentHighlight) после паузы: чтение и запись разным цветом.
+---@type boolean
+settings["lsp_document_highlight"] = true
 ---@type boolean
 settings["treesitter_indent"] = true
 
@@ -437,6 +455,7 @@ return (function()
 		merged.lsp_inlayhints = false
 		merged.signature_enabled = false
 		merged.codelens_enabled = false
+		merged.lsp_document_highlight = false
 		merged.treesitter_indent = false
 	end
 	return merged

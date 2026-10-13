@@ -9,10 +9,16 @@ return function()
 	local sev_min = (vim.diagnostic.severity or {})[settings.diagnostics_level or "HINT"]
 		or vim.diagnostic.severity.HINT
 	vim.diagnostic.config({
-		signs = { severity = { min = sev_min } },
+		-- Error Lens: строка с ошибкой тонируется целиком, номер — красный. Только ERROR:
+		-- предупреждения в khold серые, серый фон на чёрном только шумит.
+		signs = {
+			severity = { min = sev_min },
+			linehl = { [vim.diagnostic.severity.ERROR] = "DiagnosticErrorLine" },
+			numhl = { [vim.diagnostic.severity.ERROR] = "DiagnosticError" },
+		},
 		underline = { severity = { min = sev_min } },
 		virtual_text = (not virt_lines) and { severity = { min = sev_min } } or false,
-		virtual_lines = virt_lines and { only_current_line = true } or false,
+		virtual_lines = virt_lines and { current_line = true } or false,
 		severity_sort = true,
 		update_in_insert = false,
 	})

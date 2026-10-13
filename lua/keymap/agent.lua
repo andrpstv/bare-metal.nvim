@@ -49,6 +49,11 @@ map("n", "<leader>Ae", function()
 	require("dev.agent").stop()
 end, { noremap = true, silent = true, desc = "agent: End review session" })
 
+-- «Следовать за агентом» (как в Zed): прыжок к последней внешней правке, назад — <C-o>.
+map("n", "<leader>Af", function()
+	require("core.external").follow()
+end, { noremap = true, silent = true, desc = "agent: Jump to the last external edit" })
+
 -- После правок агента: собрать и проверить весь модуль (не только открытые пакеты).
 map("n", "<leader>Ac", function()
 	require("dev.build").check()
