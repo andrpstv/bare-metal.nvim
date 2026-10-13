@@ -10,6 +10,8 @@ local prompt_ns -- namespace меток приглашений ядра, соз�
 local started = {} ---@type table<integer, {t: integer, row: integer}> буфер -> момент/строка OSC C
 local augroup
 
+M.last_done = nil ---@type {buf: integer, code: integer, sec: number, cmd: string, time: number}|nil
+
 ---@param seq string
 ---@return {kind: "C"}|{kind: "D", code: integer}|nil
 function M._parse(seq)
@@ -35,6 +37,39 @@ function M._fmt_duration(sec)
 		return string.format("%.1fs", sec)
 	end
 	return string.format("%dm%02ds", math.floor(sec / 60), math.floor(sec % 60))
+end
+
+---@param line string
+---@return string -- текст команды после prompt, до 24 символов
+function M._cmd_from_line(line)
+	-- Приглашение кончается символом и пробелом («❯ », «$ », «% »…). Берём ПЕРВОЕ вхождение:
+	-- по последнему `echo $HOME > out` обрезался бы до «out». ❯/➜ — многобайтные, отдельно от класса.
+	local cmd = line:match("❯%s+(.*)$") or line:match("➜%s+(.*)$") or line:match("^[^$%%>#]-[$%%>#]%s+(.*)$") or line
+	cmd = vim.trim(cmd)
+	if vim.fn.strchars(cmd) > 24 then
+		cmd = vim.fn.strcharpart(cmd, 0, 23) .. "…"
+	end
+	return cmd
+end
+
+---@param ld {buf: integer, code: integer, sec: number, cmd: string, time: number}|nil
+---@param now_ms number
+---@return string -- табличный сегмент или ""
+function M._badge(ld, now_ms)
+	if not ld or not vim.api.nvim_buf_is_valid(ld.buf) then
+		return ""
+	end
+	-- Старше 60 секунд — скрыть
+	if (now_ms - ld.time) > 60000 then
+		return ""
+	end
+	local cmd = ld.cmd ~= "" and (" " .. ld.cmd:gsub("%%", "%%%%") .. " ") or " "
+	local result = ld.code == 0 and "%#StlMT#✓" or ("%#DiagnosticError#✗ " .. ld.code)
+	local dur = M._fmt_duration(ld.sec) or ""
+	if dur ~= "" then
+		dur = " " .. dur .. " "
+	end
+	return "%@v:lua._tl_term_click@%#StlSep#│%#StlMeta# ⌁" .. cmd .. result .. "%#StlMeta#" .. dur .. "%X"
 end
 
 ---@param buf integer
@@ -72,6 +107,26 @@ local function mark(buf, code, sec, fallback_row)
 		virt_text = #virt > 0 and virt or nil,
 		priority = 200,
 	})
+	-- Если терминал не видно — запомнить в last_done для tabline и вызвать bear
+	if #(vim.fn.win_findbuf(buf) or {}) == 0 then
+		local cmd = ""
+		if st then
+			-- OSC C шлёт preexec уже после Enter: курсор на строке ниже команды. Берём строку выше,
+			-- пустую — пропускаем (команду печатают и прямо в строке вывода, как printf в тесте).
+			for _, l in ipairs(vim.api.nvim_buf_get_lines(buf, math.max(0, st.row - 2), st.row, false)) do
+				local c = M._cmd_from_line(l)
+				if c ~= "" then
+					cmd = c
+					break
+				end
+			end
+		end
+		M.last_done = { buf = buf, code = code, sec = sec or 0, cmd = cmd, time = vim.uv.now() }
+		pcall(function()
+			require("dev.bear").done("term", code == 0)
+		end)
+		vim.cmd.redrawtabline()
+	end
 end
 
 function M.setup()
@@ -103,6 +158,16 @@ function M.setup()
 		group = augroup,
 		callback = function(ev)
 			started[ev.buf] = nil
+		end,
+	})
+	-- Очистить last_done когда терминал становится видимым
+	vim.api.nvim_create_autocmd("BufWinEnter", {
+		group = augroup,
+		callback = function(ev)
+			if M.last_done and M.last_done.buf == ev.buf then
+				M.last_done = nil
+				vim.cmd.redrawtabline()
+			end
 		end,
 	})
 end

@@ -1,11 +1,10 @@
--- dev.implmarks — метки «implements» у Go-типов (как значки на полях в GoLand), виртуальным текстом в конце строки:
---   type X interface {  ->  ◆ 3 impl           (сколько типов её реализуют)
---   type X struct {     ->  ◇ Reader, Stringer (какие интерфейсы реализует; не больше 3, дальше +N)
+-- dev.implmarks — метки «implements» у Go-типов: спиннер при запросе, затем расширение имён за ~150ms.
+--   type X interface { ->  ◆ 2 implementations · A, B   (к-во типов в порядке gopls, ≤3 имён +N)
+--   type X struct {    ->  ◇ Reader, Stringer             (интерфейсы; не больше 3, дальше +N)
 --
 -- Почему свой: готовых плагинов нет, а gopls уже отвечает на textDocument/implementation — нужен только
--- тонкий слой: запросы асинхронно, только по видимому диапазону, с кэшем по changedtick. Запрос в пути
--- не повторяется, а не выбрасывается: gopls после старта отвечает секундами, дольше паузы CursorHold. Триггер (CursorHold/BufEnter с дебаунсом) подключает вызывающий.
--- Только существующие highlight-группы (Comment): отложенный `hi clear` темы стирает кастомные.
+-- тонкий слой: запросы асинхронно, только по видимому диапазону, с кэшем по changedtick. Один ticker на буфер.
+-- Анимация отключена в headless (determinism) или при disabled animations.
 
 local M = {}
 
@@ -14,9 +13,32 @@ local MARGIN = 50 -- строк сверх видимого диапазона
 local MAX_REQ = 20 -- запросов за один refresh
 local MAX_NAMES = 3
 local METHOD = "textDocument/implementation"
+local SPINNER_FRAMES = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+local SPINNER_MS = 80
 
----@type table<integer, { tick: integer, done: table<integer, boolean>, pending: table<integer, boolean> }>
+-- Инициализация highlight-групп с fallback на Comment
+vim.api.nvim_set_hl(0, "DevImpl", { link = "Comment", default = true })
+vim.api.nvim_set_hl(0, "DevImplCount", { link = "Comment", default = true })
+vim.api.nvim_set_hl(0, "DevImplName", { link = "Comment", default = true })
+
+---@type table<integer, { tick: integer, done: table<integer, boolean>, pending: table<integer, boolean>, loading: table<integer, boolean>, ids: table<integer, integer> }>
 local state = {}
+local spin = {} -- buf -> stop() общего спиннера буфера
+
+local function spin_stop(buf)
+	if spin[buf] then
+		spin[buf]()
+		spin[buf] = nil
+	end
+end
+
+
+--- Спиннер кадр по индексу (циклический).
+---@param i integer
+---@return string
+function M._frame(i)
+	return SPINNER_FRAMES[((i - 1) % #SPINNER_FRAMES) + 1]
+end
 
 --- Подмена источника клиентов в тестах.
 ---@type fun(buf: integer): table[]
@@ -60,26 +82,53 @@ function M._types(buf, srow, erow)
 	return res
 end
 
---- Текст метки; nil — нечего показывать.
+--- Чанки метки: { {text, group}, ... }; nil — нечего показывать.
 ---@param kind "interface"|"other"
----@param names string[]  для interface — реализации (важна длина), для other — интерфейсы
+---@param names string[]  для interface — реализации, для other — интерфейсы
+---@return table?  список {text, highlight_group} или nil
 function M._format(kind, names)
+	-- Дедупликация
+	local seen = {}
+	local deduped = {}
+	for _, n in ipairs(names) do
+		if not seen[n] then
+			seen[n] = true
+			deduped[#deduped + 1] = n
+		end
+	end
+	names = deduped
+
 	if #names == 0 then
+		if kind == "interface" then
+			return { { "◆", "DevImpl" }, { " no implementations", "DevImpl" } }
+		end
 		return nil
 	end
 	if kind == "interface" then
-		return ("◆ %d impl"):format(#names)
+		local count_text = #names == 1 and "1 implementation" or ("%d implementations"):format(#names)
+		local chunks = { { "◆", "DevImpl" }, { " " .. count_text, "DevImplCount" }, { " · ", "DevImpl" } }
+		local shown = vim.list_slice(names, 1, MAX_NAMES)
+		for i, name in ipairs(shown) do
+			if i > 1 then
+				table.insert(chunks, { ", ", "DevImpl" })
+			end
+			table.insert(chunks, { name, "DevImplName" })
+		end
+		if #names > MAX_NAMES then
+			table.insert(chunks, { " +" .. (#names - MAX_NAMES), "DevImpl" })
+		end
+		return chunks
 	end
-	local shown = vim.list_slice(names, 1, MAX_NAMES)
-	local s = "◇ " .. table.concat(shown, ", ")
+	local chunks = { { "◇ ", "DevImpl" }, { table.concat(vim.list_slice(names, 1, MAX_NAMES), ", "), "DevImplName" } }
 	if #names > MAX_NAMES then
-		s = s .. (" +%d"):format(#names - MAX_NAMES)
+		chunks[#chunks + 1] = { (" +%d"):format(#names - MAX_NAMES), "DevImpl" }
 	end
-	return s
+	return chunks
 end
 
 function M.clear(buf)
 	buf = (buf and buf ~= 0) and buf or vim.api.nvim_get_current_buf()
+	spin_stop(buf)
 	if vim.api.nvim_buf_is_valid(buf) then
 		vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
 	end
@@ -116,7 +165,8 @@ local function names_from(result, cur_dir)
 			end
 			if name then
 				local dir = vim.fs.dirname(path)
-				if dir ~= cur_dir then
+				-- Нормализуем пути для корректного сравнения (особенно на macOS с /private)
+				if vim.fn.resolve(dir) ~= vim.fn.resolve(cur_dir) then
 					name = vim.fs.basename(dir) .. "." .. name
 				end
 				names[#names + 1] = name
@@ -126,12 +176,85 @@ local function names_from(result, cur_dir)
 	return names
 end
 
-local function render(buf, t, names)
-	local text = M._format(t.kind, names)
-	if not text or t.row >= vim.api.nvim_buf_line_count(buf) then
+local function ensure_highlights()
+	-- Переустанавливаем highlights после hi clear темы (идемпотентно)
+	vim.api.nvim_set_hl(0, "DevImpl", { link = "Comment", default = true })
+	vim.api.nvim_set_hl(0, "DevImplCount", { link = "Comment", default = true })
+	vim.api.nvim_set_hl(0, "DevImplName", { link = "Comment", default = true })
+end
+
+-- Одна метка на строку: id переиспользуется, кадры заменяют друг друга, а не копятся.
+local function put(buf, st, row, chunks)
+	if row < vim.api.nvim_buf_line_count(buf) then
+		st.ids[row] = vim.api.nvim_buf_set_extmark(buf, ns, row, 0, { id = st.ids[row], virt_text = chunks, virt_text_pos = "eol" })
+	end
+end
+
+local function drop(buf, st, row)
+	if st.ids[row] then
+		pcall(vim.api.nvim_buf_del_extmark, buf, ns, st.ids[row])
+		st.ids[row] = nil
+	end
+end
+
+-- Пока gopls считает — у интерфейса крутится «◆ ⠹»: один тикер на буфер, сам гаснет, когда ждать нечего.
+local function loading(buf, st, t)
+	if t.kind ~= "interface" then
+		return -- у структур метка появляется только с ответом
+	end
+	ensure_highlights()
+	local fx = require("dev.fx")
+	st.loading[t.row] = true
+	put(buf, st, t.row, { { "◆ " .. (fx.enabled() and M._frame(1) or "…"), "DevImpl" } })
+	if spin[buf] or not fx.enabled() then
 		return
 	end
-	vim.api.nvim_buf_set_extmark(buf, ns, t.row, 0, { virt_text = { { text, "Comment" } }, virt_text_pos = "eol" })
+	spin[buf] = fx.ticker(SPINNER_MS, function(i)
+		local cur = state[buf]
+		if not cur or not next(cur.loading) or not vim.api.nvim_buf_is_valid(buf) then
+			spin[buf] = nil
+			return false
+		end
+		for row in pairs(cur.loading) do
+			put(buf, cur, row, { { "◆ " .. M._frame(i), "DevImpl" } })
+		end
+	end)
+end
+
+-- Ответ «печатается» слева направо за ~150 мс; режем по символам, не байтам («◆», «·»).
+local function reveal(buf, st, t, names)
+	st.loading[t.row] = nil
+	ensure_highlights()
+	local chunks = M._format(t.kind, names)
+	if not chunks then
+		drop(buf, st, t.row)
+		return
+	end
+	local fx = require("dev.fx")
+	if not fx.enabled() then
+		put(buf, st, t.row, chunks)
+		return
+	end
+	local total = 0
+	for _, c in ipairs(chunks) do
+		total = total + vim.fn.strchars(c[1])
+	end
+	fx.ticker(50, function(i)
+		if state[buf] ~= st or not vim.api.nvim_buf_is_valid(buf) then
+			return false -- буфер правили: метки уже сброшены
+		end
+		local out, left = {}, i >= 3 and total or math.ceil(total * i / 3)
+		for _, c in ipairs(chunks) do
+			if left <= 0 then
+				break
+			end
+			local len = vim.fn.strchars(c[1])
+			out[#out + 1] = { len <= left and c[1] or vim.fn.strcharpart(c[1], 0, left), c[2] }
+			left = left - len
+		end
+		put(buf, st, t.row, out)
+		return i < 3
+	end)
 end
 
 function M.refresh(buf)
@@ -146,8 +269,9 @@ function M.refresh(buf)
 	local tick = vim.api.nvim_buf_get_changedtick(buf)
 	local st = state[buf]
 	if not st or st.tick ~= tick then
+		spin_stop(buf)
 		vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-		st = { tick = tick, done = {}, pending = {} }
+		st = { tick = tick, done = {}, pending = {}, loading = {}, ids = {} }
 		state[buf] = st
 	end
 
@@ -178,6 +302,7 @@ function M.refresh(buf)
 		if not st.done[t.row] and not st.pending[t.row] then
 			sent = sent + 1
 			st.pending[t.row] = true
+			loading(buf, st, t)
 			local line = vim.api.nvim_buf_get_lines(buf, t.row, t.row + 1, false)[1] or ""
 			local ok, ch = pcall(vim.str_utfindex, line, enc, t.col, false)
 			local params = {
@@ -192,10 +317,12 @@ function M.refresh(buf)
 				end
 				cur.pending[t.row] = nil
 				if err then
+					cur.loading[t.row] = nil
+					drop(buf, cur, t.row) -- не оставлять крутящийся спиннер на ошибке
 					return
 				end
 				cur.done[t.row] = true
-				render(buf, t, names_from(result, cur_dir))
+				reveal(buf, cur, t, names_from(result, cur_dir))
 			end, buf)
 		end
 	end

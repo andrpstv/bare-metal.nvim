@@ -132,6 +132,28 @@ do
 	end
 end
 
+-- UX: undotree / message history (global); gitsigns blame toggle is buffer-local (static check below).
+check("map <leader>u undotree", desc_of(" u", "n"):find("Undo tree") ~= nil)
+check("map <leader>fn messages", desc_of(" fn", "n"):find("Message history") ~= nil)
+check("RU duplicate of <leader>u", has_map(" г", "n"))
+check("RU duplicate of <leader>fn", has_map(" ат", "n"))
+do
+	local fh = io.open(vim.fn.stdpath("config") .. "/lua/keymap/ui.lua", "r")
+	local src = fh and fh:read("*a") or ""
+	if fh then
+		fh:close()
+	end
+	check("gitsigns <leader>gB declared", src:find('"<leader>gB"', 1, true) ~= nil)
+end
+
+-- which-key: RU-дубли скрыты из подсказки, латиница остаётся.
+do
+	require("distro.loader").load("which-key.nvim")
+	local f = require("which-key.config").options.filter
+	check("which-key hides Cyrillic lhs", f({ lhs = " П" }) == false)
+	check("which-key keeps <leader>ff", f({ lhs = " ff" }) == true)
+end
+
 print(string.format("total=%d failures=%d", total, failures))
 if failures > 0 then
 	os.exit(1)

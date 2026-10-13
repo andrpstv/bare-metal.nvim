@@ -38,6 +38,23 @@ vim.api.nvim_create_autocmd("FileType", {
 	end,
 })
 
+-- Стоковый ftplugin/qf.vim ставит окну локальный statusline `[Quickfix List]` и ломает единый
+-- глобальный (laststatus=3): выключаем до первого qf-окна.
+vim.g.qf_disable_statusline = 1
+-- Высота qf/loclist по числу пунктов при открытии (core.qf не грузится на старте — только по событию).
+vim.api.nvim_create_autocmd("BufWinEnter", {
+	group = vim.api.nvim_create_augroup("QfFit", { clear = true }),
+	callback = function(event)
+		if vim.bo[event.buf].buftype == "quickfix" then
+			-- schedule: copen выставляет свои 10 строк уже после события
+			local win = vim.api.nvim_get_current_win()
+			vim.schedule(function()
+				require("core.qf").fit(win)
+			end)
+		end
+	end,
+})
+
 -- ✓/✗ и код выхода у команд в :terminal (dev.termmarks, OSC 133;C/D). Модуль — с первым
 -- терминалом: TermOpen приходит раньше первого TermRequest этого терминала.
 vim.api.nvim_create_autocmd("TermOpen", {
@@ -125,6 +142,75 @@ vim.api.nvim_create_autocmd("LspAttach", {
 					end,
 				})
 			end
+		end
+	end,
+})
+
+-- Новые ERROR-диагностики после сохранения вспыхивают (dev.newdiag). Снимок — только на BufWritePre,
+-- на DiagnosticChanged без ожидающего сохранения — одна проверка таблицы через package.loaded.
+do
+	local g = vim.api.nvim_create_augroup("NewDiag", { clear = true })
+	vim.api.nvim_create_autocmd("BufWritePre", {
+		group = g,
+		callback = function(ev)
+			require("dev.newdiag").snapshot(ev.buf)
+		end,
+	})
+	vim.api.nvim_create_autocmd("BufWritePost", {
+		group = g,
+		callback = function(ev)
+			require("dev.newdiag").arm(ev.buf)
+		end,
+	})
+	vim.api.nvim_create_autocmd("DiagnosticChanged", {
+		group = g,
+		callback = function(ev)
+			local nd = package.loaded["dev.newdiag"]
+			if nd and nd.pending[ev.buf] then
+				nd.check(ev.buf)
+			end
+		end,
+	})
+end
+
+-- Спиннер медленного LSP-запроса пользователя (dev.lspwait). Модуль грузится с первым запросом
+-- LSP, не на старте; дальше на каждый запрос — поиск метода в таблице, фоновые отсекаются сразу.
+vim.api.nvim_create_autocmd("LspRequest", {
+	group = vim.api.nvim_create_augroup("LspWait", { clear = true }),
+	callback = function(ev)
+		local lw = require("dev.lspwait")
+		local req = ev.data.request
+		if lw.TRACKED[req.method] then
+			lw.on_request(ev.buf, ev.data.client_id, ev.data.request_id, req.type)
+		end
+	end,
+})
+
+-- Маячок при дальном прыжке: линия вспыхивает и гаснет ~250ms после прыжка.
+-- Прыжок = дельта >= 10 строк И jumplist изменился (gd, G, n, :N, quickfix, <C-o>; не <C-d>/j/k).
+-- На горячем пути — только сравнение чисел; getjumplist — лишь на большой дельте.
+local beacon_last_line = {}
+local beacon_last_jl = {}
+vim.api.nvim_create_autocmd("CursorMoved", {
+	group = vim.api.nvim_create_augroup("FxBeacon", { clear = true }),
+	callback = function()
+		local win = vim.api.nvim_get_current_win()
+		local cur_line = vim.api.nvim_win_get_cursor(win)[1]
+		local last_line = beacon_last_line[win]
+		beacon_last_line[win] = cur_line
+		if last_line and math.abs(cur_line - last_line) < 10 then
+			return
+		end
+		-- Подпись = позиция + последняя запись: на полном (100) списке позиция не двигается.
+		local jl, idx = unpack(vim.fn.getjumplist())
+		local last = jl[#jl]
+		local sig = idx .. ":" .. (last and (last.bufnr .. ":" .. last.lnum) or "")
+		local before = beacon_last_jl[win]
+		beacon_last_jl[win] = sig
+		-- Первое движение в окне только запоминает подпись (иначе ложная вспышка на первом <C-d>).
+		if last_line and before ~= sig and vim.api.nvim_win_get_config(win).relative == ""
+			and not vim.b[vim.api.nvim_win_get_buf(win)].large_file then
+			require("dev.fx").beacon(win)
 		end
 	end,
 })

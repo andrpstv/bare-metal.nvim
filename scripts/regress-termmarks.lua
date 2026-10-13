@@ -37,6 +37,29 @@ check("0.85s hidden", tm._fmt_duration(0.85) == nil)
 check("3.4s", tm._fmt_duration(3.4) == "3.4s")
 check("125s -> 2m05s", tm._fmt_duration(125) == "2m05s")
 
+-- ---------------------------------------------------------------- _cmd_from_line
+check("cmd from zsh prompt", tm._cmd_from_line("~/p ❯ make build") == "make build")
+check("cmd from bash", tm._cmd_from_line("$ go test ./...") == "go test ./...")
+check("cmd with trailing spaces", tm._cmd_from_line("❯   echo hi") == "echo hi")
+local long_cmd = tm._cmd_from_line("$ " .. string.rep("a", 40))
+check("long cmd truncated to 24", vim.fn.strchars(long_cmd) == 24)
+check("long cmd contains ellipsis", long_cmd:find("…") ~= nil)
+check("percent sign escaped in badge", tm._badge({buf = 1, code = 0, sec = 0, cmd = "make %", time = vim.uv.now()}, vim.uv.now()):find("%%%%") ~= nil)
+
+-- ---------------------------------------------------------------- _badge
+check("badge nil -> empty", tm._badge(nil, vim.uv.now()) == "")
+local badge_buf = vim.api.nvim_create_buf(true, false)
+local badge_ok = tm._badge({buf = badge_buf, code = 0, sec = 0, cmd = "", time = vim.uv.now()}, vim.uv.now())
+check("badge valid buf contains ⌁", badge_ok:find("⌁") ~= nil)
+check("badge ok code contains ✓", badge_ok:find("✓") ~= nil)
+local fail_badge = tm._badge({buf = badge_buf, code = 2, sec = 0, cmd = "", time = vim.uv.now()}, vim.uv.now())
+check("badge fail code contains ✗", fail_badge:find("✗ 2") ~= nil)
+check("badge contains cmd", tm._badge({buf = badge_buf, code = 0, sec = 0, cmd = "test", time = vim.uv.now()}, vim.uv.now()):find("test") ~= nil)
+check("badge contains duration", tm._badge({buf = badge_buf, code = 0, sec = 3.4, cmd = "", time = vim.uv.now()}, vim.uv.now()):find("3.4s") ~= nil)
+check("badge old > 60s -> empty", tm._badge({buf = badge_buf, code = 0, sec = 0, cmd = "", time = vim.uv.now() - 70000}, vim.uv.now()) == "")
+vim.api.nvim_buf_delete(badge_buf, {force = true})
+check("badge deleted buf -> empty", tm._badge({buf = badge_buf, code = 0, sec = 0, cmd = "", time = vim.uv.now()}, vim.uv.now()) == "")
+
 -- ---------------------------------------------------------------- real terminal
 tm.setup()
 tm.setup() -- идемпотентно
@@ -79,5 +102,6 @@ if #m >= 2 then
 	check("marks on distinct rows", m[1][2] ~= m[2][2])
 end
 
+check("cmd: first prompt wins, `$`/`>` inside the command stay", tm._cmd_from_line("user@h:~/p$ echo $HOME > out") == "echo $HOME > out")
 print(string.format("total=%d failures=%d", total, failures))
 os.exit(failures > 0 and 1 or 0)

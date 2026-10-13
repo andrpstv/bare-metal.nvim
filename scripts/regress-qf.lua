@@ -181,5 +181,11 @@ vim.fn.delete(temp1)
 vim.fn.delete(temp2)
 vim.fn.delete(long_dir, "rf")
 
+-- ---------------------------------------------------------------- высота окна
+check("qf_height: 0 -> min 2", qf._qf_height(0) == 2)
+check("qf_height: 1 -> 2", qf._qf_height(1) == 2)
+check("qf_height: 5 -> 5", qf._qf_height(5) == 5)
+check("qf_height: 50 -> 10", qf._qf_height(50) == 10)
+
 print(string.format("total=%d failures=%d", total, failures))
 os.exit(failures > 0 and 1 or 0)

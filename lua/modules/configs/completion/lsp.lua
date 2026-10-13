@@ -21,6 +21,8 @@ return function()
 		virtual_lines = virt_lines and { current_line = true } or false,
 		severity_sort = true,
 		update_in_insert = false,
+		-- winborder пуст, а NormalFloat == Normal: без рамки float сливается с кодом.
+		float = { border = "rounded" },
 	})
 
 	-- Capabilities: база + расширение от cmp-nvim-lsp (snippetSupport и др.),

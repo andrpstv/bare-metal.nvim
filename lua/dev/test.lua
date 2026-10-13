@@ -8,6 +8,8 @@
 
 local M = {}
 
+local ns_fail = vim.api.nvim_create_namespace("devtest_fail")
+
 M.last_failed = {} ---@type string[] пакеты последнего красного прогона
 M.last_cmd = nil ---@type table? последний argv для rerun-all
 M.last_output = {} ---@type string[] сырой вывод последнего прогона
@@ -71,11 +73,19 @@ end
 --- Разбор `go test -json`: failures → qf items, counters → summary.
 local function parse_json(raw)
 	local qf, pass, fail, skip, cached = {}, 0, 0, 0, 0
+	local tpass, tfail = 0, 0 -- тесты верхнего уровня (как в dev.testmarks)
 	local norun = false
 	local fail_pkgs = {}
 	for _, line in ipairs(raw) do
 		local ok, ev = pcall(vim.json.decode, line)
 		if ok and type(ev) == "table" then
+			if ev.Test and not ev.Test:find("/", 1, true) then
+				if ev.Action == "pass" then
+					tpass = tpass + 1
+				elseif ev.Action == "fail" then
+					tfail = tfail + 1
+				end
+			end
 			if ev.Action == "pass" and ev.Test == nil then
 				pass = pass + 1
 				if ev.Package then
@@ -111,7 +121,7 @@ local function parse_json(raw)
 			failed[#failed + 1] = pkg
 		end
 	end
-	return qf, { pass = pass, fail = fail, skip = skip, cached = cached, norun = norun }, failed
+	return qf, { pass = pass, fail = fail, skip = skip, cached = cached, norun = norun, tpass = tpass, tfail = tfail }, failed
 end
 
 --- Прогон. scope: "func"|"pkg"|"all"|"rerun". extra — доп. флаги go test.
@@ -254,9 +264,28 @@ function M._execute(argv, dir, title, mode)
 	M.last_cmd = { argv = argv, dir = dir }
 	vim.notify("[test] " .. table.concat(argv, " "), vim.log.levels.INFO, { title = "test" })
 	require("dev.bear").busy("test")
-	vim.system(argv, { text = true, cwd = dir }, function(obj)
+	local tm = require("dev.testmarks")
+	local all, rest = "", ""
+	if mode == "test" then
+		tm.live_start(dir)
+	end
+	-- Стрим: stdout приходит чанками; в test-режиме собираем сами (obj.stdout при функции-обработчике пуст).
+	local on_out = mode == "test" and function(_, data)
+		if data then
+			vim.schedule(function()
+				all = all .. data
+				local lines
+				lines, rest = tm._split(rest, data)
+				for _, l in ipairs(lines) do
+					tm.live_feed(l)
+				end
+			end)
+		end
+	end or nil
+	vim.system(argv, { text = true, cwd = dir, stdout = on_out }, function(obj)
 		vim.schedule(function()
-			M.last_output = vim.split(obj and obj.stdout or "", "\n", { plain = true })
+			tm.live_stop()
+			M.last_output = vim.split(all ~= "" and all or (obj and obj.stdout or ""), "\n", { plain = true })
 			local qf, sum, failed = parse_json(M.last_output)
 			local ok = #failed == 0 and (obj and obj.code) == 0 and not (mode == "test" and sum.norun)
 			if mode == "test" then
@@ -268,6 +297,7 @@ function M._execute(argv, dir, title, mode)
 			require("dev.bear").done("test", ok)
 			if mode == "test" then
 				require("dev.testmarks").apply(dir, "test", M.last_output)
+				vim.diagnostic.reset(ns_fail) -- зелёный прогон снимает старые отметки
 			end
 			if #failed > 0 or (obj and obj.code ~= 0 and #qf > 0) then
 				-- Абсолютные пути: qf открывается из любого окна.
@@ -276,12 +306,21 @@ function M._execute(argv, dir, title, mode)
 						it.filename = dir .. "/" .. it.filename
 					end
 				end
+				if mode == "test" then
+					require("dev.build").publish_diags(ns_fail, qf, vim.diagnostic.severity.ERROR, "go test")
+				end
 				vim.fn.setqflist({}, " ", { title = "go " .. (mode == "bench" and "bench" or "test") .. ": " .. title, items = qf })
 				vim.cmd("copen")
 			else
 				pcall(vim.cmd, "cclose")
 			end
 			local msg = string.format("pass=%d fail=%d skip=%d", sum.pass, sum.fail, sum.skip)
+			if mode == "test" then
+				msg = string.format("%d passed, %d failed", sum.tpass, sum.tfail)
+				if #failed > 0 then
+					msg = msg .. string.format(" (%d pkg failed)", #failed)
+				end
+			end
 			if sum.cached > 0 then
 				msg = msg .. " (cached lines in output)"
 			end

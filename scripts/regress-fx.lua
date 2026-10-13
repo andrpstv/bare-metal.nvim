@@ -155,6 +155,136 @@ check("session -> restore item", table.concat(start.render(120, 40, info, start.
 local narrow = table.concat(start.render(40, 40, info, start.FRAMES + 1, settle, seq), "\n")
 check("narrow window -> no logo, menu kept", not narrow:find(vim.pesc(start.LOGO[2]), 1) and narrow:find("[f]", 1, true) ~= nil)
 
+-- ---------------------------------------------------------------- recent files
+local tmpdir = vim.fn.tempname()
+vim.fn.mkdir(tmpdir, "p")
+local file1 = tmpdir .. "/file1.go"
+local file2 = tmpdir .. "/file2.go"
+local file3 = tmpdir .. "/other.txt"
+local outside = vim.fn.tempname() .. "_outside.txt"
+vim.fn.writefile({ "test" }, file1)
+vim.fn.writefile({ "test" }, file2)
+vim.fn.writefile({ "test" }, file3)
+vim.fn.writefile({ "test" }, outside)
+local old_files = { tmpdir .. "/nonexist.txt", outside, file2, file1, file3 }
+local cwd = tmpdir
+local recent = start._recent(old_files, cwd, 3)
+check("recent: only existing files of this project, in oldfiles order", #recent == 3 and recent[1] == file2 and recent[2] == file1 and recent[3] == file3)
+local recent_all = start._recent(old_files, cwd, 5)
+check("recent caps at max", #recent_all <= 5)
+local recent_nonexist = start._recent({ "/nonexistent/path/file.txt" }, "/home", 5)
+check("recent filters nonexistent files", #recent_nonexist == 0)
+vim.fn.mkdir(tmpdir .. "2", "p")
+vim.fn.writefile({ "x" }, tmpdir .. "2/x")
+check("recent: sibling dir with the same prefix is not cwd", #start._recent({ outside, tmpdir .. "2/x" }, tmpdir, 5) == 0)
+vim.fn.delete(outside)
+
+-- ---------------------------------------------------------------- beacon
+local fxm = require("dev.fx")
+local test_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(test_buf, 0, -1, false, { "line1", "line2", "line3" })
+local test_win = vim.api.nvim_get_current_win()
+vim.api.nvim_win_set_buf(test_win, test_buf)
+local beacon_ns = vim.api.nvim_create_namespace("dev_fx_beacon")
+local function beacon_marks()
+	return #vim.api.nvim_buf_get_extmarks(test_buf, beacon_ns, 0, -1, {})
+end
+-- headless = как ui_animations=false: украшение без информации — не рисуем вовсе (и не залипает).
+fxm.beacon(test_win)
+check("beacon: no animations -> no extmark", beacon_marks() == 0)
+local real_enabled = fxm.enabled
+fxm.enabled = function()
+	return true
+end
+fxm.beacon(test_win)
+check("beacon: flash extmark right after the jump", beacon_marks() == 1)
+vim.wait(600, function()
+	return beacon_marks() == 0
+end)
+check("beacon: fades out completely", beacon_marks() == 0)
+fxm.enabled = real_enabled
+
+-- ---------------------------------------------------------------- flash_rows
+local flash_ns = vim.api.nvim_create_namespace("dev_fx_flash")
+local fb = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(fb, 0, -1, false, { "a", "b", "c", "d", "e" })
+local function flash_marks()
+	return #vim.api.nvim_buf_get_extmarks(fb, flash_ns, 0, -1, {})
+end
+-- Headless -> reduced motion: статичная подсветка, потом очистка
+fxm.flash_rows(fb, 1, 3)
+check("flash_rows (reduced motion): extmarks for rows 1..3", flash_marks() == 3)
+vim.wait(600, function()
+	return flash_marks() == 0
+end)
+check("flash_rows (reduced motion): clears after 400ms wait", flash_marks() == 0)
+-- С включённой анимацией: extmarks должны быть сразу (после small schedule) и исчезнуть через ~400ms
+fxm.enabled = function()
+	return true
+end
+fxm.flash_rows(fb, 0, 2)
+vim.wait(50, function()
+	return flash_marks() > 0
+end)
+check("flash_rows (animated): extmarks appear within 50ms", flash_marks() == 3)
+vim.wait(800, function()
+	return flash_marks() == 0
+end)
+check("flash_rows (animated): fades out within 800ms", flash_marks() == 0)
+fxm.enabled = real_enabled
+
+-- ---------------------------------------------------------------- badge
+local badge_ns = vim.api.nvim_create_namespace("dev_fx_badge")
+local bb = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(bb, 0, -1, false, { "line1", "line2", "line3" })
+local bwin = vim.api.nvim_get_current_win()
+vim.api.nvim_win_set_buf(bwin, bb)
+local function badge_marks()
+	return #vim.api.nvim_buf_get_extmarks(bb, badge_ns, 0, -1, {})
+end
+local function badge_text()
+	local marks = vim.api.nvim_buf_get_extmarks(bb, badge_ns, 0, -1, { details = true })
+	if #marks > 0 then
+		return marks[1][4].virt_text
+	end
+	return nil
+end
+-- Headless: статичный бейдж, потом очистка за 1.5s
+fxm.badge(bwin, { "3/17" })
+check("badge (reduced motion): one extmark after call", badge_marks() == 1)
+local text = badge_text()
+check("badge (reduced motion): virt_text contains '3/17'", text and vim.inspect(text):find("3/17", 1, true) ~= nil)
+vim.wait(2000, function()
+	return badge_marks() == 0
+end)
+check("badge (reduced motion): clears after 1.5s wait", badge_marks() == 0)
+-- С анимацией
+fxm.enabled = function()
+	return true
+end
+fxm.badge(bwin, { "3/17" })
+vim.wait(50, function()
+	return badge_marks() > 0
+end)
+check("badge (animated): one extmark within 50ms", badge_marks() == 1)
+vim.wait(2000, function()
+	return badge_marks() == 0
+end)
+check("badge (animated): fades out within 2s", badge_marks() == 0)
+-- Быстрые ]q: новая метка на другой строке гасит прежнюю, старый таймер её не дорисовывает.
+vim.api.nvim_win_set_cursor(bwin, { 1, 0 })
+fxm.badge(bwin, { { "⟶ ", "FxBadge2" }, { "1", "FxBadge1" }, { "/3", "FxBadge2" } })
+vim.api.nvim_win_set_cursor(bwin, { 3, 0 })
+fxm.badge(bwin, { { "⟶ ", "FxBadge2" }, { "2", "FxBadge1" }, { "/3", "FxBadge2" } })
+vim.wait(400)
+local bm = vim.api.nvim_buf_get_extmarks(bb, badge_ns, 0, -1, { details = true })
+check("badge: replaced badge never lingers on the old row", #bm == 1 and bm[1][2] == 2)
+check("badge: chunks keep text, hl names are not rendered", #bm == 1 and bm[1][4].virt_text[2][1] == "2")
+vim.wait(2000, function()
+	return badge_marks() == 0
+end)
+fxm.enabled = real_enabled
+
 -- ---------------------------------------------------------------- statusline + context bar
 package.loaded["dev.project"] = {
 	root = function()

@@ -89,6 +89,8 @@ local function cov_hl(pct)
 	return pct < 50 and "DiagnosticError" or pct < 80 and "DiagnosticWarn" or "DiagnosticOk"
 end
 
+local SPIN = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+
 local function mark(buf, ns, row, chunks)
 	pcall(vim.api.nvim_buf_set_extmark, buf, ns, row, 0, { virt_text = chunks, virt_text_pos = "eol" })
 end
@@ -108,11 +110,19 @@ function M.render(buf)
 	local dir = M.canon(vim.fs.dirname(name))
 	local tests, bench = store.tests[dir], store.bench[dir]
 	local cov = store.cover[M.canon(name)]
+	local lv = M.live and M.live.dir == dir and M.live
+	local now = vim.uv.now()
 	if name:match("_test%.go$") and (tests or bench) then
 		for i, l in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do
 			local t = tests and l:match("^func (Test[%w_]+)%(")
 			local b = bench and l:match("^func (Benchmark[%w_]+)%(")
 			local r = t and tests[t]
+			if not r and t and lv and lv.st.running[t] and (not lv.anim or now - lv.st.running[t] >= 150) then
+				-- Идёт прямо сейчас (живой прогон): спиннер с прошедшим временем, до 150 мс не мигает.
+				local g = lv.anim and SPIN[lv.frame % #SPIN + 1] or "…"
+				local el = lv.anim and string.format(" %.1fs", (now - lv.st.running[t]) / 1000) or ""
+				mark(buf, ns_t, i - 1, { { " " .. g .. el, "Comment" } })
+			end
 			if r then
 				local icon, hl = "✓", "DiagnosticOk"
 				if r.status == "fail" then
@@ -210,8 +220,100 @@ function M.clear_cover()
 	end
 end
 
+-- Живой прогон: `go test -json` стримится построчно, метки и счётчик в строке сверху обновляются по событиям.
+M.live = nil ---@type {dir: string, t0: integer, st: table, frame: integer, anim: boolean, stop: fun()?}|nil
+
+--- Дописать chunk к хвосту и отдать целые строки + новый хвост (чанки режут строки где попало).
+---@return string[] lines, string rest
+function M._split(rest, chunk)
+	local s, lines, pos = rest .. chunk, {}, 1
+	while true do
+		local nl = s:find("\n", pos, true)
+		if not nl then
+			return lines, s:sub(pos)
+		end
+		lines[#lines + 1] = s:sub(pos, nl - 1)
+		pos = nl + 1
+	end
+end
+
+--- Свернуть событие в счётчики st; для верхнего Test вернуть имя (и результат на pass/fail/skip).
+---@return string? name, table? result
+function M._live_reduce(st, ev, now)
+	local name = type(ev) == "table" and ev.Test
+	if not name or name:find("/", 1, true) or not name:match("^Test[%w_]*$") then
+		return
+	end
+	if ev.Action == "run" then
+		st.running[name], st.total = now, st.total + 1
+		return name
+	elseif ev.Action == "pass" or ev.Action == "fail" or ev.Action == "skip" then
+		st.running[name], st.done = nil, st.done + 1
+		st.fail = st.fail + (ev.Action == "fail" and 1 or 0)
+		return name, { status = ev.Action, elapsed = tonumber(ev.Elapsed) or 0 }
+	end
+end
+
+--- Сегмент строки сверху `go test ⠹ 12/40 · ✗2`; до 150 мс пусто (быстрый прогон не мигает).
+function M._live_text(lv, now)
+	if not lv or now - lv.t0 < 150 then
+		return ""
+	end
+	local st = lv.st
+	local s = "%#StlSep#│%#StlMeta# go test %#StlMV#" .. (lv.anim and SPIN[lv.frame % #SPIN + 1] or "…")
+	-- Ни одного теста ещё не стартовало — идёт компиляция: «0/0» читалось бы как сбой.
+	s = s .. "%#StlMeta# " .. (st.total == 0 and "build" or (st.done .. "/" .. st.total))
+	return s .. (st.fail > 0 and (" · %#DiagnosticError#✗" .. st.fail) or "") .. " "
+end
+
+--- Старт живого прогона. Один тикер на все метки и счётчик; без анимаций — перерисовка по событиям.
+function M.live_start(dir)
+	M.live_stop()
+	local fx = require("dev.fx")
+	local lv = { dir = M.canon(dir), t0 = vim.uv.now(), st = { running = {}, done = 0, total = 0, fail = 0 }, frame = 0, anim = fx.enabled() }
+	M.live = lv
+	store.tests[lv.dir] = store.tests[lv.dir] or {}
+	ensure_autocmd()
+	if lv.anim then
+		lv.stop = fx.ticker(80, function(i)
+			if M.live ~= lv then
+				return false
+			end
+			lv.frame = i
+			render_all()
+			pcall(vim.cmd, "redrawtabline")
+		end)
+	end
+end
+
+--- Одна строка -json потока: обновить счётчики, метку теста, при необходимости перерисовать.
+function M.live_feed(line)
+	local lv = M.live
+	local ok, ev = pcall(vim.json.decode, line)
+	if not lv or not ok then
+		return
+	end
+	local name, res = M._live_reduce(lv.st, ev, vim.uv.now())
+	if name then
+		store.tests[lv.dir][name] = res -- run (res = nil) затирает прошлый результат: вместо него спиннер
+		if not lv.anim then
+			render_all()
+			pcall(vim.cmd, "redrawtabline")
+		end
+	end
+end
+
+function M.live_stop()
+	local lv = M.live
+	M.live = nil
+	if lv and lv.stop then
+		lv.stop()
+	end
+end
+
 --- Для тестов: сбросить всё состояние.
 function M._reset()
+	M.live_stop()
 	store = { tests = {}, bench = {}, cover = {} }
 end
 

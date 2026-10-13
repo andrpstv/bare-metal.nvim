@@ -94,3 +94,21 @@ end, { noremap = true, silent = true, desc = "tool: Resume last search" })
 map("x", "<leader>fs", function()
 	_pick_grep_visual()
 end, { noremap = true, silent = true, desc = "tool: Find visual selection" })
+
+-- Встроенный undotree (nvim 0.12): packadd только по хоткею, на старте не грузим.
+map("n", "<leader>u", function()
+	vim.cmd.packadd("nvim.undotree")
+	vim.cmd("Undotree")
+end, { noremap = true, silent = true, desc = "tool: Undo tree" })
+
+-- История :messages в скретч-сплите (notify уже мог стереть сообщение с экрана).
+map("n", "<leader>fn", function()
+	local out = vim.api.nvim_exec2("messages", { output = true }).output
+	vim.cmd("botright 12new")
+	local buf = vim.api.nvim_get_current_buf()
+	vim.bo[buf].buftype, vim.bo[buf].bufhidden, vim.bo[buf].swapfile = "nofile", "wipe", false
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(out, "\n"))
+	vim.bo[buf].modifiable = false
+	vim.api.nvim_win_set_cursor(0, { vim.api.nvim_buf_line_count(buf), 0 })
+	vim.keymap.set("n", "q", "<Cmd>close<CR>", { buffer = buf, silent = true })
+end, { noremap = true, silent = true, desc = "tool: Message history" })

@@ -9,6 +9,8 @@
 -- остаются доступны напрямую.
 local M = {}
 
+local ns_check = vim.api.nvim_create_namespace("devcheck")
+
 --- Каталог пакета для буфера: каталог файла (go сам резолвит модуль вверх,
 --- включая nested modules и go.work — никакой магии тут не нужно).
 ---@param bufnr integer?
@@ -50,6 +52,33 @@ local function qf_items(output, dir)
 		end
 	end
 	return items
+end
+
+--- qf-items → диагностики своего namespace (Error Lens показывает их в строке).
+--- bufadd работает и для незагруженных буферов; ns чистится целиком перед публикацией.
+---@param ns integer
+---@param items table[] элементы quickfix с абсолютным filename
+---@param severity integer
+---@param source string
+function M.publish_diags(ns, items, severity, source)
+	vim.diagnostic.reset(ns)
+	local by_buf = {}
+	for _, it in ipairs(items) do
+		if it.filename and it.lnum then
+			local b = vim.fn.bufadd(it.filename)
+			by_buf[b] = by_buf[b] or {}
+			table.insert(by_buf[b], {
+				lnum = it.lnum - 1,
+				col = math.max((it.col or 1) - 1, 0),
+				message = it.text,
+				severity = severity,
+				source = source,
+			})
+		end
+	end
+	for b, list in pairs(by_buf) do
+		vim.diagnostic.set(ns, b, list)
+	end
 end
 
 ---@param op "build"|"run"
@@ -99,6 +128,48 @@ local function execute(op, extra)
 	end)
 end
 
+-- Конвейер check для строки сверху: шаги build/vet/lint со статусом pend|run|ok|fail.
+M.pipe = nil ---@type {steps: {name: string, state: string}[], items: table[], frame: integer, done_at: integer?}|nil
+local SPIN = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+local PIPE_GLYPH = { ok = "%#StlMT#✓", fail = "%#DiagnosticError#✗", pend = "%#StlMeta#·" }
+
+--- Сегмент `check [build ✓]━[vet ⠹]━[lint ·]`; клик по шагу — %N@…@ (N = индекс шага); 60 с после конца пусто.
+---@return string
+function M._pipe_text(p, now_ms)
+	if not p or (p.done_at and now_ms - p.done_at > 60000) then
+		return ""
+	end
+	local out = {}
+	for i, st in ipairs(p.steps) do
+		local g = st.state == "run" and ("%#StlMV#" .. (p.anim and SPIN[p.frame % #SPIN + 1] or "…")) or PIPE_GLYPH[st.state]
+		out[#out + 1] = "%" .. i .. "@v:lua._tl_check_click@%#StlMeta#[" .. st.name .. " " .. g .. "%#StlMeta#]%X"
+	end
+	return "%#StlSep#│%#StlMeta# check " .. table.concat(out, "%#StlSep#━") .. " "
+end
+
+--- Элементы qf одного шага (текст помечен `[build]`/`[vet]`/`[lint]`).
+function M._pipe_items(items, name)
+	local tag = "[" .. name .. "]"
+	return vim.tbl_filter(function(it)
+		return it.text:sub(1, #tag) == tag
+	end, items)
+end
+
+--- Клик по шагу в строке сверху: qf только с ошибками этого шага.
+function M.pipe_open(i)
+	local p, st = M.pipe, M.pipe and M.pipe.steps[i]
+	if not st then
+		return
+	end
+	local items = M._pipe_items(p.items, st.name)
+	if #items == 0 then
+		vim.notify("[go] check: " .. st.name .. " has no issues", vim.log.levels.INFO, { title = "go" })
+		return
+	end
+	vim.fn.setqflist({}, " ", { title = "go check [" .. st.name .. "]", items = items })
+	vim.cmd("copen")
+end
+
 --- Проверить весь модуль: `go build ./...`, затем `go vet ./...` и, если стоит,
 --- `golangci-lint run ./...` → один quickfix. Нужно после правок агента: LSP
 --- видит загруженные пакеты, а агент мог тронуть любые. Сломанная сборка
@@ -124,12 +195,38 @@ function M.check()
 	end
 	vim.notify("[go] checking module " .. root .. " (" .. #steps .. " steps)", vim.log.levels.INFO, { title = "go" })
 	local items, failed = {}, {}
+	local fx, stop = require("dev.fx"), nil
+	local pipe = { steps = {}, items = items, frame = 0, anim = fx.enabled() }
+	for _, argv in ipairs(steps) do
+		pipe.steps[#pipe.steps + 1] = { name = argv[1] == "go" and argv[2] or "lint", state = "pend" }
+	end
+	M.pipe = pipe
+	if pipe.anim then
+		stop = fx.ticker(80, function(i)
+			pipe.frame = i
+			pcall(vim.cmd, "redrawtabline")
+			return not pipe.done_at
+		end)
+	end
 	require("dev.bear").busy("go")
 	local function step(i)
 		local argv = steps[i]
 		if not argv then
+			pipe.done_at = vim.uv.now()
+			if stop then
+				stop()
+			end
+			pcall(vim.cmd, "redrawtabline")
+			vim.defer_fn(function() -- сегмент гаснет через 60 с: сам tabline без события не перерисуется
+				pcall(vim.cmd, "redrawtabline")
+			end, 60500)
 			require("dev.bear").done("go", #failed == 0)
 			vim.fn.setqflist({}, " ", { title = "go check: " .. root, items = items })
+			-- build-ошибки уже показывает gopls — публикуем только vet/lint.
+			local extra = vim.tbl_filter(function(it)
+				return not it.text:find("^%[build%]")
+			end, items)
+			M.publish_diags(ns_check, extra, vim.diagnostic.severity.WARN, "go check")
 			if #items > 0 then
 				vim.cmd("copen")
 			else
@@ -143,6 +240,8 @@ function M.check()
 			return
 		end
 		local label = argv[1] == "go" and argv[2] or "lint"
+		pipe.steps[i].state = "run"
+		pcall(vim.cmd, "redrawtabline")
 		vim.system(argv, { text = true, cwd = root }, function(obj)
 			vim.schedule(function()
 				local out = ((obj and obj.stdout) or "") .. "\n" .. ((obj and obj.stderr) or "")
@@ -151,6 +250,7 @@ function M.check()
 					it.text = "[" .. label .. "] " .. it.text
 				end
 				vim.list_extend(items, found)
+				pipe.steps[i].state = (obj and obj.code or 1) ~= 0 and "fail" or "ok"
 				if (obj and obj.code or 1) ~= 0 then
 					local last = #found == 0 and (": " .. (out:gsub("%s+$", ""):match("[^\n]*$") or ""):sub(1, 160)) or ""
 					failed[#failed + 1] = label .. " failed" .. last

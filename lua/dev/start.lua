@@ -38,6 +38,26 @@ M.ITEMS = {
 	{ key = "q", label = "quit", run = function() vim.cmd("qa") end },
 }
 
+--- Недавние файлы ЭТОГО проекта (существующие, до max). Чужие проекты и кэш модулей — шум:
+--- глобальная история есть под [r].
+---@param oldfiles string[]
+---@param cwd string
+---@param max integer
+---@return string[]
+function M._recent(oldfiles, cwd, max)
+	local out = {}
+	local prefix = cwd:gsub("/$", "") .. "/" -- «/a/shop» не должен ловить «/a/shop2»
+	for _, path in ipairs(oldfiles) do
+		if #out >= max then
+			break -- fs_stat синхронный, а это старт: дальше не смотрим
+		end
+		if path:sub(1, #prefix) == prefix and vim.uv.fs_stat(path) then
+			out[#out + 1] = path
+		end
+	end
+	return out
+end
+
 -- Группы статуслайна (палитра khold): тема после своего hi clear без события
 -- ColorScheme переустанавливает их сама (_G._stl_apply_hl), свои бы слетели.
 local HL = {
@@ -79,7 +99,8 @@ end
 ---@param frame integer
 ---@param settle table<integer, table<integer, integer>>
 ---@param rand fun(m: integer, n: integer): integer
-function M.render(width, height, info, frame, settle, rand)
+---@param recent string[] недавние файлы (абсолютные пути)
+function M.render(width, height, info, frame, settle, rand, recent)
 	local lines, hls = {}, {}
 	local items = {}
 	for _, it in ipairs(M.ITEMS) do
@@ -87,11 +108,18 @@ function M.render(width, height, info, frame, settle, rand)
 			items[#items + 1] = it
 		end
 	end
+	recent = recent or {}
 	local menu_rows = math.ceil(#items / 2)
+	-- Низкое окно: недавних столько, сколько влезает под меню (логотип уйдёт первым).
+	local room = height - 2 - menu_rows - 1
+	if #recent > room then
+		recent = vim.list_slice(recent, 1, math.max(0, room))
+	end
+	local recent_rows = #recent > 0 and (#recent + 1) or 0
 	local logo_rows = #M.LOGO + DRIP_ROWS + 1
 	-- Узкое или низкое окно: без логотипа, только строка медведя и меню.
-	local with_logo = width >= LOGO_W + 4 and height >= logo_rows + 2 + menu_rows + 2
-	local total = (with_logo and logo_rows or 0) + 2 + menu_rows
+	local with_logo = width >= LOGO_W + 4 and height >= logo_rows + 2 + menu_rows + 2 + recent_rows
+	local total = (with_logo and logo_rows or 0) + 2 + menu_rows + recent_rows
 	for _ = 1, math.max(0, math.floor((height - total) / 2)) do
 		lines[#lines + 1] = ""
 	end
@@ -175,6 +203,20 @@ function M.render(width, height, info, frame, settle, rand)
 		cursor_row = cursor_row or mrow
 		lines[#lines + 1] = pad .. line
 	end
+
+	-- Недавние файлы после меню
+	if #recent > 0 then
+		lines[#lines + 1] = ""
+		for i, path in ipairs(recent) do
+			local rel_path = vim.fn.fnamemodify(path, ":~:.")
+			local cell = "[" .. i .. "]  " .. rel_path
+			local mrow = #lines
+			local start = #pad
+			hls[#hls + 1] = { mrow, start, start + 3, HL.key }
+			hls[#hls + 1] = { mrow, start + 3, start + #cell, HL.label }
+			lines[#lines + 1] = pad .. cell
+		end
+	end
 	return lines, hls, cursor_row, #pad + 1
 end
 
@@ -190,7 +232,7 @@ local function paint(frame)
 		return false
 	end
 	local w, h = vim.api.nvim_win_get_width(s.win), vim.api.nvim_win_get_height(s.win)
-	local lines, hls, crow, ccol = M.render(w, h, s.info, frame, s.settle, math.random)
+	local lines, hls, crow, ccol = M.render(w, h, s.info, frame, s.settle, math.random, s.recent_files)
 	vim.bo[s.buf].modifiable = true
 	vim.api.nvim_buf_set_lines(s.buf, 0, -1, false, lines)
 	vim.bo[s.buf].modifiable = false
@@ -246,14 +288,31 @@ function M.open()
 		pcall(vim.api.nvim_buf_delete, old, {})
 	end
 
+	vim.g.distro_start_active = true
+	local prev_laststatus = vim.o.laststatus
+	local prev_showtabline = vim.o.showtabline
+	local prev_ruler = vim.o.ruler
+	vim.o.laststatus = 0
+	vim.o.showtabline = 0
+	vim.o.ruler = false -- без статуслайна ruler вылезает в командную строку
+
 	local proj_ok, proj = pcall(require, "dev.project")
 	local root = proj_ok and proj.root() or vim.fn.getcwd()
 	local v = vim.version()
 	local started = vim.g.start_time and vim.fn.reltimefloat(vim.fn.reltime(vim.g.start_time)) * 1000 or 0
+
+	-- Недавние файлы: до 5, сначала из cwd; пути для открытия — абсолютные, на экране — относительные.
+	local recent_paths = M._recent(vim.v.oldfiles or {}, vim.fn.getcwd(), 5)
+	local recent_files = vim.tbl_map(function(p)
+		return vim.fn.fnamemodify(p, ":~:.")
+	end, recent_paths)
+
 	state = {
 		buf = buf,
 		win = win,
 		settle = M.settle_map(math.random),
+		recent_files = recent_files,
+		recent_paths = recent_paths,
 		info = {
 			project = vim.fs.basename(root),
 			version = string.format("%d.%d.%d", v.major, v.minor, v.patch),
@@ -271,18 +330,37 @@ function M.open()
 		end
 	end
 
+	-- Keymaps для недавних файлов 1-5
+	for i, path in ipairs(state.recent_paths) do
+		local key = tostring(i)
+		vim.keymap.set("n", key, function()
+			finish()
+			vim.cmd("edit " .. vim.fn.fnameescape(path))
+		end, { buffer = buf, nowait = true, silent = true, desc = "start: recent file " .. i })
+	end
+
+	local function restore_chrome()
+		if vim.g.distro_start_active then
+			vim.g.distro_start_active = false
+			vim.o.laststatus = prev_laststatus
+			vim.o.showtabline = prev_showtabline
+			vim.o.ruler = prev_ruler
+		end
+	end
+
 	local grp = vim.api.nvim_create_augroup("DevStart", { clear = true })
 	vim.api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
 		group = grp,
 		desc = "start: re-center the start screen",
 		callback = finish,
 	})
-	vim.api.nvim_create_autocmd("BufWipeout", {
+	vim.api.nvim_create_autocmd({ "BufLeave", "BufWipeout" }, {
 		group = grp,
 		buffer = buf,
-		desc = "start: drop state with the buffer",
+		desc = "start: restore chrome and drop state",
 		callback = function()
 			stop_anim()
+			restore_chrome()
 			state = nil
 			pcall(vim.api.nvim_del_augroup_by_id, grp)
 		end,

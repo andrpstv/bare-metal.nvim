@@ -56,4 +56,19 @@ function M.text(info)
 	return out
 end
 
+-- Высота окна по числу пунктов: один пункт не должен открывать 10 строк.
+function M._qf_height(n)
+	return math.max(2, math.min(n, 10))
+end
+
+--- Подогнать высоту только что открытого qf/loclist-окна (зовётся при открытии, не при ресайзе).
+function M.fit(win)
+	if not vim.api.nvim_win_is_valid(win) or vim.api.nvim_win_get_width(win) < vim.o.columns then
+		return -- vertical: высота не наша забота
+	end
+	local what = { size = 0 }
+	local n = (vim.fn.getwininfo(win)[1].loclist == 1 and vim.fn.getloclist(win, what) or vim.fn.getqflist(what)).size
+	vim.api.nvim_win_set_height(win, M._qf_height(n))
+end
+
 return M

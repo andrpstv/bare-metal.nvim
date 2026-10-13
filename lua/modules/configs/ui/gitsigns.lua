@@ -42,6 +42,11 @@
 			group = grp,
 			desc = "turbo: deferred gitsigns attach on idle/save",
 			callback = function(ev)
+				-- :e! отцепляет gitsigns, а b:-флаг переживает перезагрузку — знаки замирали навсегда.
+				-- Сбрасываем только на перечитывании: вне git флаг остаётся липким (иначе git на каждый CursorHold).
+				if ev.event == "BufReadPost" then
+					vim.b[ev.buf].gitsigns_deferred = nil
+				end
 				if vim.b[ev.buf].gitsigns_deferred then
 					return
 				end

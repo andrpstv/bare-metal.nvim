@@ -185,5 +185,64 @@ m = marks(buf, "devtest_results")
 check("_execute renders test marks", m[1] and m[1].text == " ✓ 500ms")
 vim.system = real_system
 
+-- ---------------------------------------------------------------- фаза 2: живые тесты
+local ls, rest = tm._split("", '{"a":1}\n{"b"')
+check("split: целая строка + хвост", #ls == 1 and ls[1] == '{"a":1}' and rest == '{"b"')
+ls, rest = tm._split(rest, ':2}\n\n')
+check("split: хвост достраивается, пустая строка", #ls == 2 and ls[1] == '{"b":2}' and ls[2] == "" and rest == "")
+
+local st = { running = {}, done = 0, total = 0, fail = 0 }
+tm._live_reduce(st, { Action = "run", Test = "TestA" }, 1000)
+tm._live_reduce(st, { Action = "run", Test = "TestB" }, 1000)
+tm._live_reduce(st, { Action = "run", Test = "TestA/sub" }, 1000)
+local nm, rs = tm._live_reduce(st, { Action = "fail", Test = "TestB", Elapsed = 2 }, 1500)
+check("reduce: подтесты не считаются", st.total == 2)
+check("reduce: fail -> done/fail, результат", nm == "TestB" and rs.status == "fail" and st.done == 1 and st.fail == 1 and st.running.TestB == nil)
+check("live_text: до 150 мс пусто", tm._live_text({ t0 = 1000, st = st, frame = 0, anim = true }, 1100) == "")
+local txt = tm._live_text({ t0 = 1000, st = st, frame = 2, anim = true }, 1200)
+check("live_text: спиннер done/total · ✗N", txt:find("⠹", 1, true) and txt:find("1/2", 1, true) and txt:find("✗1", 1, true))
+check("live_text: без анимаций статично", tm._live_text({ t0 = 0, st = st, frame = 2, anim = false }, 1200):find("…", 1, true) ~= nil)
+check("live_text: компиляция (0 тестов) — «build», не «0/0»", tm._live_text({ t0 = 0, st = { done = 0, total = 0, fail = 0 }, frame = 0, anim = true }, 1200):find("build", 1, true) ~= nil)
+
+-- сквозной: события -> метки на func-строках (спиннер, затем результат)
+local ldir = vim.fn.tempname()
+vim.fn.mkdir(ldir, "p")
+local lbuf = vim.api.nvim_create_buf(true, false)
+vim.api.nvim_buf_set_name(lbuf, ldir .. "/x_test.go")
+vim.api.nvim_buf_set_lines(lbuf, 0, -1, false, { "package x", "func TestZ(t *testing.T) {}" })
+tm._reset()
+tm.live_start(ldir) -- headless: fx.enabled() = false, статичный режим
+tm.live_feed(ev({ Action = "run", Test = "TestZ" }))
+local lm = vim.api.nvim_buf_get_extmarks(lbuf, vim.api.nvim_create_namespace("devtest_results"), 0, -1, { details = true })
+check("live: у бегущего теста метка-спиннер", lm[1] and lm[1][4].virt_text[1][1]:find("…", 1, true) ~= nil)
+tm.live_feed(ev({ Action = "pass", Test = "TestZ", Elapsed = 0.5 }))
+lm = vim.api.nvim_buf_get_extmarks(lbuf, vim.api.nvim_create_namespace("devtest_results"), 0, -1, { details = true })
+check("live: pass заменяет спиннер на ✓", lm[1] and lm[1][4].virt_text[1][1] == " ✓ 500ms")
+tm.live_stop()
+check("live_stop сбрасывает состояние", tm.live == nil)
+tm._reset()
+
+-- ---------------------------------------------------------------- фаза 2: конвейер check
+local bd = require("dev.build")
+local pipe = { frame = 2, anim = true, steps = { { name = "build", state = "ok" }, { name = "vet", state = "run" }, { name = "lint", state = "pend" } } }
+local pt = bd._pipe_text(pipe, 0)
+check("pipe: build ✓ teal", pt:find("[build %#StlMT#✓", 1, true) ~= nil)
+check("pipe: vet спиннер", pt:find("[vet %#StlMV#⠹", 1, true) ~= nil)
+check("pipe: lint pending", pt:find("[lint %#StlMeta#·", 1, true) ~= nil)
+check("pipe: клик с индексом шага", pt:find("%2@v:lua._tl_check_click@", 1, true) ~= nil and pt:find("%X", 1, true) ~= nil)
+pipe.steps[1].state, pipe.steps[2].state = "fail", "fail"
+check("pipe: fail красный", bd._pipe_text(pipe, 0):find("%#DiagnosticError#✗", 1, true) ~= nil)
+pipe.done_at = 1000
+check("pipe: после 60 с пусто", bd._pipe_text(pipe, 62000) == "" and bd._pipe_text(pipe, 30000) ~= "")
+local its = { { text = "[build] a" }, { text = "[vet] b" }, { text = "[vet] c" } }
+check("pipe: фильтр элементов шага", #bd._pipe_items(its, "vet") == 2 and #bd._pipe_items(its, "lint") == 0)
+
+-- ---------------------------------------------------------------- фаза 2: новые диагностики
+local nd = require("dev.newdiag")
+local snap = { ["foo\0boom"] = 1 }
+local rows = nd._new(snap, { { lnum = 5, key = "foo\0boom" }, { lnum = 9, key = "bar\0bad" }, { lnum = 7, key = "foo\0boom" } })
+check("newdiag: старая ошибка со сдвигом строки не новая, дубль и новая — да", #rows == 2 and rows[1] == 7 and rows[2] == 9)
+check("newdiag: пустой снимок — всё новое", #nd._new({}, { { lnum = 1, key = "k" } }) == 1)
+
 print(string.format("total=%d failures=%d", total, failures))
 os.exit(failures > 0 and 1 or 0)

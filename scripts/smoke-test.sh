@@ -186,23 +186,23 @@ fi
 # Phase-1 capabilities (terminal/test/replace/debug/project/refactor) must
 # require cleanly. Separate list: these are consumer features, not infra.
 section "3b. dev modules require cleanly"
-DEVMODULES="dev.terminal dev.test dev.replace dev.debug dev.project dev.refactor dev.build dev.inspect dev.gomod dev.agent dev.fx dev.bear dev.start dev.testmarks dev.termmarks dev.inlinevals dev.goerr dev.implmarks dev.gcdetails dev.agentmine dev.scrollbar"
+DEVMODULES="dev.terminal dev.test dev.replace dev.debug dev.project dev.refactor dev.build dev.inspect dev.gomod dev.agent dev.fx dev.bear dev.start dev.testmarks dev.termmarks dev.inlinevals dev.goerr dev.implmarks dev.gcdetails dev.agentmine dev.scrollbar dev.lspwait"
 DEVMOD_OUT="$(nvim --headless \
 	-c "lua local ms={'${DEVMODULES// /','}'}; for _,m in ipairs(ms) do local ok,e=pcall(require,m); print((ok and 'OK ' or 'FAIL ')..m..(ok and '' or (' '..tostring(e)))) end" \
 	-c 'qa!' 2>&1 | tr -d '\r' || true)"
 DEVMOD_BAD="$(printf '%s\n' "$DEVMOD_OUT" | grep '^FAIL' || true)"
 DEVMOD_COUNT="$(printf '%s\n' "$DEVMOD_OUT" | grep -c '^OK' || true)"
-if [ "$DEVMOD_COUNT" -eq 21 ] && [ -z "$DEVMOD_BAD" ]; then
-	record PASS "21/21 dev modules require without error"
+if [ "$DEVMOD_COUNT" -eq 22 ] && [ -z "$DEVMOD_BAD" ]; then
+	record PASS "22/22 dev modules require without error"
 else
-	record FAIL "21/21 dev modules require without error" "$(printf '%s' "$DEVMOD_BAD" | tr '\n' ' ')"
+	record FAIL "22/22 dev modules require without error" "$(printf '%s' "$DEVMOD_BAD" | tr '\n' ' ')"
 fi
 
 # --------------------------------- check 3c: Lua regression scripts --------
 # Headless unit regressions (no user config, no network).
 section "3c. Lua regression scripts (pure unit)"
 REGRESS_FAIL=""
-for regress in regress-test-names regress-gomod regress-pkg regress-format regress-y regress-dbgui regress-select regress-dbg-cycle regress-dbg-running regress-lsp regress-external regress-gowatch regress-agent regress-fx regress-qf regress-testmarks regress-termmarks regress-inlinevals regress-goerr regress-implmarks regress-ide; do
+for regress in regress-test-names regress-gomod regress-pkg regress-format regress-y regress-dbgui regress-select regress-dbg-cycle regress-dbg-running regress-lsp regress-external regress-gowatch regress-agent regress-fx regress-qf regress-stc regress-testmarks regress-termmarks regress-inlinevals regress-goerr regress-implmarks regress-lspwait regress-ide; do
 	REGRESS_OUT="$(nvim --headless --noplugin -u NONE \
 		--cmd "set rtp+=$REPO_ROOT" -l "scripts/$regress.lua" 2>&1 | tr -d '\r' || true)"
 	if printf '%s\n' "$REGRESS_OUT" | grep -q '^FAIL'; then
@@ -210,24 +210,24 @@ for regress in regress-test-names regress-gomod regress-pkg regress-format regre
 	fi
 done
 if [ -z "$REGRESS_FAIL" ]; then
-	record PASS "unit regression scripts pass (21 suites)"
+	record PASS "unit regression scripts pass (23 suites)"
 else
-	record FAIL "unit regression scripts pass (21 suites)" "$REGRESS_FAIL"
+	record FAIL "unit regression scripts pass (23 suites)" "$REGRESS_FAIL"
 fi
 
 # --------------------------- check 3d: config-needing regression scripts --
 # These run WITH the full config headless (mappings, plugins, git).
 section "3d. config regression scripts (keymaps, git)"
-for regress in regress-keymaps regress-gitmaps regress-gitui regress-sidekick regress-lspvis; do
+for regress in regress-keymaps regress-gitmaps regress-gitui regress-sidekick regress-lspvis regress-uxfix regress-candy regress-stlmode; do
 	REGRESS_OUT="$(nvim --headless -c "luafile scripts/$regress.lua" -c 'qa!' 2>&1 | tr -d '\r' || true)"
 	if printf '%s\n' "$REGRESS_OUT" | grep -q '^FAIL'; then
 		REGRESS_FAIL="$REGRESS_FAIL $regress:$(printf '%s' "$REGRESS_OUT" | grep '^FAIL' | tr '\n' ';')"
 	fi
 done
 if [ -z "$REGRESS_FAIL" ]; then
-	record PASS "config regression scripts pass (keymaps, gitmaps, gitui, sidekick, lspvis)"
+	record PASS "config regression scripts pass (keymaps, gitmaps, gitui, sidekick, lspvis, uxfix, candy, stlmode)"
 else
-	record FAIL "config regression scripts pass (keymaps, gitmaps, gitui, sidekick, lspvis)" "$REGRESS_FAIL"
+	record FAIL "config regression scripts pass (keymaps, gitmaps, gitui, sidekick, lspvis, uxfix, candy, stlmode)" "$REGRESS_FAIL"
 fi
 
 # =============================================================== check 4 =====

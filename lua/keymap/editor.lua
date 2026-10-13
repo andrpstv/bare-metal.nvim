@@ -12,6 +12,24 @@ map("n", "<C-s>", ":<C-u>write<CR>", { noremap = true, silent = true, desc = "ed
 map("n", "<C-q>", ":wq<CR>", { noremap = false, silent = false, desc = "edit: Save file and quit" })
 map("n", "<A-S-q>", ":q!<CR>", { noremap = false, silent = false, desc = "edit: Force quit" })
 
+-- Undo/Redo со вспышкой изменённых строк: в длинном файле видно, ЧТО откатилось.
+local function undo_flash(keys)
+	return function()
+		local tick = vim.b.changedtick
+		vim.cmd("normal! " .. vim.v.count1 .. keys)
+		-- Нечего отменять — '[ '] остались от старой правки: мимо не мигаем.
+		if vim.b.changedtick == tick then
+			return
+		end
+		local s, e = vim.fn.line("'["), vim.fn.line("']")
+		if s > 0 and e >= s then
+			require("dev.fx").flash_rows(0, s - 1, e - 1)
+		end
+	end
+end
+map("n", "u", undo_flash("u"), { noremap = true, silent = true, desc = "edit: Undo (flash changed lines)" })
+map("n", "<C-r>", undo_flash("\18"), { noremap = true, silent = true, desc = "edit: Redo (flash changed lines)" })
+
 -- Builtins: Insert mode
 map("i", "<C-Enter>", "<Esc>o", { noremap = true, silent = false, desc = "Insert new line below" })
 map("i", "<C-S-Enter>", "<Esc>O", { noremap = true, silent = false, desc = "Insert new line above" })
@@ -70,7 +88,7 @@ map("n", "N", "Nzzzv", { noremap = true, silent = false, desc = "edit: Prev sear
 map("n", "J", "mzJ`z", { noremap = true, silent = false, desc = "edit: Join next line" })
 map("n", "<C-d>", "<C-d>zz", { noremap = true, silent = false, desc = "edit: Scroll down + center" })
 map("n", "<C-u>", "<C-u>zz", { noremap = true, silent = false, desc = "edit: Scroll up + center" })
-map("n", "<S-Tab>", ":normal za<CR>", { noremap = true, silent = true, desc = "edit: Toggle code fold" })
+map("n", "<S-Tab>", "za", { noremap = true, silent = true, desc = "edit: Toggle code fold" })
 map("n", "<Esc>", function()
 	_flash_esc_or_noh()
 end, { noremap = true, silent = true, desc = "edit: Clear search highlight" })

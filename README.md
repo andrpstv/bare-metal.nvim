@@ -206,6 +206,7 @@ return settings
 | `<leader>ff` | файлы проекта |
 | `<leader>fp` | живой поиск по проекту |
 | `<leader>fb` / `<leader>fo` | буферы / недавние файлы |
+| `<leader>fn` / `<leader>u` | история сообщений / дерево отмен |
 | `<leader>fw` | символы по всему репозиторию |
 | `<leader>fg` | git-ветки |
 | `<C-p>` | панель команд |
@@ -231,7 +232,7 @@ return settings
 `<leader>bn` новый буфер · `<A-q>` закрыть буфер.
 
 **Git:** `[g`/`]g` по хункам · `<leader>gs` стейдж хунка · `<leader>gr` сбросить хунк ·
-`<leader>gb` blame · `<leader>gd` diffview.
+`<leader>gb` blame · `<leader>gB` inline blame · `<leader>gd` diffview.
 
 **Редактор:** `<C-s>` сохранить · `<C-q>` сохранить и выйти · `jj`/`jk` вставить `<Esc>`.
 

@@ -10,9 +10,9 @@ return function()
 
 	local border = function(hl)
 		return {
-			{ "┌", hl }, { "─", hl }, { "┐", hl },
-			{ "│", hl }, { "┘", hl }, { "─", hl },
-			{ "└", hl }, { "│", hl },
+			{ "╭", hl }, { "─", hl }, { "╮", hl },
+			{ "│", hl }, { "╯", hl }, { "─", hl },
+			{ "╰", hl }, { "│", hl },
 		}
 	end
 
@@ -39,14 +39,6 @@ return function()
 			and vim.api.nvim_buf_get_lines(0, line - 1, line, true)[1]:sub(col, col):match("%s") == nil
 	end
 
-	-- I2: таблица menu статична — один раз вверх, а не setmetatable
-	-- на каждый кандидат при каждом кейстроке.
-	local menu_src = setmetatable({
-		buffer = "[BUF]",
-		nvim_lsp = "[LSP]",
-		path = "[PATH]",
-		luasnip = "[SNIP]",
-	}, { __index = function() return "[BTN]" end })
 	require("modules.utils").load_plugin("cmp", {
 		-- Top-1 подсвечен сразу (как в VS Code): Tab идёт дальше, <C-y> берёт.
 		-- Enter всегда перевод строки / выполнение команды (см. mapping ниже),
@@ -63,13 +55,15 @@ return function()
 		},
 		window = {
 			completion = {
-				border = border("PmenuBorder"),
-				winhighlight = "Normal:Pmenu,CursorLine:PmenuSel,Search:PmenuSel",
+				border = border("FloatBorder"),
+				winhighlight = "Normal:Pmenu,FloatBorder:FloatBorder,CursorLine:PmenuSel,Search:None",
 				scrollbar = false,
+				col_offset = -3,
+				side_padding = 1,
 			},
 			documentation = {
 				border = border("CmpDocBorder"),
-				winhighlight = "Normal:CmpDoc",
+				winhighlight = "Normal:Pmenu,FloatBorder:CmpDocBorder,Search:None",
 			},
 		},
 		sorting = {
@@ -77,55 +71,54 @@ return function()
 			comparators = comparators,
 		},
 		formatting = {
-			fields = { "abbr", "kind", "menu" },
+			expandable_indicator = false,
+			fields = { "kind", "abbr", "menu" },
 			format = function(entry, vim_item)
-				vim_item.kind = string.format(" %s  %s", lspkind_icons[vim_item.kind] or icons.cmp.undefined, vim_item.kind or "")
+				local kind_name = vim_item.kind or ""
+				vim_item.kind = lspkind_icons[kind_name] or icons.cmp.undefined
+				vim_item.menu = kind_name:lower()
 
-			vim_item.menu = menu_src[entry.source.name]
-
-		-- Превью сниппета СЛЕВА, рядом с триггером: первая строка тела.
-		-- Правая колонка (menu) остаётся короткой: [SNIP]/[LSP]/[BUF].
-		-- Раскрытие — на <C-y>. (abbr только рисуется, на фильтр не влияет.)
-		-- PERF: format() бежит на КАЖДЫЙ видимый кандидат при КАЖДОМ кейстроке,
-		-- а get_id_snippet+get_docstring+gsub — дорого. Кэшируем первую строку
-		-- по snip_id (сниппеты статичны в пределах сессии; сброс при >500).
-		if entry.source.name == "luasnip" then
-			local ok, first = pcall(function()
-				local data = entry.completion_item and entry.completion_item.data
-				if not data or not data.snip_id then
-					return nil
+				-- Превью сниппета СЛЕВА, рядом с триггером: первая строка тела. Раскрытие — на <C-y>.
+				-- PERF: format() бежит на КАЖДЫЙ видимый кандидат при КАЖДОМ кейстроке,
+				-- а get_id_snippet+get_docstring+gsub — дорого. Кэшируем первую строку
+				-- по snip_id (сниппеты статичны в пределах сессии; сброс при >500).
+				if entry.source.name == "luasnip" then
+					local ok, first = pcall(function()
+						local data = entry.completion_item and entry.completion_item.data
+						if not data or not data.snip_id then
+							return nil
+						end
+						local cached = _snip_firstline_cache[data.snip_id]
+						if cached ~= nil then
+							return cached
+						end
+						local snip = require("luasnip").get_id_snippet(data.snip_id)
+						if not snip then
+							return nil
+						end
+						local doc = snip:get_docstring()
+						local line = type(doc) == "table" and doc[1] or tostring(doc):match("[^\n]*")
+						if not line or line == "" then
+							return nil
+						end
+						line = line:gsub("%s+", " ")
+						-- Чистим плейсхолдеры для читаемости: ${1:type} -> type
+						line = line:gsub("%${%d+:([^}]*)}", "%1"):gsub("%${%d+}", ""):gsub("$0", "")
+						if #line > 50 then
+							line = vim.fn.strcharpart(line, 0, 50) .. "…"
+						end
+						_snip_firstline_cache[data.snip_id] = line
+						if _snip_firstline_cache_n > 500 then
+							_snip_firstline_cache, _snip_firstline_cache_n = {}, 0
+						else
+							_snip_firstline_cache_n = _snip_firstline_cache_n + 1
+						end
+						return line
+					end)
+					if ok and first then
+						vim_item.abbr = vim_item.abbr .. "  " .. first
+					end
 				end
-				local cached = _snip_firstline_cache[data.snip_id]
-				if cached ~= nil then
-					return cached
-				end
-				local snip = require("luasnip").get_id_snippet(data.snip_id)
-				if not snip then
-					return nil
-				end
-				local doc = snip:get_docstring()
-				local line = type(doc) == "table" and doc[1] or tostring(doc):match("[^\n]*")
-				if not line or line == "" then
-					return nil
-				end
-				line = line:gsub("%s+", " ")
-				-- Чистим плейсхолдеры для читаемости: ${1:type} -> type
-				line = line:gsub("%${%d+:([^}]*)}", "%1"):gsub("%${%d+}", ""):gsub("$0", "")
-				if #line > 50 then
-					line = vim.fn.strcharpart(line, 0, 50) .. "…"
-				end
-				_snip_firstline_cache[data.snip_id] = line
-				if _snip_firstline_cache_n > 500 then
-					_snip_firstline_cache, _snip_firstline_cache_n = {}, 0
-				else
-					_snip_firstline_cache_n = _snip_firstline_cache_n + 1
-				end
-				return line
-			end)
-				if ok and first then
-					vim_item.abbr = vim_item.abbr .. "  " .. first
-				end
-			end
 
 				-- Ограничиваем длину текста для ускорения рендера
 				local label = vim_item.abbr

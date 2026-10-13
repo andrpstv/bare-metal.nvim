@@ -63,8 +63,8 @@ init.lua → core/init.lua:load_core()
 | Агенты (sidekick) | `keymap/agent.lua`, `modules/configs/tool/sidekick.lua`; план — `docs/distro/34-agent-workflow.md` | — | `regress-sidekick.lua` |
 | Ревью правок агента | `dev/agent.lua` (`start`, `quickfix`, `_parse_diff`) | — | `regress-agent.lua` |
 | Хоткей | `keymap/<область>.lua`, справка `keymap/leader_help.lua` | `keymap/dev.lua` | `regress-keymaps.lua` (коллизии), `regress-gitmaps.lua`, `regress-y.lua` |
-| Статуслайн, winbar, строка сверху (`_tabline`) | `keymap/statusline.lua` (кэши, группы `Stl*` — тема переустанавливает их после `hi clear`) | — | `regress-fx.lua`, `regress-sidekick.lua` (сегмент `agent:`) |
-| Анимации, медведь, стартовый экран | `dev/fx.lua` (`ticker`, `RAMP`, `trail`), `dev/bear.lua`, `dev/start.lua` (`render`) | — | `regress-fx.lua` |
+| Статуслайн, winbar, строка сверху (`_tabline`), колонка номеров | `keymap/statusline.lua` (кэши, группы `Stl*` — палитра-токены для других модулей, `StlMode*` — пилюля режима; тема переустанавливает их после `hi clear`); `core/stc.lua` (statuscolumn: знак · номер · git-полоса) | — | `regress-fx.lua`, `regress-sidekick.lua` (сегмент `agent:`) |
+| Анимации, медведь, стартовый экран | `dev/fx.lua` (`ticker`, `RAMP`, `trail`, `beacon`), `dev/bear.lua`, `dev/start.lua` (`render`) | — | `regress-fx.lua` |
 | Настройка | `core/settings.lua` (комментарий у каждого ключа) | — | — |
 | Сеть / установка | `distro/install.lua` (`require_consent`), `distro/tools.lua` | — | ручные кейсы `docs/distro/04-cases-matrix.md` |
 | Производительность | `core/perf.lua`, `distro/trace*.lua` | — | `scripts/*-bench.*`, `:DistroBench`, SLO в `docs/distro/11-speed-program.md` |
@@ -74,8 +74,8 @@ init.lua → core/init.lua:load_core()
 
 | Модуль | Делает | Вместо |
 |---|---|---|
-| `test` | `go test -json` → quickfix + summary, rerun-failed, coverage-знаки | neotest |
-| `build` | `go build`/`go run` пакета текущего файла; `check()` — build+vet+lint всего модуля | `:GoBuild`/`:GoRun` без пакета |
+| `test` | `go test -json` → quickfix + summary, rerun-failed, coverage-знаки; падения — диагностикой (`devtest_fail`) | neotest |
+| `build` | `go build`/`go run` пакета текущего файла; `check()` — build+vet+lint всего модуля, vet/lint → диагностики; `publish_diags(ns, items, sev, src)` — qf → диагностики | `:GoBuild`/`:GoRun` без пакета |
 | `gomod` | настоящий `go mod tidy` в корне модуля | `:GoModTidy` |
 | `debug`, `inspect` | nvim-dap + `dlv dap`, своё окно Frames/Scopes/Watches | nvim-dap-ui, nio, dap-go |
 | `project` | корень (go.work/go.mod/.git), сессии, автосейв | project-плагины |
@@ -83,9 +83,10 @@ init.lua → core/init.lua:load_core()
 | `replace` | rg → quickfix → confirm → apply | grug-far |
 | `refactor` | LSP call hierarchy, selection range | — |
 | `agent` | сессия ревью: база `git stash create`, gitsigns base, ханки → quickfix, Diffview | — (нет агентно-независимых аналогов) |
-| `fx` | ASCII-анимации: тикер кадров (таймер только на время эффекта), след внешней правки (`core.external` → `trail`) | mini.animate и т.п. |
+| `fx` | ASCII-анимации: тикер кадров (таймер только на время эффекта), след внешней правки (`core.external` → `trail`), вспышка строки после дальнего прыжка (`beacon`, CursorMoved в `core/event.lua`), `flash_rows` (после `u`), `badge` (`]q`); правила движения — `docs/distro/35-ascii-motion.md` | mini.animate и т.п. |
 | `bear` | состояния медведя статуслайна (занят/успех/провал/ого/сон); `test`/`build` зовут `busy`/`done` | — |
-| `start` | стартовый экран при голом `nvim` (из `core/init.lua`, VimEnter, только с UI) | alpha, dashboard-nvim |
+| `lspwait` | спиннер у курсора для медленных LSP-запросов пользователя (`LspRequest` в `core/event.lua`, `TRACKED`) | noice.nvim |
+| `start` | стартовый экран при голом `nvim` (из `core/init.lua`, VimEnter, только с UI); недавние файлы проекта `1`–`5` (`_recent`) | alpha, dashboard-nvim |
 
 Общий шаблон (по `test`/`build`/`gomod`): шапка с «почему свой» → `local M = {}` → внешние
 процессы через `vim.system(argv, { cwd = ... }, cb)` + `vim.schedule` → результат в quickfix,

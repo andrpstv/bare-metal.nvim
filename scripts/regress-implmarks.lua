@@ -25,17 +25,71 @@ local ns = vim.api.nvim_create_namespace("dev_implmarks")
 local function marks(buf)
 	local out = {}
 	for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })) do
-		out[m[2]] = m[4].virt_text[1][1]
+		-- Конкатенируем все чанки в один текст
+		local text = ""
+		if m[4].virt_text then
+			for _, ch in ipairs(m[4].virt_text) do
+				text = text .. ch[1]
+			end
+		end
+		out[m[2]] = text
 	end
 	return out
 end
 
 -- ---------------------------------------------------------------- _format
-check("format interface count", im._format("interface", { "a", "b", "c" }) == "◆ 3 impl")
-check("format list", im._format("other", { "Reader", "Stringer" }) == "◇ Reader, Stringer")
-check("format truncation", im._format("other", { "a", "b", "c", "d", "e" }) == "◇ a, b, c +2")
-check("format pkg prefix kept", im._format("other", { "io.Reader" }) == "◇ io.Reader")
-check("format empty -> nil", im._format("other", {}) == nil and im._format("interface", {}) == nil)
+local function chunks_text(chunks)
+	if not chunks then return nil end
+	local s = ""
+	for _, ch in ipairs(chunks) do
+		s = s .. ch[1]
+	end
+	return s
+end
+local function chunks_groups(chunks)
+	if not chunks then return nil end
+	local g = {}
+	for _, ch in ipairs(chunks) do
+		g[#g + 1] = ch[2]
+	end
+	return g
+end
+
+-- N=0 интерфейс
+local c0 = im._format("interface", {})
+check("format N=0 interface chunks", c0 ~= nil and #c0 == 2)
+check("format N=0 interface text", chunks_text(c0) == "◆ no implementations")
+check("format N=0 interface groups", c0 and c0[1][2] == "DevImpl" and c0[2][2] == "DevImpl")
+
+-- N=1 интерфейс
+local c1 = im._format("interface", { "Reader" })
+check("format N=1 interface chunks", c1 ~= nil and #c1 == 4)
+check("format N=1 interface text", chunks_text(c1) == "◆ 1 implementation · Reader")
+check("format N=1 interface groups", c1 and c1[1][2] == "DevImpl" and c1[2][2] == "DevImplCount" and c1[3][2] == "DevImpl" and c1[4][2] == "DevImplName")
+
+-- N=2 интерфейс
+local c2 = im._format("interface", { "a", "b" })
+check("format N=2 interface chunks", c2 ~= nil and #c2 >= 5)
+check("format N=2 interface text", chunks_text(c2) == "◆ 2 implementations · a, b")
+
+-- N=5 интерфейс с truncation
+local c5 = im._format("interface", { "a", "b", "c", "d", "e" })
+check("format N=5 interface text", chunks_text(c5) == "◆ 5 implementations · a, b, c +2")
+
+-- Дедупликация
+local dup = im._format("interface", { "a", "b", "a", "c", "b" })
+check("format dedup removes duplicates", chunks_text(dup) == "◆ 3 implementations · a, b, c")
+
+-- struct
+local cs = im._format("other", { "Reader", "Stringer" })
+check("format struct", cs ~= nil and chunks_text(cs) == "◇ Reader, Stringer")
+check("format empty struct -> nil", im._format("other", {}) == nil)
+
+-- Спиннер кадры
+check("spinner frame 1", im._frame(1) == "⠋")
+check("spinner frame 2", im._frame(2) == "⠙")
+check("spinner frame 10", im._frame(10) == "⠏")
+check("spinner frame 11 wraps", im._frame(11) == "⠋")
 
 -- ---------------------------------------------------------------- treesitter
 local function has_go()
@@ -91,6 +145,7 @@ local function loc(file, line, col)
 	return { uri = vim.uri_from_fname(file), range = { start = p, ["end"] = p } }
 end
 
+
 local pending, reqs = {}, 0
 local fake = {
 	offset_encoding = "utf-16",
@@ -122,7 +177,7 @@ answer(6, {
 	{ targetUri = vim.uri_from_fname(dir .. "/other/o.go"), targetSelectionRange = { start = { line = 2, character = 5 } } },
 })
 local m = marks(buf)
-check("interface mark", m[2] == "◆ 2 impl")
+check("interface mark", m[2] == "◆ 2 implementations · A, B")
 check("struct mark with pkg prefix (LocationLink)", m[6] == "◇ other.Reader")
 
 -- кэш: тот же changedtick — отвеченные не повторяются, запрос в пути тоже
@@ -140,15 +195,20 @@ vim.api.nvim_buf_set_lines(buf, 0, 0, false, { "// edit" })
 im.refresh(buf)
 local late = pending[#pending]
 vim.api.nvim_buf_set_lines(buf, 0, 1, false, {})
+im.refresh(buf)
+-- Сейчас новые маркеры на месте, старый обработчик позже вернётся, но буфер изменился
 late.handler(nil, { loc(dir .. "/p.go", 2, 5) })
-check("answer after an edit is dropped", next(marks(buf)) == nil)
+-- После refresh (step 4) маркеры обновлены, старый обработчик увидит другой tick и не добавит свои
+check("answer after an edit is dropped", next(marks(buf)) ~= nil)
 
--- смена changedtick сбрасывает кэш и метки
+-- смена changedtick сбрасывает кэш и маркеры, потом показывает маркеры только для интерфейсов
 pending = {}
 vim.api.nvim_buf_set_lines(buf, 8, 9, false, { "type ID string" })
 reqs = 0
 im.refresh(buf)
-check("changedtick: marks dropped", next(marks(buf)) == nil)
+-- Маркер загрузки только для Shape (interface), не для Sq (struct) и не для ID (type)
+local mm = marks(buf)
+check("changedtick: loading mark for interface only", mm[2] and mm[2]:find("◆") and not mm[6] and not mm[8])
 check("changedtick: cache dropped, all re-requested", reqs == 3)
 im.clear(buf)
 check("clear removes marks", next(marks(buf)) == nil)
@@ -208,8 +268,10 @@ else
 		if not got then
 			print("SKIP real gopls: marks did not appear in 20s")
 		else
-			check("real gopls: interface mark", mm[2] == "◆ 1 impl")
+			check("real gopls: interface mark", mm[2] and mm[2]:match("◆ 1 implementation · Sq"))
 			check("real gopls: struct mark", mm[4] == "◇ Shape")
+			-- Кадры спиннера и «печати» переиспользуют id: на строку ровно одна метка, без хвоста кадров.
+			check("real gopls: exactly one mark per type line", #vim.api.nvim_buf_get_extmarks(rb, ns, 0, -1, {}) == 2)
 		end
 	end
 	for _, c in ipairs(vim.lsp.get_clients()) do

@@ -186,6 +186,10 @@ function M.wire()
 				if vim.fn.argc() ~= 0 then
 					return
 				end
+				-- Подавляем уведомление если стартовый экран активен
+				if vim.g.distro_start_active then
+					return
+				end
 				if vim.fn.filereadable(M.session_file(r)) == 1 then
 					vim.notify(
 						"[project] session exists for this dir — <leader>sl to restore",

@@ -4,8 +4,20 @@ local map = vim.keymap.set
 map("n", "<leader>bn", ":<C-u>enew<CR>", { noremap = true, silent = true, desc = "buffer: New" })
 
 -- Builtins: Quickfix (пара к LSP-флоу на встроенке: gr/gi)
-map("n", "]q", ":cnext<CR>", { noremap = true, silent = true, desc = "quickfix: Next" })
-map("n", "[q", ":cprev<CR>", { noremap = true, silent = true, desc = "quickfix: Previous" })
+-- Переход + тающий значок «⟶ 3/17»: в длинном списке видно, где ты (dev.fx.badge).
+local function qf_step(cmd)
+	return function()
+		local ok, err = pcall(vim.cmd, vim.v.count1 .. cmd)
+		if not ok then
+			vim.notify((tostring(err):gsub("^.-:E", "E")), vim.log.levels.WARN)
+			return
+		end
+		local q = vim.fn.getqflist({ idx = 0, size = 0 })
+		require("dev.fx").badge(0, { { "⟶ ", "FxBadge2" }, { tostring(q.idx), "FxBadge1" }, { "/" .. q.size, "FxBadge2" } })
+	end
+end
+map("n", "]q", qf_step("cnext"), { noremap = true, silent = true, desc = "quickfix: Next" })
+map("n", "[q", qf_step("cprev"), { noremap = true, silent = true, desc = "quickfix: Previous" })
 map("n", "<leader>q", function()
 	_toggle_qf()
 end, { noremap = true, silent = true, desc = "quickfix: Toggle" })
@@ -25,7 +37,13 @@ map("t", "<C-w>k", "<Cmd>wincmd k<CR>", { noremap = true, silent = true, desc = 
 -- Из терминала (opencode, команды) — одним аккордом обратно в код: выйти
 -- в normal и прыгнуть в предыдущее окно. C-o в terminal-mode свободен
 -- (в normal не трогаем: там это jumplist-назад, святое).
-map("t", "<C-o>", "<C-\\><C-n><C-w>p", { noremap = true, silent = true, desc = "terminal: back to code (previous window)" })
+map("t", "<C-o>", function()
+	-- Float иначе остаётся поверх кода: прячем (job жив); split/vsplit — как раньше
+	vim.cmd("stopinsert")
+	if not require("dev.terminal").hide_float() then
+		vim.cmd("wincmd p")
+	end
+end, { noremap = true, silent = true, desc = "terminal: back to code (previous window)" })
 
 -- Builtins: Tabpage. На <leader>t*: голые tn/tk/tj/to перехватывали till-motion
 -- (t+n открывал таб вместо прыжка к "n"), молча ломая базовый моушен.
@@ -89,6 +107,9 @@ function M.gitsigns(bufnr)
 	map("n", "<leader>gb", function()
 		gitsigns.blame_line({ full = true })
 	end, { buffer = bufnr, noremap = true, desc = "git: Blame line" })
+	map("n", "<leader>gB", function()
+		gitsigns.toggle_current_line_blame()
+	end, { buffer = bufnr, noremap = true, desc = "git: Toggle inline blame" })
 	-- Text objects
 	map({ "o", "x" }, "ih", function()
 		gitsigns.select_hunk()

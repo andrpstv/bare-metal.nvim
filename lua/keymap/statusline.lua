@@ -91,6 +91,7 @@ local _stl_khold = {
 	-- CMD — серебро, SEL/prompt — серые. Жирным — только пилюля режима.
 	-- В normal пилюля серая, как правая сторона (там тихо по требованию):
 	-- красится только уход из normal.
+	-- Палитра-токены: их берут start.lua, scrollbar.lua и строка сверху — не переименовывать.
 	StlMN = { fg = "#666666", bold = true },
 	StlMI = { fg = "#c1c1c1", bold = true },
 	StlMV = { fg = "#974b46", bold = true },
@@ -99,15 +100,32 @@ local _stl_khold = {
 	StlMC = { fg = "#aaaaaa", bold = true },
 	StlMT = { fg = "#5f8787", bold = true },
 	StlMP = { fg = "#666666", bold = true },
+	-- Пилюля режима: отдельные группы, чтобы цвет режима не перекрашивал логотип и метки.
+	StlModeN = { fg = "#666666", bold = true },
+	StlModeI = { fg = "#5f8787", bold = true },
+	StlModeV = { fg = "#af3a3a", bold = true },
+	StlModeR = { fg = "#974b46", bold = true },
+	StlModeC = { fg = "#eceee3", bold = true },
+	StlModeT = { fg = "#5f8787", bold = true },
 	StlFile = { fg = "#c1c1c1" },
 	StlMeta = { fg = "#666666" },
 	StlDim = { fg = "#888888" },
 	StlSep = { fg = "#2a2a2a" },
 }
+-- мап режим→группа для CursorLineNr и тестов
+local _stl_mode_color = {
+	n = "#e6e6e6", i = "#5f8787", v = "#af3a3a", V = "#af3a3a", ["\22"] = "#af3a3a",
+	s = "#af3a3a", S = "#af3a3a", ["\19"] = "#af3a3a",
+	R = "#974b46", r = "#974b46", c = "#eceee3", t = "#5f8787", nt = "#5f8787",
+}
 local function _stl_apply_hl()
 	for grp, spec in pairs(_stl_khold) do
 		pcall(vim.api.nvim_set_hl, 0, grp, spec)
 	end
+	-- Реаплай CursorLineNr по текущему режиму после :colorscheme
+	local m = vim.api.nvim_get_mode().mode
+	local color = _stl_mode_color[m] or _stl_mode_color[m:sub(1, 1)] or "#e6e6e6"
+	pcall(vim.api.nvim_set_hl, 0, "CursorLineNr", { fg = color, bold = true })
 end
 -- Глобально: тема black-metal в apply_custom_body делает свой load() (hi clear
 -- БЕЗ события ColorScheme) — она же и зовёт это обратно в конце кастома.
@@ -116,10 +134,15 @@ end
 _G._stl_apply_hl = _stl_apply_hl
 _stl_apply_hl()
 local _stl_mode_hl = {
-	n = "StlMN", i = "StlMI", v = "StlMV", V = "StlMV", ["\22"] = "StlMV",
-	s = "StlMS", S = "StlMS", ["\19"] = "StlMS",
-	R = "StlMR", r = "StlMR", c = "StlMC", t = "StlMT", nt = "StlMT",
+	n = "StlModeN", i = "StlModeI", v = "StlModeV", V = "StlModeV", ["\22"] = "StlModeV",
+	s = "StlModeV", S = "StlModeV", ["\19"] = "StlModeV",
+	R = "StlModeR", r = "StlModeR", c = "StlModeC", t = "StlModeT", nt = "StlModeT",
 }
+function _G._stl_mode_group(mode_string)
+	local m = mode_string or vim.api.nvim_get_mode().mode
+	local m1 = m:sub(1, 1)
+	return _stl_mode_hl[m] or _stl_mode_hl[m1] or "StlModeN"
+end
 
 local _stl_size_cache = {}
 local _stl_lsp_cache = {}
@@ -167,6 +190,11 @@ local function _stl_human_size()
 	local suffix = { "b", "k", "M", "G" }
 	local fsize = vim.fn.getfsize(bufname)
 	fsize = (fsize < 0 and 0) or fsize
+	-- Только показываем размер если > 1 MiB
+	if fsize < 1024 * 1024 then
+		_stl_size_cache[key] = ""
+		return ""
+	end
 	local out
 	if fsize < 1024 then
 		out = fsize .. suffix[1]
@@ -324,11 +352,14 @@ pcall(vim.api.nvim_create_autocmd, { "BufWipeout", "BufDelete" }, {
 _G._statusline = function()
 	local ok, line = pcall(function()
 		local parts = {}
+		-- Плавающее окно: показываем только левую часть (бар + морда + режим)
+		local win = vim.g.statusline_winid or 0
+		local is_float = win ~= 0 and vim.api.nvim_win_get_config(win).relative ~= ""
 		-- Режим-пилюля: морда + код. Морда — по точному режиму, фолбэк по
 		-- первой букве (как у цвета): неизвестный режим не роняет пилюлю.
 		local m = vim.api.nvim_get_mode().mode
 		local m1 = m:sub(1, 1)
-		local grp = _stl_mode_hl[m] or _stl_mode_hl[m1] or "StlMN"
+		local grp = _stl_mode_hl[m] or _stl_mode_hl[m1] or "StlModeN"
 		-- Правая сторона подсвечивается цветом режима, но НЕ в normal:
 		-- там тихо (StlMeta). Оператор-пендинг (no/nov/ni*) — тоже normal,
 		-- а terminal-normal (nt) — светится teal, как терминал.
@@ -359,6 +390,10 @@ _G._statusline = function()
 		-- Пилюля: цветной чип-столбик + морда + код, всё в цвете режима.
 		-- Никаких фоновых блоков — бар чёрный, как любит black-metal.
 		parts[#parts + 1] = "%#" .. grp .. "#▊ " .. face .. " " .. (_stl_modes[m] or m) .. " %*%#StlSep#│%*"
+		-- Плавающее окно: вернуть только левую часть
+		if is_float then
+			return table.concat(parts, " ")
+		end
 		-- Запись макроса: reg_recording() — дешёвый C-вызов, на redraw можно.
 		local rec = vim.fn.reg_recording()
 		if rec ~= "" then
@@ -368,6 +403,9 @@ _G._statusline = function()
 		local fname = vim.api.nvim_buf_get_name(0)
 		if vim.bo.filetype == "netrw" then
 			parts[#parts + 1] = "Files"
+		elseif vim.bo.buftype == "quickfix" then
+			-- Стоковая строка qf выключена (qf_disable_statusline): заголовок списка показываем сами.
+			parts[#parts + 1] = "%#StlFile#" .. (vim.w.quickfix_title or "quickfix"):gsub("%%", "%%%%") .. "%*"
 		elseif fname == "" then
 			parts[#parts + 1] = "[No Name]"
 		else
@@ -445,7 +483,10 @@ _G._statusline = function()
 		if agent_text then
 			parts[#parts + 1] = agent_text
 		end
-		parts[#parts + 1] = "%#" .. rgrp .. "#(%L " .. _stl_human_size() .. ") %*"
+		local size_str = _stl_human_size()
+		if size_str ~= "" then
+			parts[#parts + 1] = "%#" .. rgrp .. "#(" .. size_str .. ") %*"
+		end
 		return table.concat(parts, " ")
 	end)
 	if ok then
@@ -458,6 +499,15 @@ vim.opt.statusline = "%!v:lua._statusline()"
 
 -- Как у ramojus: перерисовывать статуслайн при смене режима.
 vim.api.nvim_create_autocmd("ModeChanged", { group = _stl_augroup, command = "redrawstatus" })
+-- Цвет номера строки курсора следует режиму
+pcall(vim.api.nvim_create_autocmd, "ModeChanged", {
+	group = _stl_augroup,
+	callback = function()
+		local m = vim.api.nvim_get_mode().mode
+		local color = _stl_mode_color[m] or _stl_mode_color[m:sub(1, 1)] or "#e6e6e6"
+		pcall(vim.api.nvim_set_hl, 0, "CursorLineNr", { fg = color, bold = true })
+	end,
+})
 -- :colorscheme сносит кастомные группы (включая Stl*): реаплай.
 pcall(vim.api.nvim_create_autocmd, "ColorScheme", {
 	group = _stl_augroup,
@@ -634,11 +684,20 @@ _G._tabline = function()
 		end
 		local t = package.loaded["dev.test"]
 		local s = t and t.last_summary
-		if s then
+		if s and not (package.loaded["dev.testmarks"] and package.loaded["dev.testmarks"].live) then
 			-- Счёт по пакетам: dev.test считает package-level события go test -json.
 			local res = s.ok and ("%#StlMT#" .. s.pass .. " pkg ok")
 				or ("%#DiagnosticError#" .. (s.fail > 0 and (s.fail .. " pkg failed") or "failed"))
 			parts[#parts + 1] = "%#StlSep#│%#StlMeta# go test: " .. res .. " "
+		end
+		-- Живой go test (спиннер и счётчик) вместо итога прошлого прогона; конвейер <leader>Ac.
+		local tmk = package.loaded["dev.testmarks"]
+		if tmk and tmk.live then
+			parts[#parts + 1] = tmk._live_text(tmk.live, vim.uv.now())
+		end
+		local bd = package.loaded["dev.build"]
+		if bd and bd.pipe then
+			parts[#parts + 1] = bd._pipe_text(bd.pipe, vim.uv.now())
 		end
 		-- Куда последний раз писал агент (core.external, «follow the agent» как в Zed):
 		-- 10 минут после правки, <leader>Af — прыжок туда.
@@ -649,6 +708,14 @@ _G._tabline = function()
 			local where = vim.fs.basename(vim.api.nvim_buf_get_name(le.buf)) .. (le.row and (":" .. (le.row + 1)) or "")
 			local ago = age < 60 and (math.floor(age) .. "s") or (math.floor(age / 60) .. "m")
 			parts[#parts + 1] = "%#StlSep#│%#StlMeta# edit → %#StlMV#" .. where .. "%#StlMeta# " .. ago .. " "
+		end
+		-- Завершилась команда в скрытом терминале
+		local tm = package.loaded["dev.termmarks"]
+		if tm and tm.last_done then
+			local badge = tm._badge(tm.last_done, vim.uv.now())
+			if badge ~= "" then
+				parts[#parts + 1] = badge
+			end
 		end
 		parts[#parts + 1] = "%#TabLineFill#%="
 		local n = vim.fn.tabpagenr("$")
@@ -664,6 +731,28 @@ _G._tabline = function()
 	return ok and line or ""
 end
 vim.o.tabline = "%!v:lua._tabline()"
+
+-- Клик по значку «⌁ … ✓» в строке сверху: открыть терминал проекта, значок погасить.
+_G._tl_term_click = function()
+	local ok, term = pcall(require, "dev.terminal")
+	if ok then
+		term.open("float")
+	end
+	local tm = package.loaded["dev.termmarks"]
+	if tm then
+		tm.last_done = nil
+		vim.cmd.redrawtabline()
+	end
+end
+
+-- Клик по шагу конвейера check в строке сверху: qf с ошибками этого шага (minwid = индекс шага).
+_G._tl_check_click = function(minwid)
+	local bd = package.loaded["dev.build"]
+	if bd then
+		bd.pipe_open(minwid)
+	end
+end
+
 pcall(vim.api.nvim_create_autocmd, "DirChanged", {
 	group = _stl_augroup,
 	desc = "stl: recompute the project name in the context bar",

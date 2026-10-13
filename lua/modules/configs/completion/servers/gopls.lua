@@ -256,6 +256,13 @@ return {
 			usePlaceholders = true,
 			completeUnimported = (not weak) and settings.gopls_complete_unimported ~= false,
 			symbolMatcher = "Fuzzy",
+			-- Типы переменных не включаем — шумно; остальное по <leader>lh.
+			hints = settings.lsp_inlayhints ~= false and {
+				parameterNames = true,
+				compositeLiteralFields = true,
+				constantValues = true,
+				functionTypeParameters = true,
+			} or nil,
 			buildFlags = { "-tags", "integration" },
 			semanticTokenTypes = { string = false },
 			directoryFilters = { "-.git", "-.vscode", "-.idea", "-node_modules" },

@@ -123,6 +123,23 @@ function M.toggle()
 	M.open("float")
 end
 
+--- Спрятать текущее окно, если это float терминала проекта (job жив).
+---@return boolean спрятали ли
+function M.hide_float()
+	local win = vim.api.nvim_get_current_win()
+	if vim.api.nvim_win_get_config(win).relative == "" then
+		return false
+	end
+	local buf = vim.api.nvim_win_get_buf(win)
+	for _, b in pairs(terms) do
+		if b == buf then
+			vim.api.nvim_win_hide(win)
+			return true
+		end
+	end
+	return false
+end
+
 --- Послать команду в терминал проекта, не уводя фокус.
 ---@param cmd string команда без trailing <CR> (добавим сами)
 ---@param show boolean? показать окно терминала после отправки
