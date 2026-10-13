@@ -63,8 +63,20 @@ end
 local organize_busy = {}
 local organize_rerun = {}
 
+-- Состояние асинхронного формата для статуслайна: busy → nil (готово) | "skipped"/"fail" до следующего :w.
+local function fmt_state(bufnr, s)
+	if vim.api.nvim_buf_is_valid(bufnr) then
+		vim.b[bufnr].fmt_state = s
+		pcall(vim.cmd.redrawstatus)
+	end
+end
+
 local function go_save_pipeline(bufnr)
 	if vim.b[bufnr].large_file then return end
+	-- <leader>ft выключает формат при сохранении и для Go (раньше переключатель Go не касался).
+	if vim.g.distro_fmt_off then
+		return fmt_state(bufnr, nil)
+	end
 	-- Safe-format policy: vendor/, generated files, module cache and
 	-- user disabled-dirs не трогаем (там чужой или зафиксированный стиль —
 	-- локальный gofmt дал бы только diff-шум). Один тихий хинт на буфер,
@@ -99,17 +111,20 @@ local function go_save_pipeline(bufnr)
 			end
 			if vim.api.nvim_buf_get_changedtick(bufnr) ~= tick then
 				go_skip_notify(what)
+				fmt_state(bufnr, "skipped")
 				return
 			end
 			fn()
 			tick = vim.api.nvim_buf_get_changedtick(bufnr)
 		end
 		organize_busy[bufnr] = true
+		fmt_state(bufnr, "busy")
 		local params = vim.lsp.util.make_range_params(0, enc)
 		params.context = { only = { "source.organizeImports" } }
 		client:request("textDocument/codeAction", params, function(err, result)
 			if err then
 				organize_busy[bufnr] = nil
+				fmt_state(bufnr, "fail")
 				vim.notify(
 					"[go] async organize failed: " .. (err.message or "?"),
 					vim.log.levels.ERROR,
@@ -132,10 +147,12 @@ local function go_save_pipeline(bufnr)
 		end)
 		if not fparams then
 			organize_busy[bufnr] = nil
+			fmt_state(bufnr, nil)
 			return
 		end
 			client:request("textDocument/formatting", fparams, function(err2, result2)
 				if err2 then
+					fmt_state(bufnr, "fail")
 					vim.notify(
 						"[go] async format failed: " .. (err2.message or "?"),
 						vim.log.levels.ERROR,
@@ -149,6 +166,9 @@ local function go_save_pipeline(bufnr)
 						vim.cmd("noautocmd silent! update")
 					end
 				end)
+				if vim.api.nvim_buf_is_valid(bufnr) and vim.b[bufnr].fmt_state == "busy" then
+					fmt_state(bufnr, nil)
+				end
 			end, bufnr)
 			organize_busy[bufnr] = nil
 			if organize_rerun[bufnr] then

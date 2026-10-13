@@ -120,7 +120,7 @@ local function execute(op, extra)
 			local items = qf_items(out, dir)
 			if #items > 0 then
 				vim.fn.setqflist({}, " ", { title = "go " .. op .. ": " .. dir, items = items })
-				vim.cmd("copen")
+				vim.cmd("copen | wincmd p") -- результат на виду, фокус остаётся в коде
 			end
 			local first = out:gsub("%s+$", ""):match("[^\n]*$") or ""
 			vim.notify("[go] " .. op .. " FAILED (code " .. code .. ")" .. (#items > 0 and "" or ": " .. first:sub(1, 200)), vim.log.levels.ERROR, { title = "go" })
@@ -167,7 +167,7 @@ function M.pipe_open(i)
 		return
 	end
 	vim.fn.setqflist({}, " ", { title = "go check [" .. st.name .. "]", items = items })
-	vim.cmd("copen")
+	vim.cmd("copen | wincmd p") -- результат на виду, фокус остаётся в коде
 end
 
 --- Проверить весь модуль: `go build ./...`, затем `go vet ./...` и, если стоит,
@@ -228,7 +228,7 @@ function M.check()
 			end, items)
 			M.publish_diags(ns_check, extra, vim.diagnostic.severity.WARN, "go check")
 			if #items > 0 then
-				vim.cmd("copen")
+				vim.cmd("copen | wincmd p") -- результат на виду, фокус остаётся в коде
 			else
 				pcall(vim.cmd, "cclose")
 			end

@@ -150,6 +150,9 @@ local _stl_git_cache = {}
 -- Счётчики диагностик: единственный дорогой кусок статуслайна (был get() на redraw).
 -- Обновляется по DiagnosticChanged, на redraw только читается.
 local _stl_diag_cache = {}
+-- «…» у счётчика: буфер правили после последнего DiagnosticChanged — сервер мог ещё не догнать.
+-- Гасит и CursorHold: gopls не шлёт повтор, если диагностика не изменилась.
+local _stl_diag_seen, _stl_diag_stale = {}, {}
 -- Крошки winbar (_wb_crumbs ниже): buf -> { row, tick, text }.
 local _wb_cache = {}
 
@@ -337,6 +340,24 @@ pcall(vim.api.nvim_create_autocmd, "DiagnosticChanged", {
 	group = _stl_augroup,
 	callback = function(args)
 		_stl_diag_cache[args.buf] = _stl_count_diags(args.buf)
+		_stl_diag_seen[args.buf], _stl_diag_stale[args.buf] = true, nil
+	end,
+})
+pcall(vim.api.nvim_create_autocmd, { "TextChanged", "TextChangedI" }, {
+	group = _stl_augroup,
+	callback = function(args)
+		if _stl_diag_seen[args.buf] then
+			_stl_diag_stale[args.buf] = true
+		end
+	end,
+})
+pcall(vim.api.nvim_create_autocmd, { "CursorHold", "CursorHoldI" }, {
+	group = _stl_augroup,
+	callback = function(args)
+		if _stl_diag_stale[args.buf] then
+			_stl_diag_stale[args.buf] = nil
+			vim.cmd.redrawstatus()
+		end
 	end,
 })
 pcall(vim.api.nvim_create_autocmd, { "BufWipeout", "BufDelete" }, {
@@ -344,7 +365,7 @@ pcall(vim.api.nvim_create_autocmd, { "BufWipeout", "BufDelete" }, {
 	callback = function(args)
 		_stl_lsp_cache[args.buf] = nil
 		_stl_git_cache[args.buf] = nil
-		_stl_diag_cache[args.buf] = nil
+		_stl_diag_cache[args.buf], _stl_diag_seen[args.buf], _stl_diag_stale[args.buf] = nil, nil, nil
 		_wb_cache[args.buf] = nil
 	end,
 })
@@ -422,6 +443,16 @@ _G._statusline = function()
 			if vim.bo.modified then
 				parts[#parts + 1] = " [+]"
 			end
+			-- Формат при сохранении асинхронный (core/go.lua): видно, что gopls ещё правит файл или не доправил.
+			local fs = vim.b.fmt_state
+			if fs == "busy" then
+				parts[#parts + 1] = " %#StlMeta#… fmt%*"
+			elseif fs then
+				parts[#parts + 1] = " %#DiagnosticWarn#⚠ unformatted%*"
+			end
+			if vim.g.distro_fmt_off then
+				parts[#parts + 1] = " %#StlMeta#[fmt off]%*"
+			end
 			if not vim.bo.modifiable or vim.bo.readonly then
 				parts[#parts + 1] = "%#DiagnosticError#[-]%*"
 			end
@@ -455,6 +486,9 @@ _G._statusline = function()
 			parts[#parts + 1] = " " .. table.concat(d)
 		end
 		-- LSP-серверы (cached).
+		if _stl_diag_stale[bufnr] then
+			parts[#parts + 1] = "%#StlMeta#…%*"
+		end
 		local names = _stl_get_lsp_names(0)
 		if #names > 0 then
 			parts[#parts + 1] = " [" .. table.concat(names, " ") .. "]"

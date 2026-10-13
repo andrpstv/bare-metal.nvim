@@ -123,7 +123,7 @@ vim.api.nvim_buf_set_extmark(buf, diag_ns_low, 5, 0, {
 	priority = 50,
 })
 local render_priority = stc.render(win, 6, 0, 0)
-check("higher priority sign wins left cell", render_priority:find("E1") ~= nil)
+check("higher priority sign wins the 1-cell sign slot", render_priority:find("E", 1, true) ~= nil and not render_priority:find("W", 1, true))
 
 -- ================================================================ virtual line test
 -- virtnum ~= 0 → только пробелы.

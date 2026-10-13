@@ -1,4 +1,4 @@
--- core.stc — кастомная statuscolumn: [знак: 2 ячейки][номер][гит-бар: 1][пробел].
+-- core.stc — кастомная statuscolumn: [знак: 1][номер][гит-бар: 1].
 --
 -- Почему свой: signcolumn=yes (1 ячейка) прятал знак gitsigns, когда на той же строке есть
 -- диагностика. Плагины statuscolumn тащат свои фреймворки; здесь ~80 строк поверх extmarks.
@@ -29,11 +29,12 @@ local function render_impl(win, lnum, relnum, virtnum)
 	local wo = vim.wo[win]
 	local width = 0
 	if wo.number or wo.relativenumber then
-		width = math.max(wo.numberwidth - 1, #tostring(vim.api.nvim_buf_line_count(buf)))
+		-- Компактно: цифр сколько нужно файлу +1 на отступ от знака (numberwidth не берём — съедал экран).
+		width = #tostring(vim.api.nvim_buf_line_count(buf)) + 1
 	end
 	-- Перенос строки: та же ширина, иначе колонка «пляшет».
 	if virtnum ~= 0 then
-		return string.rep(" ", 2 + width + 2)
+		return string.rep(" ", 1 + width + 1)
 	end
 
 	local marks = vim.api.nvim_buf_get_extmarks(buf, -1, { lnum - 1, 0 }, { lnum - 1, -1 }, {
@@ -56,11 +57,11 @@ local function render_impl(win, lnum, relnum, virtnum)
 	end
 
 	local out = {}
-	-- sign_text Neovim уже отдаёт добитым до 2 ячеек («E », «● »).
+	-- Знак — одна ячейка: первый символ sign_text («E », «● » → «E», «●»).
 	if best then
-		out[#out + 1] = "%#" .. (best.sign_hl_group or "SignColumn") .. "#" .. best.sign_text:gsub("%%", "%%%%")
+		out[#out + 1] = "%#" .. (best.sign_hl_group or "SignColumn") .. "#" .. (best.sign_text:match("^[%z\1-\127\194-\244][\128-\191]*") or " "):gsub("%%", "%%%%")
 	else
-		out[#out + 1] = "%#LineNr#  "
+		out[#out + 1] = "%#LineNr# "
 	end
 	if width > 0 then
 		local cur = lnum == vim.api.nvim_win_get_cursor(win)[1]
@@ -75,7 +76,8 @@ local function render_impl(win, lnum, relnum, virtnum)
 	else
 		out[#out + 1] = " "
 	end
-	return table.concat(out) .. "%* "
+	-- Git-полоса «▎» рисуется у левого края ячейки — сама и есть зазор до кода.
+	return table.concat(out) .. "%*"
 end
 
 --- Рендер statuscolumn; без аргументов — из контекста (g:statusline_winid и v:lnum/relnum/virtnum).

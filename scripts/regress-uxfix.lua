@@ -54,6 +54,30 @@ local stl = vim.api.nvim_eval_statusline(vim.o.statusline, { winid = vim.api.nvi
 check("qf statusline shows the list title", stl:find("go test: 50%", 1, true) ~= nil)
 vim.cmd("cclose")
 
+-- Прозрачность: асинхронный формат, выключенный формат, устаревшая диагностика — видны в статуслайне.
+local tb = vim.api.nvim_create_buf(true, false)
+vim.api.nvim_buf_set_name(tb, vim.fn.tempname() .. "_stl.go")
+vim.api.nvim_set_current_buf(tb)
+local function stl()
+	return vim.api.nvim_eval_statusline(vim.o.statusline, { winid = vim.api.nvim_get_current_win(), maxwidth = 500 }).str
+end
+vim.b[tb].fmt_state = "busy"
+check("statusline: async format in flight shows 'fmt'", stl():find("… fmt", 1, true) ~= nil)
+vim.b[tb].fmt_state = "skipped"
+check("statusline: skipped format shows 'unformatted'", stl():find("unformatted", 1, true) ~= nil)
+vim.b[tb].fmt_state = nil
+vim.g.distro_fmt_off = true
+check("statusline: format-on-save off is a visible flag", stl():find("[fmt off]", 1, true) ~= nil)
+vim.g.distro_fmt_off = nil
+vim.api.nvim_exec_autocmds("DiagnosticChanged", { buffer = tb })
+check("statusline: fresh diagnostics have no stale marker", not stl():find("…", 1, true))
+vim.api.nvim_exec_autocmds("TextChanged", { buffer = tb })
+check("statusline: edited after last diagnostics -> stale marker", stl():find("…", 1, true) ~= nil)
+vim.api.nvim_exec_autocmds("DiagnosticChanged", { buffer = tb })
+check("statusline: new diagnostics clear the stale marker", not stl():find("…", 1, true))
+local src_t = table.concat(vim.fn.readfile(vim.fn.stdpath("config") .. "/lua/dev/test.lua"), "\n")
+check("dev.test opens quickfix without stealing focus", src_t:find('copen | wincmd p', 1, true) ~= nil)
+
 print("failures=" .. failures)
 if failures > 0 then
 	vim.cmd("cquit 1")

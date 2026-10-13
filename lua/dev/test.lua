@@ -310,7 +310,7 @@ function M._execute(argv, dir, title, mode)
 					require("dev.build").publish_diags(ns_fail, qf, vim.diagnostic.severity.ERROR, "go test")
 				end
 				vim.fn.setqflist({}, " ", { title = "go " .. (mode == "bench" and "bench" or "test") .. ": " .. title, items = qf })
-				vim.cmd("copen")
+				vim.cmd("copen | wincmd p") -- результат на виду, фокус остаётся в коде
 			else
 				pcall(vim.cmd, "cclose")
 			end

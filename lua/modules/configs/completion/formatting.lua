@@ -29,6 +29,7 @@ end, { nargs = 1, complete = "filetype" })
 
 -- Автоформат на сохранении
 function M.enable_format_on_save()
+	vim.g.distro_fmt_off = false -- флаг читают core/go.lua и статуслайн
 	vim.api.nvim_create_augroup("format_on_save", { clear = true })
 	vim.api.nvim_create_autocmd("BufWritePre", {
 		group = "format_on_save",
@@ -44,6 +45,7 @@ function M.enable_format_on_save()
 end
 
 function M.disable_format_on_save()
+	vim.g.distro_fmt_off = true
 	pcall(vim.api.nvim_del_augroup_by_name, "format_on_save")
 end
 
